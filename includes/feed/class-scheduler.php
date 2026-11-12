@@ -226,10 +226,18 @@ final class Scheduler {
 	}
 
 	private static function has_action_scheduler(): bool {
-		return function_exists( 'as_schedule_recurring_action' )
+		$available = function_exists( 'as_schedule_recurring_action' )
 			&& function_exists( 'as_schedule_single_action' )
 			&& function_exists( 'as_next_scheduled_action' )
 			&& function_exists( 'as_unschedule_all_actions' );
+
+		/**
+		 * Allows a site to force the WP-Cron fallback even when Action
+		 * Scheduler is available (for example, to avoid a second queue).
+		 *
+		 * @param bool $available Whether Action Scheduler can be used.
+		 */
+		return (bool) apply_filters( 'wps_pepita_use_action_scheduler', $available );
 	}
 
 	/**

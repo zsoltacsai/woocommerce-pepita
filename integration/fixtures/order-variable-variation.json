@@ -1,0 +1,30 @@
+{
+  "origin": "pepita.hu",
+  "id": "{{ORDER_ID}}",
+  "date": "2026-11-12 12:00:00",
+  "payment_mode": "transfer",
+  "payment_status": "unpaid",
+  "delivery_mod": "gls",
+  "total_shipping_price": 0,
+  "total_shipping_price_currency": "HUF",
+  "voucher": 0,
+  "customer": {
+    "email": "variacio@example.test",
+    "first_name": "Vera",
+    "last_name": "Variáció",
+    "billing_country": "HU",
+    "billing_city": "Szeged",
+    "billing_postal_code": "6720",
+    "billing_street": "Tisza utca 3."
+  },
+  "products": [
+    {
+      "id": "{{EXPORT_ID_VAR_S}}",
+      "sku": "{{SKU_VAR_S}}",
+      "currency": "HUF",
+      "quantity": 1,
+      "price": 12000,
+      "vat": 27
+    }
+  ]
+}

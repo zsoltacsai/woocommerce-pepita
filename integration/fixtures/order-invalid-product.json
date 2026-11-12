@@ -1,0 +1,29 @@
+{
+  "origin": "pepita.hu",
+  "id": "{{ORDER_ID}}",
+  "payment_mode": "transfer",
+  "payment_status": "unpaid",
+  "delivery_mod": "gls",
+  "total_shipping_price": 0,
+  "total_shipping_price_currency": "HUF",
+  "voucher": 0,
+  "customer": {
+    "email": "unknown@example.test",
+    "first_name": "Ismeretlen",
+    "last_name": "Termék",
+    "billing_country": "HU",
+    "billing_city": "Budapest",
+    "billing_postal_code": "1011",
+    "billing_street": "Teszt utca 1."
+  },
+  "products": [
+    {
+      "id": "wps-999999",
+      "sku": "WPS-IT-DOES-NOT-EXIST",
+      "currency": "HUF",
+      "quantity": 1,
+      "price": 1000,
+      "vat": 27
+    }
+  ]
+}

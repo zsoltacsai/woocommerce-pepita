@@ -1,5 +1,6 @@
 # Build staging directory (the ZIP itself is committed as a release artefact).
 /dist/wp-pepita-sync/
+/integration/.env
 
 # Editor and OS noise.
 .DS_Store

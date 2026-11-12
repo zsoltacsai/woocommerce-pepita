@@ -1,0 +1,43 @@
+{
+  "origin": "pepita.hu",
+  "id": "{{ORDER_ID}}",
+  "date": "2026-11-12 10:00:00",
+  "payment_mode": "transfer",
+  "payment_status": "unpaid",
+  "status": "NEW",
+  "total_shipping_price": 1490,
+  "total_shipping_price_currency": "HUF",
+  "voucher": 500,
+  "delivery_mod": "gls",
+  "customer_message": "Kérem a kapuhoz.",
+  "courier_message": "Hívjon telefonon.",
+  "package_label": "{{LABEL_BASE64}}",
+  "customer": {
+    "email": "vasarlo@example.test",
+    "first_name": "Anna",
+    "last_name": "Kis",
+    "phone": "+36301234567",
+    "billing_name": "",
+    "billing_country": "HU",
+    "billing_city": "Budapest",
+    "billing_postal_code": "1011",
+    "billing_street": "Fő utca 1.",
+    "billing_house_number": "1",
+    "shipping_country": "HU",
+    "shipping_city": "Budapest",
+    "shipping_postal_code": "1011",
+    "shipping_street": "Fő utca 1.",
+    "shipping_house_number": "1",
+    "tax_number": "12345678-1-41"
+  },
+  "products": [
+    {
+      "id": "{{EXPORT_ID}}",
+      "sku": "{{SKU}}",
+      "currency": "HUF",
+      "quantity": 2,
+      "price": 1000,
+      "vat": 27
+    }
+  ]
+}

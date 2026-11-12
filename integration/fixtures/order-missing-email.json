@@ -1,0 +1,28 @@
+{
+  "origin": "pepita.hu",
+  "id": "{{ORDER_ID}}",
+  "payment_mode": "transfer",
+  "payment_status": "unpaid",
+  "delivery_mod": "gls",
+  "total_shipping_price": 0,
+  "total_shipping_price_currency": "HUF",
+  "voucher": 0,
+  "customer": {
+    "first_name": "Nincs",
+    "last_name": "Email",
+    "billing_country": "HU",
+    "billing_city": "Budapest",
+    "billing_postal_code": "1011",
+    "billing_street": "Teszt utca 1."
+  },
+  "products": [
+    {
+      "id": "{{EXPORT_ID}}",
+      "sku": "{{SKU}}",
+      "currency": "HUF",
+      "quantity": 1,
+      "price": 1000,
+      "vat": 27
+    }
+  ]
+}
