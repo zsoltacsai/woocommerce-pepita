@@ -2,7 +2,7 @@
 
 ## Reviewed revision
 
-Git commit SHA: to be filled after packaging commit.
+Integration implementation commit SHA: `5249843ccd73cb925738b33062c226e83980c75c`.
 
 Baseline requested by the task: `bc83e3c`.
 
