@@ -204,6 +204,7 @@ WPS_IT::test(
 		// items were added or the order was marked complete.
 		$shell = wc_create_order( array( 'created_via' => 'wps-pepita' ) );
 		$shell->update_meta_data( Importer::META_ORDER_ID, $external_id );
+		$shell->update_meta_data( '_wps_pepita_in_progress', '1' );
 		$shell->save();
 		$shell_id = $shell->get_id();
 

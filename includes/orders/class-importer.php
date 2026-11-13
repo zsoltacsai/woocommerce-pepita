@@ -76,7 +76,7 @@ final class Importer {
 			$existing_order = wc_get_order( $existing );
 
 			if ( $existing_order instanceof \WC_Order ) {
-				if ( ! $this->is_order_complete( $existing_order ) ) {
+				if ( $this->is_order_incomplete( $existing_order ) ) {
 					// Incomplete order left by a mid-creation process termination.
 					// Discard the broken shell and rebuild cleanly without duplicates.
 					Logger::warning(
@@ -498,6 +498,7 @@ final class Importer {
 			Order_Repository::associate( $external_id, $order_id );
 			$order->update_meta_data( self::META_ORDER_ID, $external_id );
 			$order->update_meta_data( self::META_PAYLOAD_HASH, (string) ( $payload['__hash'] ?? '' ) );
+			$order->update_meta_data( '_wps_pepita_in_progress', '1' );
 			if ( method_exists( $order, 'save_meta_data' ) ) {
 				$order->save_meta_data();
 			}
@@ -780,6 +781,7 @@ final class Importer {
 			$order->update_meta_data( self::META_IMPORTED_AT, current_time( 'mysql', true ) );
 			$order->update_meta_data( self::META_PAYLOAD_HASH, (string) ( $payload['__hash'] ?? '' ) );
 			$order->update_meta_data( self::META_RAW_TOTAL, (string) $validated['total'] );
+			$order->delete_meta_data( '_wps_pepita_in_progress' );
 
 			if ( (float) $validated['voucher'] > 0 ) {
 				$order->update_meta_data( self::META_VOUCHER, (string) $validated['voucher'] );
@@ -1125,13 +1127,10 @@ final class Importer {
 	}
 
 	/**
-	 * Check whether an existing order was fully imported or left incomplete by a crash.
+	 * Check whether an existing order was left incomplete by a mid-creation crash.
 	 */
-	private function is_order_complete( \WC_Order $order ): bool {
-		$imported_at = (string) $order->get_meta( '_wps_pepita_imported_at' );
-		$items_count = count( $order->get_items( 'line_item' ) );
-
-		return '' !== $imported_at || $items_count > 0;
+	private function is_order_incomplete( \WC_Order $order ): bool {
+		return '1' === (string) $order->get_meta( '_wps_pepita_in_progress' );
 	}
 
 	/**

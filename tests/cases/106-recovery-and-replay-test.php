@@ -83,6 +83,7 @@ $suite->add(
 		$shell_id = $shell->get_id();
 		$shell->update_meta_data( Importer::META_ORDER_ID, $external_id );
 		$shell->update_meta_data( Importer::META_PAYLOAD_HASH, Importer::hash_payload( $payload ) );
+		$shell->update_meta_data( '_wps_pepita_in_progress', '1' );
 		$shell->save_meta_data();
 
 		// Claim was left in 'processing' with the associated shell ID
