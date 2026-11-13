@@ -23,7 +23,10 @@ final class Product_Mapper {
 	public const META_GTIN               = '_wps_gtin';
 	public const META_BRAND              = '_wps_brand';
 	public const META_MANUFACTURER       = '_wps_manufacturer';
+	public const META_AUTHOR             = '_wps_author';
+	public const META_PUBLISHER          = '_wps_publisher';
 	public const META_MPN                = '_wps_mpn';
+	public const META_EMAIL_DELIVERY     = '_wps_email_delivery';
 	public const META_PRICE_TYPE         = '_wps_price_adjustment_type';
 	public const META_PRICE_VALUE        = '_wps_price_adjustment_value';
 	public const META_SHIPPING_DELAY     = '_wps_shipping_delay';
@@ -77,8 +80,11 @@ final class Product_Mapper {
 			'description' => '',
 			'brand'       => '',
 			'manufacturer'=> '',
+			'author'      => '',
+			'publisher'   => '',
 			'mpn'         => '',
 			'gtin'        => '',
+			'email_delivery' => false,
 			'last_mod'    => 0,
 			'currency'    => Settings::currency(),
 			'price'       => 0.0,
@@ -135,10 +141,13 @@ final class Product_Mapper {
 		$data['categories']  = self::categories( $term_ids );
 		$data['name']        = self::name( $product );
 		$data['description'] = self::description( $product );
-		$data['brand']       = self::brand( $product_id );
-		$data['manufacturer']= self::manufacturer( $product_id );
-		$data['mpn']         = Description_Sanitizer::line( get_post_meta( $product_id, self::META_MPN, true ) );
-		$data['gtin']        = self::gtin( $product_id );
+		$data['brand']          = self::brand( $product_id );
+		$data['manufacturer']   = self::manufacturer( $product_id );
+		$data['author']         = self::author( $product_id );
+		$data['publisher']      = self::publisher( $product_id );
+		$data['mpn']            = Description_Sanitizer::line( get_post_meta( $product_id, self::META_MPN, true ) );
+		$data['gtin']           = self::gtin( $product_id );
+		$data['email_delivery'] = self::email_delivery( $product );
 		$data['product_url'] = self::product_url( $product );
 		$data['video_links'] = self::video_links( $product_id );
 		$data['attributes']  = self::attributes( $product );
@@ -337,14 +346,22 @@ final class Product_Mapper {
 				$image_url = self::attachment_url( $image_id );
 			}
 
+			$var_vat = Price_Calculator::vat_percent( $variation );
+
 			$variations[] = array(
 				'values'         => $values,
 				'key'            => $key,
 				'price'          => $price,
 				'sale_price'     => $sale,
+				'vat_percent'    => $var_vat,
+				'purchase_net'   => ( (bool) Settings::get( 'include_purchase_net', false ) && $price > 0 )
+					? Price_Calculator::net( $price, $var_vat )
+					: null,
 				'available'      => $available,
 				'quantity'       => $quantity,
-				'shipping_delay' => $data['shipping_delay'],
+				'shipping_price' => self::shipping_price( $variation_id ) ?? $data['shipping_price'],
+				'shipping_delay' => self::shipping_delay( $variation_id, $term_ids ) ?? $data['shipping_delay'],
+				'restock_date'   => self::restock_date( $variation_id ) ?: $data['restock_date'],
 				'image'          => $image_url,
 				'variation_id'   => $variation_id,
 			);
@@ -555,6 +572,24 @@ final class Product_Mapper {
 		$value = Description_Sanitizer::line( get_post_meta( $product_id, self::META_MANUFACTURER, true ) );
 
 		return '' !== $value ? $value : Description_Sanitizer::line( Settings::get( 'manufacturer_default', '' ) );
+	}
+
+	private static function author( int $product_id ): string {
+		return Description_Sanitizer::line( (string) get_post_meta( $product_id, self::META_AUTHOR, true ) );
+	}
+
+	private static function publisher( int $product_id ): string {
+		return Description_Sanitizer::line( (string) get_post_meta( $product_id, self::META_PUBLISHER, true ) );
+	}
+
+	private static function email_delivery( \WC_Product $product ): bool {
+		$meta = get_post_meta( $product->get_id(), self::META_EMAIL_DELIVERY, true );
+
+		if ( '' !== $meta && null !== $meta ) {
+			return in_array( $meta, array( 'yes', '1', 1, 'true', true ), true );
+		}
+
+		return false;
 	}
 
 	private static function gtin( int $product_id ): string {

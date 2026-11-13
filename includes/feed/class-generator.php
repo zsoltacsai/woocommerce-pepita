@@ -614,19 +614,19 @@ final class Generator {
 
 		$hash = hash_file( 'sha256', $feed_temp );
 
-		if ( ! Storage::publish( $type, $feed_temp ) ) {
-			return $this->abort( $type, $state, 'A kész feed nem helyezhető át a végleges helyére.' );
-		}
-
 		if ( self::TYPE_FULL === $type ) {
-			if ( ! Storage::publish_catalog_index( $index_temp ) ) {
-				Logger::warning( 'feed_generation', 'A katalógus index frissítése nem sikerült.', array( 'type' => $type ) );
+			if ( ! Storage::publish_full( $feed_temp, $index_temp ) ) {
+				return $this->abort( $type, $state, 'A teljes feed és a katalógus index közzététele nem sikerült (konzisztencia megőrizve).' );
 			}
 
 			if ( isset( $catalog_diff ) && is_array( $catalog_diff ) ) {
 				update_option( Catalog_Diff::OPTION_DIFF_FULL, $catalog_diff, false );
 			}
 		} else {
+			if ( ! Storage::publish( $type, $feed_temp ) ) {
+				return $this->abort( $type, $state, 'A kész feed nem helyezhető át a végleges helyére.' );
+			}
+
 			@unlink( $index_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
 

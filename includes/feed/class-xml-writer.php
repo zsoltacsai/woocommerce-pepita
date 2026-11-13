@@ -47,6 +47,10 @@ final class Xml_Writer {
 			$this->text( $x, 'ProductNumber', (string) $data['mpn'] );
 		}
 
+		if ( ! empty( $data['email_delivery'] ) ) {
+			$this->text( $x, 'EmailDelivery', 'true' );
+		}
+
 		$x->startElement( 'Descriptions' );
 		$this->text( $x, 'Name', (string) $data['name'] );
 		$this->text( $x, 'Description', (string) $data['description'] );
@@ -57,6 +61,14 @@ final class Xml_Writer {
 
 		if ( '' !== (string) $data['manufacturer'] ) {
 			$this->text( $x, 'Manufacturer', (string) $data['manufacturer'] );
+		}
+
+		if ( '' !== (string) ( $data['author'] ?? '' ) ) {
+			$this->text( $x, 'Author', (string) $data['author'] );
+		}
+
+		if ( '' !== (string) ( $data['publisher'] ?? '' ) ) {
+			$this->text( $x, 'Publisher', (string) $data['publisher'] );
 		}
 
 		$x->endElement();
@@ -109,7 +121,7 @@ final class Xml_Writer {
 		}
 
 		if ( is_array( $data['variations'] ) ) {
-			$this->variations( $x, $data['variations'], (string) $data['currency'] );
+			$this->variations( $x, $data['variations'], (string) $data['currency'], true );
 		}
 
 		$x->endElement();
@@ -131,7 +143,7 @@ final class Xml_Writer {
 		$this->prices( $x, $data, false );
 
 		if ( is_array( $data['variations'] ) ) {
-			$this->variations( $x, $data['variations'], (string) $data['currency'] );
+			$this->variations( $x, $data['variations'], (string) $data['currency'], false );
 		}
 
 		$x->endElement();
@@ -186,7 +198,7 @@ final class Xml_Writer {
 			$this->text( $x, 'Quantity', (string) max( 0, (int) $data['quantity'] ) );
 		}
 
-		if ( ! $variation && '' !== (string) ( $data['restock_date'] ?? '' ) ) {
+		if ( '' !== (string) ( $data['restock_date'] ?? '' ) ) {
 			$this->text( $x, 'RestockDate', (string) $data['restock_date'] );
 		}
 
@@ -259,7 +271,7 @@ final class Xml_Writer {
 	/**
 	 * @param array<string, mixed> $variations
 	 */
-	private function variations( \XMLWriter $x, array $variations, string $currency ): void {
+	private function variations( \XMLWriter $x, array $variations, string $currency, bool $full = true ): void {
 		$axes  = $variations['axes'] ?? array();
 		$items = $variations['items'] ?? array();
 
@@ -292,8 +304,20 @@ final class Xml_Writer {
 			$this->text( $x, 'Currency', $currency );
 			$this->text( $x, 'Price', Price_Calculator::format( (float) $item['price'] ) );
 
+			if ( $full && isset( $item['vat_percent'] ) ) {
+				$this->text( $x, 'VatPercent', Price_Calculator::format( (float) $item['vat_percent'], 2 ) );
+			}
+
 			if ( null !== ( $item['sale_price'] ?? null ) ) {
 				$this->text( $x, 'DiscountedPrice', Price_Calculator::format( (float) $item['sale_price'] ) );
+			}
+
+			if ( $full && null !== ( $item['purchase_net'] ?? null ) ) {
+				$this->text( $x, 'PurchaseNetPrice', Price_Calculator::format( (float) $item['purchase_net'] ) );
+			}
+
+			if ( $full && null !== ( $item['shipping_price'] ?? null ) ) {
+				$this->text( $x, 'ShippingPrice', Price_Calculator::format( (float) $item['shipping_price'] ) );
 			}
 
 			$x->endElement();

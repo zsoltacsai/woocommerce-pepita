@@ -37,6 +37,7 @@ WooCommerce store with the **Pepita** marketplace:
 | Feed difference reporting and publication safety drop guards (M9-C) | Implemented and tested |
 | Dedicated stock feed health monitoring and freshness tracking (M9-C) | Implemented and tested |
 | Secure CSV log export with formula injection prevention (M9-C) | Implemented and tested |
+| Official XML contract compliance (1–3 axes, email delivery, books, safe publish) (M9-D) | Implemented and tested |
 | Pepita → WooCommerce order push only | Implemented |
 | Durable idempotency for order intake | Implemented and tested |
 | No customer e-mails or gateway execution during import | Implemented and tested |

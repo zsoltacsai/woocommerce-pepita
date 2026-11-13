@@ -12,3 +12,4 @@
 # Local PHP tooling.
 /vendor/
 /composer.lock
+/integration/results/

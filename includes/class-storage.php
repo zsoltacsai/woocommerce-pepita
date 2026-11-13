@@ -135,6 +135,8 @@ final class Storage {
 	 * Atomically replace the published feed, keeping one previous snapshot.
 	 */
 	public static function publish( string $type, string $temp_path ): bool {
+		self::ensure_directory();
+
 		$target = self::feed_path( $type );
 		$backup = self::previous_feed_path( $type );
 
@@ -176,6 +178,87 @@ final class Storage {
 		}
 
 		return (bool) @rename( $temp_path, $target ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+	}
+
+	/**
+	 * Atomically publish both the full catalog XML feed and its catalog index together.
+	 *
+	 * If publishing either artifact fails, any already-moved file is immediately rolled back
+	 * to its previous backup so the published XML feed and catalog.jsonl index never diverge.
+	 */
+	public static function publish_full( string $feed_temp, string $index_temp ): bool {
+		self::ensure_directory();
+
+		$target_feed  = self::feed_path( 'full' );
+		$backup_feed  = self::previous_feed_path( 'full' );
+		$target_index = self::catalog_index_path();
+		$backup_index = self::previous_catalog_index_path();
+
+		if ( ! is_file( $feed_temp ) || ! is_file( $index_temp ) ) {
+			return false;
+		}
+
+		if ( filesize( $feed_temp ) <= 0 ) {
+			return false;
+		}
+
+		$backed_up_feed  = false;
+		$backed_up_index = false;
+
+		if ( is_file( $target_feed ) ) {
+			$backed_up_feed = (bool) @copy( $target_feed, $backup_feed ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			if ( ! $backed_up_feed ) {
+				Logger::warning( 'feed_publish', 'A korábbi full feed biztonsági mentése nem sikerült.' );
+			}
+		}
+
+		if ( is_file( $target_index ) ) {
+			$backed_up_index = (bool) @copy( $target_index, $backup_index ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			if ( ! $backed_up_index ) {
+				Logger::warning( 'feed_publish', 'A korábbi katalógus index biztonsági mentése nem sikerült.' );
+			}
+		}
+
+		// Stage 1: Publish catalog index.
+		$index_ok = false;
+		if ( @rename( $index_temp, $target_index ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			$index_ok = true;
+		} elseif ( @copy( $index_temp, $target_index ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			@unlink( $index_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			$index_ok = true;
+		}
+
+		if ( ! $index_ok ) {
+			Logger::warning( 'feed_publish', 'A katalógus index publikálása sikertelen; a feed publikálás megszakítva.' );
+			return false;
+		}
+
+		// Stage 2: Publish full XML feed.
+		$feed_ok = false;
+		if ( @rename( $feed_temp, $target_feed ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			$feed_ok = true;
+		} elseif ( @copy( $feed_temp, $target_feed ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			@unlink( $feed_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			$feed_ok = true;
+		}
+
+		if ( ! $feed_ok ) {
+			Logger::warning( 'feed_publish', 'A feed XML publikálása meghiúsult; a katalógus index visszaállítása folyamatban.' );
+
+			// Rollback index to preserve consistency.
+			if ( $backed_up_index && is_file( $backup_index ) ) {
+				@copy( $backup_index, $target_index ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			} elseif ( ! $backed_up_index ) {
+				@unlink( $target_index ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+
+			return false;
+		}
+
+		clearstatcache( true, $target_feed );
+		clearstatcache( true, $target_index );
+
+		return is_file( $target_feed ) && filesize( $target_feed ) > 0 && is_file( $target_index );
 	}
 
 	/**
