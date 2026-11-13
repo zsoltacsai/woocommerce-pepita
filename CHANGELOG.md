@@ -4,6 +4,17 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased — M9-D Beta: FN-DECO Real Catalog Validation & Import Fixes
+
+### Added & Fixed (FN-DECO Real Catalog Compatibility)
+- **Inventory Quantity Cap (P0)**: Clamped exported managed stock quantities to `min(max(0, quantity), 999999)` with diagnostic warning `stock_quantity_capped`. Preserved unmanaged stock semantics (null quantity, `<Quantity>` tag omitted). Aggregate variable product stock also clamped to 999 999. WooCommerce source data remains strictly unmodified.
+- **Single Primary Category Hierarchy (P0)**: Guaranteed exactly one `<Categories>` element per product in full feeds. Resolved via deterministic hierarchy: (1) explicit metabox override `_wps_primary_category_id`, (2) Yoast SEO (`_yoast_wpseo_primary_product_cat`) or Rank Math (`rank_math_primary_product_cat`), (3) configurable fallback strategy (`deepest` [default], `lowest_id`, `highest_id`, `alphabetical`). Category exclusion and beta allowlists are strictly enforced.
+- **Gross / Net Price-Source Configuration (P0)**: Added `price_tax_mode` (`auto`, `gross`, `net`, default `auto`). In `gross` mode, source catalog prices are treated as tax-inclusive without double taxation (e.g. FN-DECO 1300 HUF gross with 27% VAT exports `<Price>1300</Price>` and `<VatPercent>27</VatPercent>`). In `net` mode, prices are converted to gross.
+- **SKU to ProductNumber (MPN) Mapping (P0)**: Native WooCommerce SKU (`$product->get_sku()`) is automatically mapped to `<ProductNumber>` when no explicit `_wps_mpn` override is set. SKU is never mapped to `<StructuredId>` (reserved for GTIN/EAN). Stable export ID (`wps-<id>`) remains unchanged.
+- **WebP Image Compatibility & Derivative Generation (P0)**: `Image_Converter` automatically generates compliant JPEG derivatives for WebP images in `uploads/wps-derivatives/` with `.htaccess` and `index.php` protection. Evaluates image dimensions and logs `insufficient_image_dimensions` warnings if resolution < 300x300 without upscaling. Fails gracefully if no compliant image can be generated without using fake extensions.
+- **Admin Preflight Catalog Audit Report**: New Hungarian admin screen **Pepita -> Feed ellenőrzés** (`wps-pepita-preflight`) displaying category breakdown, eligible/excluded products, ready vs review counts, capped quantities, WebP conversions, dimension warnings, SKU warnings, and tax mode status with full CSV export (`wps_pepita_export_preflight`).
+- **Comprehensive Regression Tests**: Added `tests/cases/210-fndeco-catalog-compatibility-test.php` covering all P0 requirements.
+
 ## Unreleased — M9-D Beta Feed-Only Release Readiness
 
 ### Fixed & Hardened (M9-D Beta P0 Release Blockers)

@@ -36,6 +36,7 @@ final class Admin {
 		add_action( 'admin_post_wps_pepita_regenerate_secret', array( $this, 'handle_regenerate_secret' ) );
 		add_action( 'admin_post_wps_pepita_clear_logs', array( $this, 'handle_clear_logs' ) );
 		add_action( 'admin_post_wps_pepita_export_logs', array( $this, 'handle_export_logs' ) );
+		add_action( 'admin_post_wps_pepita_export_preflight', array( $this, 'handle_export_preflight' ) );
 		add_action( 'admin_post_wps_pepita_reset_feeds', array( $this, 'handle_reset_feeds' ) );
 		add_action( 'admin_notices', array( $this, 'render_notices' ) );
 
@@ -61,6 +62,7 @@ final class Admin {
 			array( 'wps-pepita-products', __( 'Termékek', 'wp-pepita-sync' ), 'render_products' ),
 			array( 'wps-pepita-categories', __( 'Kategóriák', 'wp-pepita-sync' ), 'render_categories' ),
 			array( 'wps-pepita-feeds', __( 'Feedek', 'wp-pepita-sync' ), 'render_feeds' ),
+			array( 'wps-pepita-preflight', __( 'Feed ellenőrzés', 'wp-pepita-sync' ), 'render_preflight' ),
 			array( 'wps-pepita-orders', __( 'Rendelések', 'wp-pepita-sync' ), 'render_orders' ),
 			array( 'wps-pepita-api', __( 'Rendelés API', 'wp-pepita-sync' ), 'render_api' ),
 			array( 'wps-pepita-settings', __( 'Beállítások', 'wp-pepita-sync' ), 'render_settings' ),
@@ -178,6 +180,12 @@ final class Admin {
 		);
 	}
 
+	public function render_preflight(): void {
+		$this->guard();
+		$report = Preflight::run();
+		$this->view( 'preflight', array( 'report' => $report ) );
+	}
+
 	public function render_orders(): void {
 		$this->guard();
 		$this->view( 'orders', array() );
@@ -261,9 +269,11 @@ final class Admin {
 			'currency',
 			'vat_mode',
 			'vat_fixed',
+			'price_tax_mode',
 			'price_adjustment_type',
 			'price_adjustment_value',
 			'rounding',
+			'primary_category_strategy',
 			'shipping_delay',
 			'shipping_price',
 			'warranty_type',
@@ -495,6 +505,15 @@ final class Admin {
 		} while ( count( $items ) === $chunk );
 
 		fclose( $out );
+		exit;
+	}
+
+	public function handle_export_preflight(): void {
+		$this->guard( true );
+
+		check_admin_referer( 'wps_pepita_export_preflight' );
+
+		Preflight::export_csv();
 		exit;
 	}
 

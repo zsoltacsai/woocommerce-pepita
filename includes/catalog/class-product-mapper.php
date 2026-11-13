@@ -38,6 +38,9 @@ final class Product_Mapper {
 	public const META_LAST_STATUS        = '_wps_last_export_status';
 	public const META_LAST_AT            = '_wps_last_export_at';
 	public const META_LAST_MESSAGE       = '_wps_last_export_message';
+	public const META_PRIMARY_CATEGORY   = '_wps_primary_category_id';
+
+	public const MAX_EXPORT_QUANTITY     = 999999;
 
 	private const MAX_VARIATION_AXES = 3;
 
@@ -138,14 +141,19 @@ final class Product_Mapper {
 		$data['last_mod'] = self::last_modified( $product );
 
 		$term_ids            = Product_Selection::category_ids( $product_id );
-		$data['categories']  = self::categories( $term_ids );
+		$data['categories']  = self::categories( $product_id, $term_ids );
 		$data['name']        = self::name( $product );
 		$data['description'] = self::description( $product );
 		$data['brand']          = self::brand( $product_id );
 		$data['manufacturer']   = self::manufacturer( $product_id );
 		$data['author']         = self::author( $product_id );
 		$data['publisher']      = self::publisher( $product_id );
-		$data['mpn']            = Description_Sanitizer::line( get_post_meta( $product_id, self::META_MPN, true ) );
+		$mpn                    = Description_Sanitizer::line( (string) get_post_meta( $product_id, self::META_MPN, true ) );
+		if ( '' === $mpn ) {
+			$sku = $product->get_sku();
+			$mpn = is_string( $sku ) ? Description_Sanitizer::line( $sku ) : '';
+		}
+		$data['mpn']            = $mpn;
 		$data['gtin']           = self::gtin( $product_id );
 		$data['email_delivery'] = self::email_delivery( $product );
 		$data['product_url'] = self::product_url( $product );
@@ -173,7 +181,7 @@ final class Product_Mapper {
 			);
 		}
 
-		$data['photos'] = self::photos( $product, $data['variations'] );
+		$data['photos'] = self::photos( $product, $data['variations'], $data['warnings'] );
 
 		if ( '' === $data['name'] ) {
 			$data['errors'][] = self::error( 'missing_name', 'Hiányzik a termék neve.' );
@@ -228,10 +236,10 @@ final class Product_Mapper {
 		}
 
 		$data['available'] = $product->is_in_stock();
-		$data['quantity']  = self::quantity( $product );
+		$data['quantity']  = self::quantity( $product, $data['warnings'] );
 		$data['restock_date'] = self::restock_date( $data['product_id'] );
 
-		$data['photos'] = self::photos( $product, null );
+		$data['photos'] = self::photos( $product, null, $data['warnings'] );
 	}
 
 	/**
@@ -326,7 +334,7 @@ final class Product_Mapper {
 				$sale = null;
 			}
 
-			$quantity = self::quantity( $variation );
+			$quantity = self::quantity( $variation, $data['warnings'] );
 
 			if ( null !== $quantity ) {
 				$sum_qty += $quantity;
@@ -343,7 +351,7 @@ final class Product_Mapper {
 			$image_id  = (int) $variation->get_image_id();
 
 			if ( $image_id > 0 ) {
-				$image_url = self::attachment_url( $image_id );
+				$image_url = Image_Converter::resolve_attachment_url( $image_id, $data['warnings'] );
 			}
 
 			$var_vat = Price_Calculator::vat_percent( $variation );
@@ -385,7 +393,17 @@ final class Product_Mapper {
 		$data['sale_price'] = null;
 		$data['vat_percent']= Price_Calculator::vat_percent( $product );
 		$data['available']  = $any_stock;
-		$data['quantity']   = $manages ? $sum_qty : null;
+		if ( $manages ) {
+			$data['quantity'] = min( self::MAX_EXPORT_QUANTITY, $sum_qty );
+			if ( $sum_qty > self::MAX_EXPORT_QUANTITY ) {
+				$data['warnings'][] = self::warning(
+					'stock_quantity_capped',
+					sprintf( 'A variációk összesített készlete (%d) meghaladja a Pepita által megengedett maximumot (%d), ezért korlátozásra került.', $sum_qty, self::MAX_EXPORT_QUANTITY )
+				);
+			}
+		} else {
+			$data['quantity'] = null;
+		}
 		$data['restock_date'] = self::restock_date( $data['product_id'] );
 
 		if ( (bool) Settings::get( 'include_purchase_net', false ) && $data['price'] > 0 ) {
@@ -491,14 +509,30 @@ final class Product_Mapper {
 		return $out;
 	}
 
-	private static function quantity( \WC_Product $product ): ?int {
+	private static function quantity( \WC_Product $product, ?array &$warnings = null ): ?int {
 		if ( ! $product->managing_stock() ) {
 			return null;
 		}
 
 		$quantity = $product->get_stock_quantity();
 
-		return null === $quantity ? null : max( 0, (int) $quantity );
+		if ( null === $quantity ) {
+			return null;
+		}
+
+		$qty = (int) $quantity;
+
+		if ( $qty > self::MAX_EXPORT_QUANTITY ) {
+			if ( is_array( $warnings ) ) {
+				$warnings[] = self::warning(
+					'stock_quantity_capped',
+					sprintf( 'A termék készlete (%d) meghaladja a Pepita által megengedett maximumot (%d), ezért korlátozásra került.', $qty, self::MAX_EXPORT_QUANTITY )
+				);
+			}
+			return self::MAX_EXPORT_QUANTITY;
+		}
+
+		return max( 0, $qty );
 	}
 
 	private static function name( \WC_Product $product ): string {
@@ -725,53 +759,167 @@ final class Product_Mapper {
 	}
 
 	/**
-	 * Build the category path list (root -> leaf).
+	 * Build the category path list. Pepita requires exactly one primary category hierarchy (Root -> Leaf).
 	 *
+	 * Priority order:
+	 * 1. Explicit override (_wps_primary_category_id meta)
+	 * 2. Yoast SEO / Rank Math primary category
+	 * 3. Deterministic strategy fallback (deepest, lowest_id, highest_id, alphabetical)
+	 *
+	 * Selected category must never bypass exclusion or beta allowlist rules.
+	 *
+	 * @param int   $product_id
 	 * @param int[] $term_ids
 	 * @return array<int, array<int, array{id: int, name: string}>>
 	 */
-	private static function categories( array $term_ids ): array {
-		$max_paths = max( 1, (int) Settings::get( 'max_category_paths', 5 ) );
-		$paths     = array();
+	public static function categories( int $product_id, array $term_ids ): array {
+		$term_ids = array_values( array_unique( array_map( 'intval', $term_ids ) ) );
 
-		sort( $term_ids );
+		if ( array() === $term_ids ) {
+			return array();
+		}
 
-		foreach ( $term_ids as $term_id ) {
-			$term = get_term( $term_id, Category_Rules::TAXONOMY );
-
-			if ( ! $term || is_wp_error( $term ) ) {
-				continue;
+		// Helper to test if a term is eligible according to category rules.
+		$is_term_eligible = static function ( int $tid ) use ( $term_ids ): bool {
+			if ( ! in_array( $tid, $term_ids, true ) ) {
+				return false;
 			}
-
-			$ancestors = get_ancestors( $term_id, Category_Rules::TAXONOMY, 'taxonomy' );
-			$ancestors = array_reverse( array_map( 'intval', $ancestors ) );
-
-			$path = array();
-
-			foreach ( $ancestors as $ancestor_id ) {
-				$ancestor = get_term( $ancestor_id, Category_Rules::TAXONOMY );
-
-				if ( $ancestor && ! is_wp_error( $ancestor ) ) {
-					$path[] = array(
-						'id'   => (int) $ancestor->term_id,
-						'name' => Description_Sanitizer::line( $ancestor->name ),
-					);
-				}
+			$decision = Category_Rules::decision( $tid );
+			if ( Category_Rules::DECISION_EXCLUDE === $decision ) {
+				return false;
 			}
+			if ( Settings::is_beta_feed_only() && Category_Rules::DECISION_INCLUDE !== $decision ) {
+				return false;
+			}
+			return true;
+		};
 
-			$path[] = array(
-				'id'   => (int) $term->term_id,
-				'name' => Description_Sanitizer::line( $term->name ),
+		$eligible_terms = array_values( array_filter( $term_ids, $is_term_eligible ) );
+
+		// If no terms are eligible under strict beta allowlist, fall back to non-excluded assigned terms in non-beta mode.
+		if ( array() === $eligible_terms ) {
+			if ( Settings::is_beta_feed_only() ) {
+				return array();
+			}
+			$eligible_terms = array_values(
+				array_filter(
+					$term_ids,
+					static fn( int $tid ): bool => Category_Rules::DECISION_EXCLUDE !== Category_Rules::decision( $tid )
+				)
 			);
-
-			$paths[ $term_id ] = $path;
-
-			if ( count( $paths ) >= $max_paths ) {
-				break;
+			if ( array() === $eligible_terms ) {
+				return array();
 			}
 		}
 
-		return array_values( $paths );
+		$primary_id = 0;
+
+		// Priority 1: Explicit plugin metabox override.
+		$override = (int) get_post_meta( $product_id, self::META_PRIMARY_CATEGORY, true );
+		if ( $override > 0 && in_array( $override, $eligible_terms, true ) ) {
+			$primary_id = $override;
+		}
+
+		// Priority 2: Yoast SEO primary category.
+		if ( 0 === $primary_id ) {
+			$yoast = (int) get_post_meta( $product_id, '_yoast_wpseo_primary_product_cat', true );
+			if ( $yoast > 0 && in_array( $yoast, $eligible_terms, true ) ) {
+				$primary_id = $yoast;
+			}
+		}
+
+		// Priority 2 (cont): Rank Math primary category.
+		if ( 0 === $primary_id ) {
+			$rank_math = (int) get_post_meta( $product_id, 'rank_math_primary_product_cat', true );
+			if ( $rank_math > 0 && in_array( $rank_math, $eligible_terms, true ) ) {
+				$primary_id = $rank_math;
+			}
+		}
+
+		// Priority 3: Configured strategy fallback.
+		if ( 0 === $primary_id ) {
+			$strategy = Settings::primary_category_strategy();
+
+			switch ( $strategy ) {
+				case 'lowest_id':
+					$primary_id = min( $eligible_terms );
+					break;
+
+				case 'highest_id':
+					$primary_id = max( $eligible_terms );
+					break;
+
+				case 'alphabetical':
+					$with_names = array();
+					foreach ( $eligible_terms as $tid ) {
+						$t = get_term( $tid, Category_Rules::TAXONOMY );
+						$with_names[] = array(
+							'id'   => $tid,
+							'name' => ( $t && ! is_wp_error( $t ) ) ? (string) $t->name : '',
+						);
+					}
+					usort(
+						$with_names,
+						static function ( array $a, array $b ): int {
+							$cmp = strcasecmp( $a['name'], $b['name'] );
+							return 0 !== $cmp ? $cmp : ( $a['id'] <=> $b['id'] );
+						}
+					);
+					$primary_id = $with_names[0]['id'];
+					break;
+
+				case 'deepest':
+				default:
+					$with_depth = array();
+					foreach ( $eligible_terms as $tid ) {
+						$anc = get_ancestors( $tid, Category_Rules::TAXONOMY, 'taxonomy' );
+						$with_depth[] = array(
+							'id'    => $tid,
+							'depth' => is_array( $anc ) ? count( $anc ) : 0,
+						);
+					}
+					usort(
+						$with_depth,
+						static function ( array $a, array $b ): int {
+							if ( $a['depth'] !== $b['depth'] ) {
+								return $b['depth'] <=> $a['depth']; // Deepest first
+							}
+							return $a['id'] <=> $b['id']; // Lowest ID tie-break
+						}
+					);
+					$primary_id = $with_depth[0]['id'];
+					break;
+			}
+		}
+
+		$term = get_term( $primary_id, Category_Rules::TAXONOMY );
+
+		if ( ! $term || is_wp_error( $term ) ) {
+			return array();
+		}
+
+		$ancestors = get_ancestors( $primary_id, Category_Rules::TAXONOMY, 'taxonomy' );
+		$ancestors = array_reverse( array_map( 'intval', is_array( $ancestors ) ? $ancestors : array() ) );
+
+		$path = array();
+
+		foreach ( $ancestors as $ancestor_id ) {
+			$ancestor = get_term( $ancestor_id, Category_Rules::TAXONOMY );
+
+			if ( $ancestor && ! is_wp_error( $ancestor ) ) {
+				$path[] = array(
+					'id'   => (int) $ancestor->term_id,
+					'name' => Description_Sanitizer::line( $ancestor->name ),
+				);
+			}
+		}
+
+		$path[] = array(
+			'id'   => (int) $term->term_id,
+			'name' => Description_Sanitizer::line( $term->name ),
+		);
+
+		return array( $path );
 	}
 
 	/**
@@ -873,17 +1021,18 @@ final class Product_Mapper {
 	/**
 	 * Featured, gallery and variation images.
 	 *
-	 * @param array<string, mixed>|null $variations
+	 * @param array<string, mixed>|null                             $variations
+	 * @param array<int, array{code: string, message: string}>|null $warnings
 	 * @return array<int, array<string, mixed>>
 	 */
-	private static function photos( \WC_Product $product, ?array $variations ): array {
+	private static function photos( \WC_Product $product, ?array $variations, ?array &$warnings = null ): array {
 		$photos = array();
 		$seen   = array();
 
 		$featured_id = (int) $product->get_image_id();
 
 		if ( $featured_id > 0 ) {
-			$url = self::attachment_url( $featured_id );
+			$url = Image_Converter::resolve_attachment_url( $featured_id, $warnings );
 
 			if ( '' !== $url ) {
 				$photos[] = array(
@@ -900,7 +1049,7 @@ final class Product_Mapper {
 		$max_gallery = max( 0, (int) Settings::get( 'max_gallery_images', 10 ) );
 
 		foreach ( array_slice( $gallery_ids, 0, $max_gallery ) as $image_id ) {
-			$url = self::attachment_url( (int) $image_id );
+			$url = Image_Converter::resolve_attachment_url( (int) $image_id, $warnings );
 
 			if ( '' === $url || isset( $seen[ $url ] ) ) {
 				continue;

@@ -54,6 +54,12 @@ final class WPS_Test_State {
 	/** @var array<int, string> attachment_id => url */
 	public static array $attachments = array();
 
+	/** @var array<int, string> attachment_id => file_path */
+	public static array $attached_files = array();
+
+	/** @var array<int, string> attachment_id => mime_type */
+	public static array $mime_types = array();
+
 	/** @var array<string, array<int, array<string, mixed>>> tax class => rates */
 	public static array $tax_rates = array();
 
@@ -117,6 +123,8 @@ final class WPS_Test_State {
 			'activate_plugins'    => true,
 		);
 		self::$attachments    = array();
+		self::$attached_files = array();
+		self::$mime_types     = array();
 		self::$tax_rates      = array();
 		self::$tax_enabled    = false;
 		self::$ssl            = false;
