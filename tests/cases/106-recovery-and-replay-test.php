@@ -683,7 +683,7 @@ $suite->add(
 		WPS_Assert::same( 2, (int) $third['row']['attempts'] );
 
 		// 5. Thread C completes claim
-		Order_Repository::complete( $external_id, 4242, $hash );
+		Order_Repository::complete( $external_id, 4242, $hash, (int) $third['row']['attempts'] );
 
 		// 6. Subsequent claim is completed
 		$fourth = Order_Repository::claim( $external_id, 'pepita.hu', $payload, $hash );
@@ -1267,7 +1267,12 @@ $suite->add(
 		$result = $importer->import( $payload );
 		remove_filter( 'woocommerce_get_order', $hook, 10 );
 
-		WPS_Assert::same( 3, $calls );
+		// Exactly 4 calls to wc_get_order:
+		// 1: find_order_by_external_id() lookup
+		// 2: import() pre-fence inspection
+		// 3: import() post-fence reload (where concurrent completion happens)
+		// 4: handle_existing_order() loading the adopted order to verify hash and status
+		WPS_Assert::same( 4, $calls );
 		WPS_Assert::same( 200, $result['http'] );
 		WPS_Assert::same( 'duplicate', $result['status'] );
 		WPS_Assert::same( $shell_id, $result['order_id'] );
@@ -1335,6 +1340,7 @@ $suite->add(
 		$result = $importer->import( $payload );
 		remove_filter( 'woocommerce_get_order', $hook, 10 );
 
+		// On call #3 (post-fence reload), the shell was deleted/vanished, so no further calls with $shell_id occurred
 		WPS_Assert::same( 3, $calls );
 		WPS_Assert::same( 200, $result['http'] );
 		WPS_Assert::same( 'created', $result['status'] );
@@ -1409,6 +1415,7 @@ $suite->add(
 		$result = $importer->import( $payload );
 		remove_filter( 'woocommerce_get_order', $hook, 10 );
 
+		// On call #3, the lease was stolen; pre-delete check aborted immediately without further wc_get_order calls
 		WPS_Assert::same( 3, $calls );
 		WPS_Assert::same( 409, $result['http'] );
 		WPS_Assert::same( 'retry', $result['status'] );

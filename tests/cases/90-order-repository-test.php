@@ -32,8 +32,8 @@ $suite->add(
 $suite->add(
 	'orders repository: a completed order is never claimed again',
 	static function (): void {
-		Order_Repository::claim( 'PEP-2', 'pepita.hu', '{}', 'hash' );
-		Order_Repository::complete( 'PEP-2', 77 );
+		$claim = Order_Repository::claim( 'PEP-2', 'pepita.hu', '{}', 'hash' );
+		Order_Repository::complete( 'PEP-2', 77, 'hash', (int) $claim['row']['attempts'] );
 
 		$claim = Order_Repository::claim( 'PEP-2', 'pepita.hu', '{}', 'hash' );
 
@@ -106,11 +106,12 @@ $suite->add(
 $suite->add(
 	'orders repository: queries filter by status and search, with pagination',
 	static function (): void {
+		$claims = array();
 		foreach ( array( 'PEP-100', 'PEP-101', 'OTHER-1' ) as $id ) {
-			Order_Repository::claim( $id, 'pepita.hu', '{}', 'hash' );
+			$claims[ $id ] = Order_Repository::claim( $id, 'pepita.hu', '{}', 'hash' );
 		}
 
-		Order_Repository::complete( 'PEP-101', 5 );
+		Order_Repository::complete( 'PEP-101', 5, 'hash', (int) $claims['PEP-101']['row']['attempts'] );
 
 		$all = Order_Repository::query( array( 'per_page' => 2 ) );
 
@@ -135,8 +136,8 @@ $suite->add(
 $suite->add(
 	'orders repository: lookup by WooCommerce order id',
 	static function (): void {
-		Order_Repository::claim( 'PEP-6', 'pepita.hu', '{}', 'hash' );
-		Order_Repository::complete( 'PEP-6', 321 );
+		$claim = Order_Repository::claim( 'PEP-6', 'pepita.hu', '{}', 'hash' );
+		Order_Repository::complete( 'PEP-6', 321, 'hash', (int) $claim['row']['attempts'] );
 
 		$row = Order_Repository::get_by_wc_order( 321 );
 
@@ -151,8 +152,8 @@ $suite->add(
 	static function (): void {
 		Settings::update( array( 'order_api_keep_payloads' => true ) );
 
-		Order_Repository::claim( 'PEP-7', 'pepita.hu', '{"secret":"data"}', 'hash' );
-		Order_Repository::complete( 'PEP-7', 9 );
+		$claim = Order_Repository::claim( 'PEP-7', 'pepita.hu', '{"secret":"data"}', 'hash' );
+		Order_Repository::complete( 'PEP-7', 9, 'hash', (int) $claim['row']['attempts'] );
 
 		global $wpdb;
 

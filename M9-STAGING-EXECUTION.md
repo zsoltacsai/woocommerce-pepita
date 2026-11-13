@@ -36,10 +36,10 @@ The release candidate has been synchronized with [PR #2](https://github.com/zsol
 | **Plugin Version** | `1.1.0` (`WPS_PEPITA_VERSION`) |
 | **Database Version** | `1.1.0` (`WPS_PEPITA_DB_VERSION`) |
 | **Candidate Commit** | Candidate HEAD |
-| **Package SHA-256** | `f5aa516f6f0a2b4fdff0ef9d0503113500e144dcc7797d8801bdbbd06411da66` |
+| **Package SHA-256** | `98efe59e0e8dc248cb7fa35c616683abad30e43efba6433c7a0a2ae94794aad8` |
 | **Entry Count** | 55 entries (47 files + 8 directories) |
-| **Compressed Size** | 136,240 bytes (~133 KB) |
-| **Uncompressed Size** | 452,305 bytes (~441 KB) |
+| **Compressed Size** | 136,314 bytes (~133 KB) |
+| **Uncompressed Size** | 452,614 bytes (~442 KB) |
 | **Source Identity** | 100% byte-for-byte identity against repository tree files |
 | **Cleanliness & Secrets** | 100% secret-free; `.git`, `tests/`, `integration/`, `dist/`, `.DS_Store`, and `*.map` stripped |
 | **Build Reproducibility** | Byte-for-byte reproducible via `SOURCE_DATE_EPOCH=1794570814 bash bin/build.sh` (sorted zip index) |

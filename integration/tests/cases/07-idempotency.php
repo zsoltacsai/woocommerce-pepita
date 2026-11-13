@@ -111,7 +111,7 @@ WPS_IT::test(
 		WPS_IT::same( 'claimed', (string) $third['state'], 'A failed claim must be retryable.' );
 		WPS_IT::same( 2, (int) $third['row']['attempts'], 'The retry must increment attempts.' );
 
-		Order_Repository::complete( $external_id, 424242 );
+		Order_Repository::complete( $external_id, 424242, $hash, (int) $third['row']['attempts'] );
 
 		$fourth = Order_Repository::claim( $external_id, 'pepita.hu', $payload, $hash );
 

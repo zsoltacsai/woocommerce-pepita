@@ -29,10 +29,10 @@ The staging distribution archive has been generated in a strictly reproducible, 
 | **Plugin Version** | `1.1.0` (`WPS_PEPITA_VERSION`) |
 | **Database Schema Version** | `1.1.0` (`WPS_PEPITA_DB_VERSION`) |
 | **Commit SHA** | `security/m9-hardening` candidate HEAD |
-| **Package SHA-256** | `f5aa516f6f0a2b4fdff0ef9d0503113500e144dcc7797d8801bdbbd06411da66` |
+| **Package SHA-256** | `98efe59e0e8dc248cb7fa35c616683abad30e43efba6433c7a0a2ae94794aad8` |
 | **Archive Entry Count** | 55 entries (47 files + 8 directories) |
-| **Archive Uncompressed Size** | 452,305 bytes (~441 KB) |
-| **Archive Compressed Size** | 136,240 bytes (~133 KB) |
+| **Archive Uncompressed Size** | 452,614 bytes (~442 KB) |
+| **Archive Compressed Size** | 136,314 bytes (~133 KB) |
 | **Secret-Free Verification** | Confirmed: no API keys, tokens, passwords, private salts, or credentials in archive |
 | **Development Leftovers** | Confirmed clean: `.git`, `tests/`, `integration/`, `dist/`, `.DS_Store`, `*.map` stripped |
 | **Build Reproducibility** | Confirmed 100% byte-reproducible with `SOURCE_DATE_EPOCH=1794570814 bash bin/build.sh` (sorted zip index) |

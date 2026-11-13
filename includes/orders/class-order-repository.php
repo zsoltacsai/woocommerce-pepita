@@ -198,7 +198,18 @@ final class Order_Repository {
 		);
 	}
 
-	public static function complete( string $external_id, int $order_id, string $payload_hash = '', int $expected_attempt = 0 ): bool {
+	/**
+	 * Mark a processing claim as completed, recording the WooCommerce order ID.
+	 *
+	 * Requires a positive expected attempt counter to fence against lease loss.
+	 *
+	 * @param string $external_id
+	 * @param int    $order_id
+	 * @param string $payload_hash
+	 * @param int    $expected_attempt
+	 * @return bool
+	 */
+	public static function complete( string $external_id, int $order_id, string $payload_hash, int $expected_attempt ): bool {
 		global $wpdb;
 
 		if ( $expected_attempt <= 0 ) {
