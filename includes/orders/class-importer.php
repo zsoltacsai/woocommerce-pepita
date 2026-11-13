@@ -602,6 +602,8 @@ final class Importer {
 
 		try {
 			$order = new \WC_Order();
+			// Never let woocommerce_default_order_status make a live shell look like a finished order.
+			$order->set_status( 'pending' );
 			$order->set_created_via( 'wps-pepita' );
 			$order->set_currency( (string) $validated['currency'] );
 			$order->update_meta_data( self::META_ORDER_ID, $external_id );
@@ -1468,9 +1470,20 @@ final class Importer {
 			return false;
 		}
 
-		// Marker present = never finalized, whatever status a site's filters gave the shell. Only an
-		// operator-final status (the order was handled manually) takes it out of recovery.
+		// Marker present = never finalized. The statuses the importer itself assigns to a finished
+		// order (configured paid / unpaid status) prove nothing: "own status + marker" is exactly what
+		// an interrupted or in-flight final save leaves behind, so it is unfinished. Only a status the
+		// importer never assigns (completed, processing, cancelled, refunded, when not its own) is
+		// evidence that an operator handled the order by hand.
 		$status = str_replace( 'wc-', '', $order->get_status() );
+		$own    = array(
+			$this->safe_status( (string) Settings::get( 'order_api_status_paid', 'processing' ) ),
+			$this->safe_status( (string) Settings::get( 'order_api_status_unpaid', 'on-hold' ) ),
+		);
+
+		if ( in_array( $status, $own, true ) ) {
+			return true;
+		}
 
 		return ! in_array( $status, array( 'completed', 'processing', 'cancelled', 'refunded' ), true );
 	}
@@ -1633,29 +1646,55 @@ final class Importer {
 	private function handle_existing_order( string $external_id, int $order_id, string $stored_hash, string $payload_hash, array $payload, bool $reclaimed = false, int $attempt = 0 ): array {
 		$existing_order = $order_id > 0 ? wc_get_order( $order_id ) : false;
 
-		// Adopting a marker order that an operator already moved to a final status: finalize it
-		// consistently (clear the marker, stamp imported_at) instead of acknowledging an order that
-		// would keep failing the completed-claim gate on every later replay.
+		// Adopting a marker order that an operator already moved to a status the importer never
+		// assigns: finalize it consistently (clear the marker, stamp imported_at) instead of
+		// acknowledging an order that would keep failing the completed-claim gate on every replay.
 		if ( $existing_order instanceof \WC_Order && '1' === (string) $existing_order->get_meta( '_wps_pepita_in_progress' ) ) {
-			$existing_order->delete_meta_data( '_wps_pepita_in_progress' );
+			try {
+				$existing_order->delete_meta_data( '_wps_pepita_in_progress' );
 
-			if ( '' === (string) $existing_order->get_meta( self::META_IMPORTED_AT ) ) {
-				$existing_order->update_meta_data( self::META_IMPORTED_AT, current_time( 'mysql', true ) );
+				if ( '' === (string) $existing_order->get_meta( self::META_IMPORTED_AT ) ) {
+					$existing_order->update_meta_data( self::META_IMPORTED_AT, current_time( 'mysql', true ) );
+				}
+
+				$existing_order->add_order_note( 'A félbehagyott Pepita import jelölője eltávolítva: a rendelés kézzel végleges állapotba került. Ellenőrizze a készletet és a végösszeget.' );
+				$existing_order->save();
+
+				Logger::warning(
+					'order_recovery',
+					'Félbehagyott (jelölt) rendelés átvéve és véglegesítve, mert kézzel végleges állapotba került.',
+					array(
+						'external_id' => $external_id,
+						'order_id'    => $order_id,
+					),
+					'order',
+					$order_id
+				);
+			} catch ( \Throwable $adopt_error ) {
+				Logger::error(
+					'order_recovery',
+					'A jelölt rendelés véglegesítése sikertelen: ' . $adopt_error->getMessage(),
+					array(
+						'external_id' => $external_id,
+						'order_id'    => $order_id,
+					),
+					'order',
+					$order_id
+				);
+
+				return $this->result( 'retry', 409, 'A rendelés véglegesítése átmenetileg sikertelen. Kérjük, próbálja újra később.' );
 			}
+		}
 
-			$existing_order->add_order_note( 'A félbehagyott Pepita import jelölője eltávolítva: a rendelés kézzel végleges állapotba került. Ellenőrizze a készletet és a végösszeget.' );
-			$existing_order->save();
-
-			Logger::warning(
-				'order_recovery',
-				'Félbehagyott (jelölt) rendelés átvéve és véglegesítve, mert végleges állapotú.',
-				array(
-					'external_id' => $external_id,
-					'order_id'    => $order_id,
-				),
-				'order',
-				$order_id
-			);
+		// A retry that adopts an importer-created order whose final save was cut off after the data
+		// write may have missed the status transition (stock reduction). The flag makes it idempotent.
+		if ( $reclaimed && $existing_order instanceof \WC_Order && function_exists( 'wc_maybe_reduce_stock_levels' )
+			&& in_array( str_replace( 'wc-', '', $existing_order->get_status() ), array( 'processing', 'on-hold', 'completed' ), true ) ) {
+			try {
+				wc_maybe_reduce_stock_levels( $order_id );
+			} catch ( \Throwable $stock_error ) {
+				Logger::warning( 'order_recovery', 'A készletcsökkentés ellenőrzése sikertelen: ' . $stock_error->getMessage(), array( 'order_id' => $order_id ), 'order', $order_id );
+			}
 		}
 
 		if ( '' === $stored_hash && $existing_order instanceof \WC_Order ) {

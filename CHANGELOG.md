@@ -4,7 +4,7 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## Unreleased — RR20 / M9-B follow-up fixes
 
 ### Fixed (RR20 - concurrent import takeover; found by a two-worker test)
 - An import worker that stalled past the 15-minute lease no longer lets a second worker adopt and
@@ -19,7 +19,9 @@ All notable changes are recorded here. The format follows
 - Uninstall with data removal now also removes plugin order meta on HPOS stores.
 
 ### Known residual risks
-- Between the fence check and the data-store write there is a single-statement window (no row lock).
+- Between the fence check and the data-store write there is a short window (no row lock); on legacy
+  storage the final save writes the post status before the meta, so a process killed inside it leaves
+  `status + marker` (the importer treats its own paid/unpaid status plus the marker as unfinished and rebuilds).
 - Item rows are written outside the order save and are not fenced; a fenced worker may leave a label PDF.
 - A merchant who permanently deletes an imported order gets HTTP 500 on later Pepita replays until the
   claim is repaired/acknowledged (previously a silent 200).

@@ -1560,10 +1560,14 @@ $suite->add(
 		$order2->set_status( 'completed' );
 		WPS_Assert::false( $ref->invoke( $importer, $order2 ) );
 
-		// 3. Order with in_progress=1 and status processing is never incomplete
+		// 3. RR20 review: 'processing' is the importer's OWN paid status, so processing + marker is what an
+		// interrupted final save leaves behind - it proves no operator action and is unfinished. A status the
+		// importer never assigns (here: cancelled) is operator evidence and takes the order out of recovery.
 		$order3 = new \WC_Order();
 		$order3->update_meta_data( '_wps_pepita_in_progress', '1' );
 		$order3->set_status( 'processing' );
+		WPS_Assert::true( $ref->invoke( $importer, $order3 ) );
+		$order3->set_status( 'cancelled' );
 		WPS_Assert::false( $ref->invoke( $importer, $order3 ) );
 
 		// 4. RR20: the marker is cleared only by the final, lease-verified save, so an order that still
@@ -1662,7 +1666,7 @@ $suite->add(
 );
 
 $suite->add(
-	'importer: a marker order an operator moved to a final status is adopted once, finalized, and then replays cleanly',
+	'importer: a marker order an operator moved to a status the importer never assigns is adopted once, finalized, and then replays cleanly',
 	static function () use ( $recovery_payload ): void {
 		WPS_Test_State::$tax_enabled = false;
 		update_option( 'woocommerce_calc_taxes', 'no' );
@@ -1684,7 +1688,7 @@ $suite->add(
 		WPS_Assert::same( 200, $first['http'] );
 
 		WPS_Test_State::$orders[ $order_id ]->update_meta_data( '_wps_pepita_in_progress', '1' );
-		WPS_Test_State::$orders[ $order_id ]->set_status( 'processing' );
+		WPS_Test_State::$orders[ $order_id ]->set_status( 'cancelled' );
 
 		$second = $importer->import( $payload );
 		WPS_Assert::same( 200, $second['http'] );
@@ -1707,6 +1711,9 @@ $suite->add(
 		$order->update_meta_data( '_wps_pepita_in_progress', '1' );
 		$order->set_status( 'on-hold' );
 		WPS_Assert::true( $ref->invoke( $importer, $order ) );
+
+		$order->set_status( 'processing' );
+		WPS_Assert::true( $ref->invoke( $importer, $order ), 'processing + marker is a torn final save, not operator evidence.' );
 
 		$order->set_status( 'cancelled' );
 		WPS_Assert::false( $ref->invoke( $importer, $order ), 'An operator-final status takes the order out of recovery.' );
