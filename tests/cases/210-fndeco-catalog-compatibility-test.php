@@ -361,43 +361,62 @@ $suite->add(
 );
 
 $suite->add(
-	'fndeco category: FN-DECO real catalog acceptance (Category 9897 & 9901)',
+	'fndeco category: FN-DECO real catalog acceptance (Product 9897, Categories 87 & 111)',
 	static function (): void {
 		WPS_Test_State::reset();
-		Settings::update( array( 'default_included' => true, 'primary_category_strategy' => 'deepest' ) );
+		Settings::update( array( 'default_included' => true, 'primary_category_strategy' => 'deepest', 'price_tax_mode' => 'gross' ) );
+		WPS_Test_State::$tax_enabled = true;
+		WPS_Test_State::add_tax_rate( '', 27 );
 
-		// FN-DECO real catalog hierarchy:
-		// 9897: "Termékek" (Root)
-		// 9901: "Dísztárgyak" (Child of 9897)
-		WPS_Test_State::add_term( 9897, 'Termékek', 0 );
-		WPS_Test_State::add_term( 9901, 'Dísztárgyak', 9897 );
+		// FN-DECO verified real catalog hierarchy:
+		// 87: "Webáruház" (Root)
+		// 111: "Stencilek" (Child of 87)
+		// 205: "Karácsony" (Other category)
+		// 312: "HDS15 - 14,5x20 cm" (Other category)
+		WPS_Test_State::add_term( 87, 'Webáruház', 0 );
+		WPS_Test_State::add_term( 111, 'Stencilek', 87 );
+		WPS_Test_State::add_term( 205, 'Karácsony', 0 );
+		WPS_Test_State::add_term( 312, 'HDS15 - 14,5x20 cm', 0 );
 
 		WPS_Test_State::add_attachment( 10, 'https://example.test/att.jpg' );
 
+		// Product 9897: "Stencil - Hópehely", SKU: HDS15-016
 		$p = WPS_Test_State::add_product(
 			array(
-				'id'       => 9999,
-				'name'     => 'FN-DECO Kerámia váza',
-				'price'    => 1300,
-				'image_id' => 10,
+				'id'             => 9897,
+				'name'           => 'Stencil - Hópehely',
+				'sku'            => 'HDS15-016',
+				'price'          => 1300,
+				'manage_stock'   => true,
+				'stock_quantity' => 999846,
+				'image_id'       => 10,
 			)
 		);
-		WPS_Test_State::assign_term( 9999, 9897 );
-		WPS_Test_State::assign_term( 9999, 9901 );
+		WPS_Test_State::assign_term( 9897, 87 );
+		WPS_Test_State::assign_term( 9897, 111 );
+		WPS_Test_State::assign_term( 9897, 205 );
+		WPS_Test_State::assign_term( 9897, 312 );
 
-		$mapped = Product_Mapper::map( 9999 );
+		// Set explicit primary category override to 111
+		update_post_meta( 9897, Product_Mapper::META_PRIMARY_CATEGORY, 111 );
+
+		$mapped = Product_Mapper::map( 9897 );
 		WPS_Assert::same( 1, count( $mapped['categories'] ) );
 		$path = $mapped['categories'][0];
 		WPS_Assert::same( 2, count( $path ) );
-		WPS_Assert::same( 9897, $path[0]['id'] );
-		WPS_Assert::same( 'Termékek', $path[0]['name'] );
-		WPS_Assert::same( 9901, $path[1]['id'] );
-		WPS_Assert::same( 'Dísztárgyak', $path[1]['name'] );
+		WPS_Assert::same( 87, $path[0]['id'] );
+		WPS_Assert::same( 'Webáruház', $path[0]['name'] );
+		WPS_Assert::same( 111, $path[1]['id'] );
+		WPS_Assert::same( 'Stencilek', $path[1]['name'] );
 
 		$writer = new Xml_Writer();
 		$xml = $writer->product( $mapped );
 		WPS_Assert::same( 1, substr_count( $xml, '<Categories>' ) );
 		WPS_Assert::same( 2, substr_count( $xml, '<Category>' ) );
+		WPS_Assert::true( str_contains( $xml, '<ProductNumber>HDS15-016</ProductNumber>' ) );
+		WPS_Assert::true( str_contains( $xml, '<Price>1300</Price>' ) );
+		WPS_Assert::true( str_contains( $xml, '<Quantity>999846</Quantity>' ) );
+		WPS_Assert::true( str_contains( $xml, '<VatPercent>27</VatPercent>' ) );
 	}
 );
 

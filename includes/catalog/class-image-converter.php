@@ -15,15 +15,18 @@ defined( 'ABSPATH' ) || exit;
 
 final class Image_Converter {
 
-	public const DERIVATIVE_DIR = 'wps-derivatives';
-	public const MIN_DIMENSION    = 300;
+	public const DERIVATIVE_DIR       = 'wps-derivatives';
+	public const MIN_WIDTH            = 1200;
+	public const MIN_HEIGHT           = 630;
+	public const MIN_DIMENSION        = 300;
+	public const LEGACY_MIN_DIMENSION = 300;
 
 	/**
 	 * Resolve a Pepita-compliant public image URL for an attachment.
 	 *
 	 * If the attachment is WebP, a JPEG derivative is generated.
-	 * If dimensions are below 300x300, a diagnostic warning is logged (no upscaling).
 	 * If conversion fails, '' is returned so the product is flagged as missing valid image.
+	 * Original WooCommerce images and attachments are preserved unmodified.
 	 *
 	 * @param int         $attachment_id
 	 * @param array<int, array{code: string, message: string}>|null $warnings
@@ -203,6 +206,7 @@ final class Image_Converter {
 
 	/**
 	 * Check dimension requirements without modifying/upscaling the image.
+	 * Pepita Seller Center specifies minimum dimensions of 1200 x 630 pixels.
 	 * Returns diagnostic warning array or null if compliant.
 	 *
 	 * @param int $attachment_id
@@ -218,10 +222,10 @@ final class Image_Converter {
 			if ( is_array( $meta ) && isset( $meta['width'], $meta['height'] ) ) {
 				$w = (int) $meta['width'];
 				$h = (int) $meta['height'];
-				if ( ( $w > 0 && $w < self::MIN_DIMENSION ) || ( $h > 0 && $h < self::MIN_DIMENSION ) ) {
+				if ( ( $w > 0 && $w < self::MIN_WIDTH ) || ( $h > 0 && $h < self::MIN_HEIGHT ) ) {
 					return array(
 						'code'    => 'insufficient_image_dimensions',
-						'message' => sprintf( 'A(z) #%d kép felbontása (%dx%d) kisebb a Pepita által elvárt %dx%d képpontnál.', $attachment_id, $w, $h, self::MIN_DIMENSION, self::MIN_DIMENSION ),
+						'message' => sprintf( 'A(z) #%d kép felbontása (%dx%d) nem éri el a Pepita Seller Center által elvárt minimális %dx%d képpontot.', $attachment_id, $w, $h, self::MIN_WIDTH, self::MIN_HEIGHT ),
 					);
 				}
 			}
@@ -233,10 +237,10 @@ final class Image_Converter {
 			if ( is_array( $size ) && isset( $size[0], $size[1] ) ) {
 				$w = (int) $size[0];
 				$h = (int) $size[1];
-				if ( ( $w > 0 && $w < self::MIN_DIMENSION ) || ( $h > 0 && $h < self::MIN_DIMENSION ) ) {
+				if ( ( $w > 0 && $w < self::MIN_WIDTH ) || ( $h > 0 && $h < self::MIN_HEIGHT ) ) {
 					return array(
 						'code'    => 'insufficient_image_dimensions',
-						'message' => sprintf( 'A kép felbontása (%dx%d) kisebb a Pepita által elvárt %dx%d képpontnál.', $w, $h, self::MIN_DIMENSION, self::MIN_DIMENSION ),
+						'message' => sprintf( 'A kép felbontása (%dx%d) nem éri el a Pepita Seller Center által elvárt minimális %dx%d képpontot.', $w, $h, self::MIN_WIDTH, self::MIN_HEIGHT ),
 					);
 				}
 			}

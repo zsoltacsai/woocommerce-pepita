@@ -31,7 +31,7 @@ $cat_strategy_labels = array(
 <div class="wrap wps-wrap">
 	<h1><?php esc_html_e( 'Pepita import-előkészítés / Feed ellenőrzés', 'wp-pepita-sync' ); ?></h1>
 	<p class="description">
-		<?php esc_html_e( 'Ez a jelentés a Pepita piactér követelményei (készletplafond, egyetlen elsődleges kategória hierarchia, bruttó/nettó adózási mód, WebP kompatibilitás, 300x300 képméret és cikkszám leképezés) alapján ellenőrzi a WooCommerce katalógust.', 'wp-pepita-sync' ); ?>
+		<?php esc_html_e( 'Ez a jelentés a Pepita piactér követelményei (készletplafond, egyetlen elsődleges kategória hierarchia, bruttó/nettó adózási mód, WebP kompatibilitás, 1200x630 képméret és cikkszám leképezés) alapján ellenőrzi a WooCommerce katalógust.', 'wp-pepita-sync' ); ?>
 	</p>
 
 	<div class="wps-cards">
@@ -76,7 +76,7 @@ $cat_strategy_labels = array(
 				<dt><?php esc_html_e( 'WebP képérintettség', 'wp-pepita-sync' ); ?></dt>
 				<dd><?php echo esc_html( (string) ( $summary['webp_conversions'] ?? 0 ) ); ?> <?php esc_html_e( 'termék (JPEG-re konvertálva)', 'wp-pepita-sync' ); ?></dd>
 
-				<dt><?php esc_html_e( 'Felbontási figyelmeztetés (< 300x300)', 'wp-pepita-sync' ); ?></dt>
+				<dt><?php esc_html_e( 'Felbontási figyelmeztetés (< 1200x630)', 'wp-pepita-sync' ); ?></dt>
 				<dd><?php echo esc_html( (string) ( $summary['resolution_issues'] ?? 0 ) ); ?> <?php esc_html_e( 'termék', 'wp-pepita-sync' ); ?></dd>
 
 				<dt><?php esc_html_e( 'Cikkszám (SKU) hiány (figyelmeztetés)', 'wp-pepita-sync' ); ?></dt>

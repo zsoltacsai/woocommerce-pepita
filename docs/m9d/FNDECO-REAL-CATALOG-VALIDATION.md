@@ -27,10 +27,10 @@
     2. **SEO beállítások:** Yoast SEO (`_yoast_wpseo_primary_product_cat`) vagy Rank Math (`rank_math_primary_product_cat`) elsődleges kategória.
     3. **Determinisztikus stratégia:** Beállítások menüből választható (`deepest` [alapértelmezett], `lowest_id`, `highest_id`, `alphabetical`).
   * **Kategória kizárás és béta allowlist védelem:** A kiválasztott elsődleges kategória soha nem kerülheti meg a kizárási szabályt (`exclude`), és béta módban kötelezően a jóváhagyott kategóriákból kell kikerülnie.
-  * **FN-DECO validáció:** A 9897 ("Termékek") és 9901 ("Dísztárgyak") kategóriához rendelt termék hibátlanul generál egyetlen `<Categories>` blokkot `9897 -> 9901` struktúrával.
+  * **FN-DECO validáció:** A #9897 azonosítójú valós termék ("Stencil - Hópehely", SKU: "HDS15-016", bruttó ár: 1300 Ft, 27% áfa, készlet: 999 846 db), amely a 87 ("Webáruház") és 111 ("Stencilek") kategóriákhoz, valamint további kategóriákhoz (pl. "Karácsony", "HDS15 - 14,5x20 cm") van rendelve, hibátlanul generál egyetlen `<Categories>` blokkot `87 -> 111` (`Webáruház -> Stencilek`) hierarchiával, a többi hozzárendelt kategória pedig nem képez külön XML hierarchia blokkot.
 
 ### 1.3 Bruttó és nettó árforrás konfiguráció (`price_tax_mode`)
-* **Probléma:** Az FN-DECO áruházban a megadott termékárak már bruttó fogyasztói árak (pl. 1300 Ft bruttó, 27% áfa mellett). A korábbi automatikus áfaszámítás ezt nettónak tekintve 1651 Ft-os árat generált volna (kettős adóztatás).
+* **Probléma:** Az FN-DECO áruházban a megadott termékárak már bruttó fogyasztói árak (pl. 1300 Ft bruttó, 27% áfa mellett). A kereskedő ÁFA-alany (nem áfamentes). A korábbi automatikus áfaszámítás ezt nettónak tekintve 1651 Ft-os árat generált volna (kettős adóztatás).
 * **Megoldás:**
   * Új beállítás: `price_tax_mode` (`auto`, `gross`, `net`, alapértelmezett: `auto`).
   * `gross` módban a `Price_Calculator::gross()` közvetlenül a megadott árat adja vissza, nem számolja rá újra az áfát.
@@ -40,7 +40,7 @@
 ### 1.4 WooCommerce SKU leképezése ProductNumber (MPN) mezőre
 * **Probléma:** A kereskedői katalógus azonosításához szükséges a WooCommerce natív cikkszáma (`$product->get_sku()`), de ez nem keveredhet a GTIN-nel vagy a stabil export azonosítóval.
 * **Megoldás:**
-  * Ha nincs egyedi `_wps_mpn` megadva, a natív `$product->get_sku()` automatikusan bekerül a `<ProductNumber>` tagbe.
+  * Ha nincs egyedi `_wps_mpn` megadva, a natív `$product->get_sku()` automatikusan bekerül a `<ProductNumber>` tagbe (pl. `HDS15-016`).
   * Ha a kereskedő kitöltötte a Pepita MPN felülírást, az elsőbbséget élvez.
   * Az SKU soha nem kerül a `<StructuredId>` mezőbe (az kizárólag érvényes GTIN/EAN/ISBN kódoknak van fenntartva).
   * A stabil export azonosító (`wps-<id>` vagy `_wps_export_id`) teljesen független marad az SKU-tól.
@@ -48,20 +48,22 @@
 ### 1.5 Leírás formázásának megőrzése (Paragraphs & Line Breaks)
 * **Validáció:** A `Description_Sanitizer` tesztelésre került összetett HTML leírásokkal. A több bekezdésből álló szövegek (`<p>`), a sortörések (`<br>`) és a felsorolások (`<li>`) tisztán, dupla illetve szimpla sortöréssel kerülnek a Pepita feedbe, miközben a veszélyes HTML tag-ek és scriptek maradéktalanul eltávolításra kerülnek.
 
-### 1.6 WebP képek és 300x300 felbontási ellenőrzés
+### 1.6 WebP képek és Pepita felbontási követelmények (1200x630 pixel)
+* **Pepita specifikáció:** A hivatalos Pepita Seller Center dokumentáció JPEG/PNG formátumot és minimum 1200 × 630 képpontos felbontást határoz meg.
 * **Megoldás:**
   * Létrejött az `Image_Converter` osztály.
   * A WebP képekhez a rendszer automatikusan JPEG származékot (`derivative`) generál a `wp-content/uploads/wps-derivatives/` mappába GD vagy Imagick segítségével.
   * A célmappát `.htaccess` és `index.php` védi a közvetlen listázástól és script futtatástól.
   * A rendszer soha nem ad vissza hamis `.jpg` kiterjesztést nyers WebP bájtokra.
-  * Ha a kép felbontása nem éri el a minimális 300x300 képpontot, a rendszer diagnosztikai figyelmeztetést rögzít (`insufficient_image_dimensions`), de nem végez minőségromboló felméretezést (upscaling).
-  * Ha egy termékhez egyáltalán nem generálható kompatibilis kép, a termék nem kerül exportálásra és `missing_image` hibával jelenik meg a felülvizsgálati listában.
+  * A Preflight modul auditálja a felbontást az 1200x630-as küszöb alapján (`insufficient_image_dimensions`), de a rendszer nem végez minőségromboló felméretezést (upscaling). A képfelbontási figyelmeztetések szigorúan elkülönülnek az XML-generálási hibáktól, így a kisebb forrásképek nem okoznak feed-megszakadást.
+  * Ha egy termékhez egyáltalán nem áll rendelkezésre használható kép, a termék nem kerül exportálásra és `missing_image` hibával jelenik meg az ellenőrzési listában.
+  * Az eredeti WooCommerce médiatár elemek és képek szigorúan érintetlenek maradnak.
 
 ### 1.7 Admin Preflight ellenőrző felület és CSV export
 * **Megoldás:**
   * Új almenü: **Pepita -> Feed ellenőrzés** (`wps-pepita-preflight`).
   * KPI összesítők: Teljes termékszám, jogosult termékek, kizárt termékek, azonnal exportálható termékek, figyelmet igénylő termékek.
-  * Részletes audit táblázat: Készletkorlát túllépések, WebP konverziók, 300x300 alatti felbontások, hiányzó cikkszámok, elsődleges kategória feloldások.
+  * Részletes audit táblázat: Készletkorlát túllépések, WebP konverziók, 1200x630 alatti felbontások, hiányzó cikkszámok, elsődleges kategória feloldások.
   * Teljes táblázat exportálása Excel-kompatibilis UTF-8 BOM CSV formátumban.
 
 ---
@@ -79,7 +81,7 @@ A fenti funkciókat a `tests/cases/210-fndeco-catalog-compatibility-test.php` te
 | `fndeco category: explicit override precedence` | `_wps_primary_category_id` felülírás érvényesülése | **PASS** |
 | `fndeco category: Yoast and RankMath precedence` | SEO plugin elsődleges kategória detektálása | **PASS** |
 | `fndeco category: deterministic fallback strategies` | `deepest`, `lowest_id`, `highest_id`, `alphabetical` stratégiák | **PASS** |
-| `fndeco category: FN-DECO real catalog acceptance` | Kategória 9897 és 9901 valós fa struktúra | **PASS** |
+| `fndeco category: FN-DECO real catalog acceptance` | Product #9897, kategória 87 -> 111 valós fa struktúra, HDS15-016 SKU | **PASS** |
 | `fndeco pricing: price_tax_mode gross` | 1300 Ft bruttó ár megtartása kettős adóztatás nélkül | **PASS** |
 | `fndeco pricing: price_tax_mode net` | 1000 Ft nettó ár 1270 Ft bruttóra váltása | **PASS** |
 | `fndeco sku: native WC SKU maps to ProductNumber` | `HDS15-016` és `00123` átadása `<ProductNumber>`-ként | **PASS** |
