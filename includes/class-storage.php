@@ -95,6 +95,10 @@ final class Storage {
 		return self::path( 'catalog.jsonl' );
 	}
 
+	public static function previous_catalog_index_path(): string {
+		return self::path( 'catalog.previous.jsonl' );
+	}
+
 	public static function catalog_index_temp_path( string $token ): string {
 		return self::path( 'catalog.tmp-' . preg_replace( '/[^a-z0-9]/i', '', $token ) . '.jsonl' );
 	}
@@ -159,9 +163,16 @@ final class Storage {
 
 	public static function publish_catalog_index( string $temp_path ): bool {
 		$target = self::catalog_index_path();
+		$backup = self::previous_catalog_index_path();
 
 		if ( ! is_file( $temp_path ) ) {
 			return false;
+		}
+
+		if ( is_file( $target ) ) {
+			if ( ! @copy( $target, $backup ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				Logger::warning( 'feed_publish', 'A korábbi katalógus index biztonsági mentése nem sikerült.' );
+			}
 		}
 
 		return (bool) @rename( $temp_path, $target ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged

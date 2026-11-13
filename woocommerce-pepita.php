@@ -12,7 +12,7 @@
  * Requires at least: 6.4
  * Requires PHP:      8.1
  * Requires Plugins:  woocommerce
- * WC requires at least: 8.0
+ * WC requires at least: 8.2
  * WC tested up to:   10.0
  *
  * @package WPS\Pepita

@@ -4,6 +4,16 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased — M9-C Feed Safety & Operational Monitoring
+
+### Added (M9-C)
+- **Feed difference reporting** (`Catalog_Diff`): Streaming comparison of the full catalog against the prior successful snapshot (`catalog.jsonl` vs `catalog.previous.jsonl`) tracking newly added, removed, unavailable, price modifications, variation identity shifts, and VAT/currency modifications.
+- **Feed comparison card**: Rendered in Hungarian on the Feeds admin screen displaying comparative metrics, active warnings, and change sample inspections.
+- **Feed safety guards**: Configurable `feed_safety_drop_threshold` (default 20%), optional publication blocking `feed_safety_block_publication` (default false), and `feed_safety_variation_change_warning` (default true). Aborts publication if catalog drops exceed the threshold or if the feed unexpectedly empties.
+- **Stock feed health monitoring** (`Health::stock_feed_check`): Read-only status diagnostic comparing last successful stock generation against configured interval (OK / WARN / FAIL), identifying stale feeds and missing cron/Action Scheduler hooks without triggering generation during render.
+- **Secure CSV log export**: Streaming chunked export via `admin_post_wps_pepita_export_logs` requiring `manage_woocommerce` capability and nonces, with formula injection neutralization (`=, +, -, @, \t, \r` escaping via `Logger::sanitize_csv_field`) and UTF-8 BOM.
+- **Declared minimum version compatibility**: PHP >= 8.1, WordPress >= 6.4, WooCommerce >= 8.2 (HPOS compatible).
+
 ## Unreleased — RR20 / M9-B follow-up fixes
 
 ### Fixed (RR20 - concurrent import takeover; found by a two-worker test)

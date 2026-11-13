@@ -5,14 +5,14 @@
 | Component | Declared | Verified here | Notes |
 |---|---|---|---|
 | WordPress | 6.4+ | **7.1.4** | Compose integration suite (minimum 6.4 not exercised) |
-| WooCommerce | 8.0+ | **11.3.0** | Compose integration suite (8.0–10.x not exercised) |
+| WooCommerce | 8.2+ | **11.3.0** | Compose integration suite (8.2–10.x not exercised) |
 | PHP | 8.1+ | **8.5.12** | Lint + full unit suite + Compose suite |
 | MySQL / MariaDB | 5.7 / 10.3+ | **MySQL 8.4.13** | Real `dbDelta` and queries; MariaDB not exercised |
 | HPOS | Declared compatible | **Yes and no** | Both storage modes pass the same 60-case suite |
 | Multisite | Not declared | No | Per-site tables and options |
 
 The plugin header states `Requires at least: 6.4`, `Requires PHP: 8.1`,
-`WC requires at least: 8.0`, `WC tested up to: 10.0`.
+`WC requires at least: 8.2`, `WC tested up to: 10.0`.
 
 ## 2. WordPress compatibility
 

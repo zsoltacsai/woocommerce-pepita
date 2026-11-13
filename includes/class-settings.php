@@ -79,6 +79,9 @@ final class Settings {
 			'feed_token'               => '',
 			'feed_full_slug'           => 'full',
 			'feed_stock_slug'          => 'stock',
+			'feed_safety_drop_threshold' => 20,
+			'feed_safety_block_publication' => false,
+			'feed_safety_variation_change_warning' => true,
 
 			// Order API.
 			'order_api_enabled'        => true,
@@ -324,6 +327,8 @@ final class Settings {
 			'order_api_save_label',
 			'record_export_meta',
 			'delete_data_on_uninstall',
+			'feed_safety_block_publication',
+			'feed_safety_variation_change_warning',
 		);
 
 		$ints = array(
@@ -332,6 +337,7 @@ final class Settings {
 			'max_runtime'           => array( 5, 300 ),
 			'full_feed_interval'    => array( 1, 168 ),
 			'stock_feed_interval'   => array( 5, 1440 ),
+			'feed_safety_drop_threshold' => array( 5, 95 ),
 			'removal_grace_days'    => array( 0, 60 ),
 			'feed_cache_max_age'    => array( 0, 86400 ),
 			'order_api_max_body_kb' => array( 16, 8192 ),

@@ -23,7 +23,7 @@ WooCommerce store with the **Pepita** marketplace:
 
 | Requirement | Status |
 |---|---|
-| PHP 8.1+ (validated on PHP 8.5.12), HPOS compatible | Implemented |
+| Declared minimums: PHP 8.1+, WP 6.4+, WC 8.2+ (HPOS compatible) | Implemented and verified |
 | Hungarian admin labels, English code | Implemented |
 | Modular architecture, PSR-4 style autoloading | Implemented |
 | Independent of the reference Allegro plugin | Implemented (no shared symbols) |
@@ -34,6 +34,9 @@ WooCommerce store with the **Pepita** marketplace:
 | Full and stock feed share identical IDs and variation values | Implemented and tested |
 | Stock feed is complete, never a delta | Implemented and tested |
 | Failed generation preserves the last good feed | Implemented and tested |
+| Feed difference reporting and publication safety drop guards (M9-C) | Implemented and tested |
+| Dedicated stock feed health monitoring and freshness tracking (M9-C) | Implemented and tested |
+| Secure CSV log export with formula injection prevention (M9-C) | Implemented and tested |
 | Pepita → WooCommerce order push only | Implemented |
 | Durable idempotency for order intake | Implemented and tested |
 | No customer e-mails or gateway execution during import | Implemented and tested |

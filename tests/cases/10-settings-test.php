@@ -21,6 +21,9 @@ $suite->add(
 		WPS_Assert::same( false, $defaults['default_included'] );
 		WPS_Assert::same( 'omit', $defaults['removal_policy'] );
 		WPS_Assert::same( array( 'publish' ), $defaults['allowed_product_statuses'] );
+		WPS_Assert::same( 20, $defaults['feed_safety_drop_threshold'] );
+		WPS_Assert::same( false, $defaults['feed_safety_block_publication'] );
+		WPS_Assert::same( true, $defaults['feed_safety_variation_change_warning'] );
 	}
 );
 
@@ -40,6 +43,9 @@ $suite->add(
 				'rounding'              => 'nearest_5',
 				'default_included'      => '1',
 				'include_child_categories' => '0',
+				'feed_safety_drop_threshold' => 120,
+				'feed_safety_block_publication' => '1',
+				'feed_safety_variation_change_warning' => '0',
 				'log_level'             => 'verbose',
 				'removal_policy'        => 'zero_stock',
 			)
@@ -49,6 +55,9 @@ $suite->add(
 		WPS_Assert::same( 100, $clean['batches_per_run'] );
 		WPS_Assert::same( 168, $clean['full_feed_interval'] );
 		WPS_Assert::same( 5, $clean['stock_feed_interval'] );
+		WPS_Assert::same( 95, $clean['feed_safety_drop_threshold'] );
+		WPS_Assert::same( true, $clean['feed_safety_block_publication'] );
+		WPS_Assert::same( false, $clean['feed_safety_variation_change_warning'] );
 		WPS_Assert::equals( 100.0, $clean['vat_fixed'] );
 		WPS_Assert::same( 'auto', $clean['vat_mode'] );
 		WPS_Assert::same( 'percent', $clean['price_adjustment_type'] );
