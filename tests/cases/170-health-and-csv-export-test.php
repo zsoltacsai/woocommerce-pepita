@@ -31,14 +31,16 @@ $suite->add(
 	'health: stock_feed_check returns warn when generation is in progress',
 	static function (): void {
 		delete_option( 'wps_pepita_feed_state_stock' );
-		Lock::acquire( Generator::TYPE_STOCK, 120 );
+		$token = Lock::acquire( Generator::TYPE_STOCK, 120 );
 
 		$check = Health::stock_feed_check();
 
 		WPS_Assert::same( Health::STATUS_WARN, $check['status'] );
 		WPS_Assert::same( 'generálás folyamatban', $check['value'] );
 
-		Lock::release( Generator::TYPE_STOCK );
+		if ( is_string( $token ) ) {
+			Lock::release( Generator::TYPE_STOCK, $token );
+		}
 	}
 );
 
