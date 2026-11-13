@@ -1,0 +1,7 @@
+# Repository-wide code ownership.
+#
+# GitHub requests a review from the owner below when a pull request touches a
+# matching path. Self-approval does not satisfy an independent-review policy:
+# a second reviewer must be added to the repository before merge protection can
+# enforce independent approval.
+* @zsoltacsai
