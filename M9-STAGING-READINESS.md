@@ -99,15 +99,15 @@ The four remaining risks identified during M9 staging preparation have been inve
 ### 3.1 CI Suite Coverage
 * **Total Unit Suite**: **185 Unit Tests across 19 cases (0 failures, 100% pass)** covering PHP 8.1, 8.2, 8.3, 8.4, and 8.5.
 * **Total Integration Suite**: **71 Integration Scenarios across both HPOS and Legacy stores (0 failures, 100% pass)** running on real WordPress 7.1.4, WooCommerce 11.3.0, and MySQL 8.4.
-* **Automated CI Run**: Run ID [43417311280](https://github.com/zsoltacsai/woocommerce-pepita/actions/runs/43417311280) on branch `security/m9-staging-readiness` — **All 8 Checks Passed 100% Green**:
-  - `lint (PHP 8.5)`: PASSED (9s)
-  - `unit (PHP 8.1)`: PASSED (9s)
-  - `unit (PHP 8.2)`: PASSED (8s)
+* **Automated CI Run**: Run ID [43421152998](https://github.com/zsoltacsai/woocommerce-pepita/actions/runs/43421152998) on commit `3ca88443e2e92c019bc2e0d37e29cf4dca67d561` (`security/m9-staging-readiness`) — **All 8 Checks Passed 100% Green**:
+  - `lint (PHP 8.5)`: PASSED (13s)
+  - `unit (PHP 8.1)`: PASSED (8s)
+  - `unit (PHP 8.2)`: PASSED (10s)
   - `unit (PHP 8.3)`: PASSED (7s)
-  - `unit (PHP 8.4)`: PASSED (13s)
+  - `unit (PHP 8.4)`: PASSED (12s)
   - `unit (PHP 8.5)`: PASSED (8s)
-  - `integration-legacy`: PASSED (1m 39s)
-  - `integration-hpos`: PASSED (1m 56s)
+  - `integration-legacy`: PASSED (1m 54s)
+  - `integration-hpos`: PASSED (1m 34s)
 
 ---
 
