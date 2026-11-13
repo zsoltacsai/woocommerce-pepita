@@ -396,6 +396,21 @@ $checked = static function ( string $key ) use ( $settings ): string {
 					</td>
 				</tr>
 				<tr>
+					<th scope="row"><?php esc_html_e( 'Vészhelyzeti feed-leállítás', 'wp-pepita-sync' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="wps[feed_emergency_disabled]" value="1" <?php echo $checked( 'feed_emergency_disabled' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> <?php disabled( defined( 'WPS_PEPITA_FEED_EMERGENCY_DISABLED' ) || defined( 'WPS_PEPITA_FEED_DISABLED' ) ); ?> />
+							<strong style="color: #d63638;"><?php esc_html_e( 'Minden feed-kiszolgálás azonnali felfüggesztése (HTTP 503)', 'wp-pepita-sync' ); ?></strong>
+						</label>
+						<p class="description">
+							<?php esc_html_e( 'Vészhelyzet esetén azonnal letiltja a feedek elérését a partnerek felé anélkül, hogy a béta üzemmódot vagy a rendeléskezelést érintené.', 'wp-pepita-sync' ); ?>
+							<?php if ( defined( 'WPS_PEPITA_FEED_EMERGENCY_DISABLED' ) || defined( 'WPS_PEPITA_FEED_DISABLED' ) ) : ?>
+								<br><em><?php esc_html_e( 'A wp-config.php konstans felülbírálja ezt a beállítást.', 'wp-pepita-sync' ); ?></em>
+							<?php endif; ?>
+						</p>
+					</td>
+				</tr>
+				<tr>
 					<th scope="row"><?php esc_html_e( 'Nyilvános feed', 'wp-pepita-sync' ); ?></th>
 					<td>
 						<label>
@@ -436,9 +451,14 @@ $checked = static function ( string $key ) use ( $settings ): string {
 					<th scope="row"><?php esc_html_e( 'Rendelésfogadás', 'wp-pepita-sync' ); ?></th>
 					<td>
 						<label>
-							<input type="checkbox" name="wps[order_api_enabled]" value="1" <?php echo $checked( 'order_api_enabled' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
+							<input type="checkbox" name="wps[order_api_enabled]" value="1" <?php echo $checked( 'order_api_enabled' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> <?php disabled( Settings::is_beta_feed_only() ); ?> />
 							<?php esc_html_e( 'Pepita rendelések automatikus fogadása', 'wp-pepita-sync' ); ?>
 						</label>
+						<?php if ( Settings::is_beta_feed_only() ) : ?>
+							<p class="description" style="color: #d63638;">
+								<strong><?php esc_html_e( 'Zárolva: a feed-only béta üzemmódban a rendelésfogadás szigorúan inaktív (HTTP 503).', 'wp-pepita-sync' ); ?></strong>
+							</p>
+						<?php endif; ?>
 					</td>
 				</tr>
 				<tr>

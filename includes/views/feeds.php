@@ -40,6 +40,9 @@ $render_feed_card = static function ( string $type, array $state, bool $running,
 			<?php if ( $running ) : ?>
 				<span class="wps-badge wps-badge--warn"><?php esc_html_e( 'Generálás folyamatban', 'wp-pepita-sync' ); ?></span>
 			<?php endif; ?>
+			<?php if ( Settings::is_feed_emergency_disabled() ) : ?>
+				<span class="wps-badge wps-badge--error"><?php esc_html_e( 'Vészhelyzeti leállítás aktív (503)', 'wp-pepita-sync' ); ?></span>
+			<?php endif; ?>
 			<?php if ( ! $exists ) : ?>
 				<span class="wps-badge wps-badge--muted"><?php esc_html_e( 'Fájl nem található', 'wp-pepita-sync' ); ?></span>
 			<?php endif; ?>

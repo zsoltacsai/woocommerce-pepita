@@ -1,5 +1,5 @@
-# Release epoch (UTC seconds since 1970-01-01) stamped on every file in the
+# Deterministic release epoch: used as the mtime for every entry in the
 # distribution ZIP. Versioned input of bin/build.sh: never derived from the
 # wall clock or from git history. Bump it deliberately (to the UTC time of the
 # change) whenever the package inputs change; keep dist/ in sync via build.sh.
-1794597400
+1794600000

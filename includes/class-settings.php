@@ -76,6 +76,7 @@ final class Settings {
 			'removal_grace_days'       => 3,
 			'allow_empty_feed'         => false,
 			'feed_public'              => false,
+			'feed_emergency_disabled'  => false,
 			'feed_cache_max_age'       => 300,
 			'feed_token'               => '',
 			'feed_full_slug'           => 'full',
@@ -142,6 +143,22 @@ final class Settings {
 
 		$all = self::all();
 		return ! empty( $all['beta_feed_only'] );
+	}
+
+	/**
+	 * Whether feed endpoints are temporarily disabled via emergency kill switch.
+	 */
+	public static function is_feed_emergency_disabled(): bool {
+		if ( defined( 'WPS_PEPITA_FEED_EMERGENCY_DISABLED' ) && constant( 'WPS_PEPITA_FEED_EMERGENCY_DISABLED' ) ) {
+			return true;
+		}
+
+		if ( defined( 'WPS_PEPITA_FEED_DISABLED' ) && constant( 'WPS_PEPITA_FEED_DISABLED' ) ) {
+			return true;
+		}
+
+		$all = self::all();
+		return ! empty( $all['feed_emergency_disabled'] );
 	}
 
 	/**
@@ -355,6 +372,7 @@ final class Settings {
 			'stock_requires_full',
 			'allow_empty_feed',
 			'feed_public',
+			'feed_emergency_disabled',
 			'beta_feed_only',
 			'order_api_enabled',
 			'order_api_require_https',
@@ -502,6 +520,13 @@ final class Settings {
 			$output['order_api_enabled'] = false;
 			$output['feed_public']       = false;
 			$output['default_included']  = false;
+		} else {
+			// Disabling beta mode must never act as an accidental order-intake re-enabler.
+			// If order_api_enabled was not explicitly posted as true, keep it disabled.
+			if ( ! isset( $input['order_api_enabled'] ) ) {
+				$stored                      = get_option( self::OPTION, array() );
+				$output['order_api_enabled'] = ! empty( $stored['order_api_enabled'] );
+			}
 		}
 
 		return $output;
