@@ -109,6 +109,18 @@ $checked = static function ( string $key ) use ( $settings ): string {
 					</td>
 				</tr>
 				<tr>
+					<th scope="row"><label for="wps-primary-category-strategy"><?php esc_html_e( 'Elsődleges kategória kiválasztási stratégia', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<select id="wps-primary-category-strategy" name="wps[primary_category_strategy]">
+							<option value="deepest" <?php selected( (string) $field( 'primary_category_strategy' ), 'deepest' ); ?>><?php esc_html_e( 'Legmélyebb kategória (alapértelmezett)', 'wp-pepita-sync' ); ?></option>
+							<option value="lowest_id" <?php selected( (string) $field( 'primary_category_strategy' ), 'lowest_id' ); ?>><?php esc_html_e( 'Legalacsonyabb ID', 'wp-pepita-sync' ); ?></option>
+							<option value="highest_id" <?php selected( (string) $field( 'primary_category_strategy' ), 'highest_id' ); ?>><?php esc_html_e( 'Legmagasabb ID', 'wp-pepita-sync' ); ?></option>
+							<option value="alphabetical" <?php selected( (string) $field( 'primary_category_strategy' ), 'alphabetical' ); ?>><?php esc_html_e( 'Betűrendi sorrend', 'wp-pepita-sync' ); ?></option>
+						</select>
+						<p class="description"><?php esc_html_e( 'Több kategóriához rendelt termék esetén pontosan egy elsődleges kategória hierarchia kerül a feedbe. A termékszintű beállítás és a Yoast/RankMath elsődleges kategória megelőzi ezt a stratégiát.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
 					<th scope="row"><?php esc_html_e( 'Engedélyezett termékállapotok', 'wp-pepita-sync' ); ?></th>
 					<td>
 						<?php
@@ -155,6 +167,17 @@ $checked = static function ( string $key ) use ( $settings ): string {
 					<td>
 						<input type="text" id="wps-currency" name="wps[currency]" value="<?php echo esc_attr( (string) $field( 'currency' ) ); ?>" class="small-text" maxlength="3" placeholder="<?php echo esc_attr( function_exists( 'get_woocommerce_currency' ) ? (string) get_woocommerce_currency() : 'HUF' ); ?>" />
 						<p class="description"><?php esc_html_e( 'Hárombetűs ISO kód. Üresen hagyva a WooCommerce pénzneme érvényesül.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="wps-price-tax-mode"><?php esc_html_e( 'WooCommerce termékárak értelmezése', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<select id="wps-price-tax-mode" name="wps[price_tax_mode]">
+							<option value="auto" <?php selected( (string) $field( 'price_tax_mode' ), 'auto' ); ?>><?php esc_html_e( 'Automatikus (WooCommerce adóbeállítások szerint)', 'wp-pepita-sync' ); ?></option>
+							<option value="gross" <?php selected( (string) $field( 'price_tax_mode' ), 'gross' ); ?>><?php esc_html_e( 'A forrásár már bruttó (nem adódik hozzá újra az áfa)', 'wp-pepita-sync' ); ?></option>
+							<option value="net" <?php selected( (string) $field( 'price_tax_mode' ), 'net' ); ?>><?php esc_html_e( 'A forrásár nettó (a rendszer rászámolja az áfát)', 'wp-pepita-sync' ); ?></option>
+						</select>
+						<p class="description"><?php esc_html_e( 'Ha a WooCommerce termékárak már bruttó fogyasztói árak (pl. FN-DECO 1300 Ft bruttó 27% áfával), válassza a "A forrásár már bruttó" opciót a kettős adóztatás elkerülése érdekében.', 'wp-pepita-sync' ); ?></p>
 					</td>
 				</tr>
 				<tr>

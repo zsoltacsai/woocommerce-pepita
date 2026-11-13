@@ -1012,6 +1012,15 @@ function wp_get_attachment_url( int $attachment_id ): string {
 	return WPS_Test_State::$attachments[ $attachment_id ] ?? '';
 }
 
+function get_attached_file( int $attachment_id, bool $unfiltered = false ): string {
+	return WPS_Test_State::$attached_files[ $attachment_id ] ?? ( WPS_Test_State::$attachments[ $attachment_id ] ?? '' );
+}
+
+function get_post_mime_type( $post = null ): string {
+	$id = is_object( $post ) ? (int) ( $post->ID ?? 0 ) : (int) $post;
+	return WPS_Test_State::$mime_types[ $id ] ?? '';
+}
+
 function get_permalink( $post = 0 ) {
 	$id = is_object( $post ) ? (int) ( $post->ID ?? 0 ) : (int) $post;
 

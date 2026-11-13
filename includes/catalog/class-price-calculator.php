@@ -29,6 +29,19 @@ final class Price_Calculator {
 			return 0.0;
 		}
 
+		$mode = Settings::price_tax_mode();
+
+		if ( 'gross' === $mode ) {
+			// Merchant catalog prices are already gross. Prevent double taxation.
+			return $raw;
+		}
+
+		if ( 'net' === $mode ) {
+			// Merchant catalog prices are net. Convert to gross using product VAT rate.
+			$vat = self::vat_percent( $product );
+			return $raw * ( 1.0 + ( $vat / 100.0 ) );
+		}
+
 		if ( function_exists( 'wc_get_price_including_tax' ) ) {
 			$gross = (float) wc_get_price_including_tax(
 				$product,

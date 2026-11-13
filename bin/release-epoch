@@ -1,5 +1,1 @@
-# Deterministic release epoch: used as the mtime for every entry in the
-# distribution ZIP. Versioned input of bin/build.sh: never derived from the
-# wall clock or from git history. Bump it deliberately (to the UTC time of the
-# change) whenever the package inputs change; keep dist/ in sync via build.sh.
-1794603032
+1794609252

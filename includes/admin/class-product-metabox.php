@@ -91,6 +91,23 @@ final class Product_Metabox {
 				</select>
 			</p>
 
+			<?php
+			$assigned_terms = wp_get_post_terms( $product_id, \WPS\Pepita\Catalog\Category_Rules::TAXONOMY );
+			$assigned_terms = is_array( $assigned_terms ) ? $assigned_terms : array();
+			$primary_cat_id = (int) $meta( Product_Mapper::META_PRIMARY_CATEGORY );
+			?>
+			<p class="wps-metabox__row">
+				<label for="wps-primary-category"><?php esc_html_e( 'Pepita elsődleges kategória', 'wp-pepita-sync' ); ?></label>
+				<select id="wps-primary-category" name="wps_primary_category_id" class="widefat">
+					<option value=""><?php esc_html_e( '-- Automatikus (stratégia szerint) --', 'wp-pepita-sync' ); ?></option>
+					<?php foreach ( $assigned_terms as $term ) : ?>
+						<option value="<?php echo esc_attr( (string) $term->term_id ); ?>" <?php selected( $primary_cat_id, (int) $term->term_id ); ?>>
+							<?php echo esc_html( $term->name ); ?> (ID: <?php echo esc_html( (string) $term->term_id ); ?>)
+						</option>
+					<?php endforeach; ?>
+				</select>
+			</p>
+
 			<p class="wps-metabox__row">
 				<label for="wps-gtin"><?php esc_html_e( 'GTIN / EAN / ISBN', 'wp-pepita-sync' ); ?></label>
 				<input type="text" id="wps-gtin" name="wps_gtin" class="widefat" inputmode="numeric" value="<?php echo esc_attr( $meta( Product_Mapper::META_GTIN ) ); ?>" />
@@ -201,6 +218,7 @@ final class Product_Metabox {
 
 		$field_map = array(
 			'wps_include'                 => Product_Selection::META_INCLUDE,
+			'wps_primary_category_id'     => Product_Mapper::META_PRIMARY_CATEGORY,
 			'wps_gtin'                    => Product_Mapper::META_GTIN,
 			'wps_brand'                   => Product_Mapper::META_BRAND,
 			'wps_manufacturer'            => Product_Mapper::META_MANUFACTURER,
@@ -219,6 +237,16 @@ final class Product_Metabox {
 
 			$value = wp_unslash( $_POST[ $field ] ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 			$value = is_array( $value ) ? '' : (string) $value;
+
+			if ( 'wps_primary_category_id' === $field ) {
+				$cat_id = (int) $value;
+				if ( $cat_id > 0 ) {
+					update_post_meta( $post_id, $meta_key, $cat_id );
+				} else {
+					delete_post_meta( $post_id, $meta_key );
+				}
+				continue;
+			}
 
 			if ( 'wps_include' === $field ) {
 				if ( in_array( $value, array( Product_Selection::MODE_INCLUDE, Product_Selection::MODE_EXCLUDE ), true ) ) {

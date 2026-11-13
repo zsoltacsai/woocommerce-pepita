@@ -195,7 +195,7 @@ final class Xml_Writer {
 		$this->text( $x, 'Available', ! empty( $data['available'] ) ? 'true' : 'false' );
 
 		if ( null !== ( $data['quantity'] ?? null ) ) {
-			$this->text( $x, 'Quantity', (string) max( 0, (int) $data['quantity'] ) );
+			$this->text( $x, 'Quantity', (string) min( \WPS\Pepita\Catalog\Product_Mapper::MAX_EXPORT_QUANTITY, max( 0, (int) $data['quantity'] ) ) );
 		}
 
 		if ( '' !== (string) ( $data['restock_date'] ?? '' ) ) {

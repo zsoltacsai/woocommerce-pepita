@@ -429,7 +429,7 @@ $suite->add(
 		$lock_file = Storage::lock_path();
 
 		$worker_code = sprintf(
-			'$h = fopen("%s", "c+"); if ($h) { flock($h, LOCK_EX); usleep(300000); flock($h, LOCK_UN); fclose($h); }',
+			'$h = fopen("%s", "c+"); if ($h) { flock($h, LOCK_EX); echo "L\n"; fflush(STDOUT); usleep(300000); flock($h, LOCK_UN); fclose($h); }',
 			addslashes( $lock_file )
 		);
 
@@ -444,7 +444,8 @@ $suite->add(
 			return;
 		}
 
-		usleep( 50000 );
+		$status_line = fgets( $pipes[1] );
+		WPS_Assert::same( "L\n", $status_line );
 
 		// Non-blocking lock attempt from parent process MUST fail because worker holds it
 		$non_blocking_lock = Storage::acquire_lock( false );

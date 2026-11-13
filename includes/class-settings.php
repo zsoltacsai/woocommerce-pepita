@@ -43,6 +43,7 @@ final class Settings {
 			'currency'                 => '',
 			'vat_mode'                 => 'auto',
 			'vat_fixed'                => 27.0,
+			'price_tax_mode'           => 'auto',
 			'price_adjustment_type'    => 'none',
 			'price_adjustment_value'   => 0.0,
 			'rounding'                 => 'nearest_1',
@@ -62,6 +63,7 @@ final class Settings {
 			'manufacturer_default'     => '',
 			'gtin_meta_keys'           => '_wps_gtin,_gtin,_ean,_wps_ean',
 			'gtin_required_categories' => array(),
+			'primary_category_strategy' => 'deepest',
 			'max_category_paths'       => 5,
 			'max_gallery_images'       => 10,
 
@@ -332,6 +334,14 @@ final class Settings {
 		return array_values( array_filter( $keys, static fn( string $key ): bool => '' !== $key ) );
 	}
 
+	public static function price_tax_mode(): string {
+		return (string) self::get( 'price_tax_mode', 'auto' );
+	}
+
+	public static function primary_category_strategy(): string {
+		return (string) self::get( 'primary_category_strategy', 'deepest' );
+	}
+
 	/**
 	 * @return int[]
 	 */
@@ -407,14 +417,16 @@ final class Settings {
 		);
 
 		$enums = array(
-			'vat_mode'              => array( 'auto', 'fixed' ),
-			'price_adjustment_type' => array( 'none', 'fixed', 'percent' ),
-			'rounding'              => array( 'none', 'nearest_1', 'nearest_5', 'nearest_10', 'nearest_100', 'up_1' ),
-			'warranty_type'         => array( 'None', 'Day', 'Week', 'Month', 'Year' ),
-			'description_source'    => array( 'long', 'short', 'long_short' ),
-			'brand_source'          => array( 'meta', 'taxonomy', 'none' ),
-			'removal_policy'        => array( 'omit', 'zero_stock' ),
-			'log_level'             => array( 'debug', 'info', 'warning', 'error' ),
+			'vat_mode'                  => array( 'auto', 'fixed' ),
+			'price_tax_mode'            => array( 'auto', 'gross', 'net' ),
+			'price_adjustment_type'     => array( 'none', 'fixed', 'percent' ),
+			'rounding'                  => array( 'none', 'nearest_1', 'nearest_5', 'nearest_10', 'nearest_100', 'up_1' ),
+			'warranty_type'             => array( 'None', 'Day', 'Week', 'Month', 'Year' ),
+			'description_source'        => array( 'long', 'short', 'long_short' ),
+			'brand_source'              => array( 'meta', 'taxonomy', 'none' ),
+			'primary_category_strategy' => array( 'deepest', 'lowest_id', 'highest_id', 'alphabetical' ),
+			'removal_policy'            => array( 'omit', 'zero_stock' ),
+			'log_level'                 => array( 'debug', 'info', 'warning', 'error' ),
 		);
 
 		$texts = array(
