@@ -143,6 +143,12 @@ An independent, rigorous security QA review was conducted across multiple iterat
   8. **LOW: Entry Count Clarification**:
      - *Issue*: "55 files" was ambiguous; clarified as 47 files + 8 directory entries.
 * **Verdict**: **CONDITIONAL PASS — STAGING PREPARATION ONLY**
+  - All 8 audit findings (1 Critical, 1 High, 4 Medium, 2 Low) confirmed **Resolved** on branch `security/m9-staging-readiness`.
+  - Non-blocking residual observations noted for staging observation:
+    1. *TOCTOU Pre-Save Gap*: Pre-save check (`is_attempt_current()`) and final `$order->save()` are distinct operations; fenced `complete()` guards post-save integrity.
+    2. *Reproducible Build Verification*: Package SHA-256 confirmed byte-for-byte stable with `SOURCE_DATE_EPOCH` and `zip -X`.
+    3. *Intermediate Commits*: Intermediate commits `4503906`, `14b9f0f`, and `3ca8844` resolved unit test mock fixtures and MySQL same-second affected rows count without affecting core invariants.
+    4. *Manual Acceptance Scenarios*: Synthetic test scenarios ST-01 to ST-11 must be executed during staging dry-run.
 * **Production Gate**: **STRICT NO-GO (HOLD)** pending live staging dry-run acceptance and partner team clarifications.
 
 ---
