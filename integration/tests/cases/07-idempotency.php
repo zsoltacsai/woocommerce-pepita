@@ -151,6 +151,28 @@ WPS_IT::test(
 
 		WPS_IT::same( 'completed', (string) $row['status'], 'Crash recovery did not complete the new claim.' );
 		WPS_IT::same( $order_id, (int) $row['wc_order_id'], 'Crash recovery stored the wrong order id.' );
+
+		// A changed payload during crash recovery must be rejected with 409 and not modify the order
+		$changed = WPS_IT::order_payload( 'order-cod-paid.json', $external_id );
+		$wpdb->delete( Order_Repository::table(), array( 'external_id' => $external_id ), array( '%s' ) );
+
+		$third = WPS_IT::post_order( $changed );
+
+		WPS_IT::same( 409, $third['code'], 'A changed duplicate during crash recovery must return 409.' );
+		WPS_IT::same( true, (bool) $third['json']['isError'], 'A changed duplicate during crash recovery must be an error.' );
+
+		$reloaded = wc_get_order( $order_id );
+		WPS_IT::same( 1, count( WPS_IT::orders_by_external_id( $external_id ) ), 'Crash recovery conflict created extra orders.' );
+
+		$notes             = wc_get_order_notes( array( 'order_id' => $order_id ) );
+		$has_conflict_note = false;
+		foreach ( $notes as $n ) {
+			if ( str_contains( (string) $n->content, 'NEW-2' ) || str_contains( (string) $n->content, 'eltérő tartalommal' ) ) {
+				$has_conflict_note = true;
+				break;
+			}
+		}
+		WPS_IT::true( $has_conflict_note, 'Expected operator reconciliation note on existing order after crash recovery conflict.' );
 	}
 );
 

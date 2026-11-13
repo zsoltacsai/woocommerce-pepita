@@ -129,7 +129,7 @@ throttled and the window is one minute.
 | `date` | string | no | Parsed with `strtotime()`; becomes `date_created` |
 | `payment_mode` | `cod`\|`transfer`\|`creditcard` | no | Mapped to a WooCommerce gateway |
 | `payment_status` | `paid`\|`unpaid` | no | Only `paid` sets a paid status and `date_paid` |
-| `status` | string | no | Stored for reference; the WooCommerce status comes from settings |
+| `status` | string | no | Pepita order status; included in conflict/reconciliation operator notes (order status in WooCommerce is governed by plugin settings) |
 | `total_shipping_price` | number | no | Strict non-negative amount; added as a shipping line when > 0 |
 | `total_shipping_price_currency` | string | no | Accepted; the order currency comes from the items or store |
 | `voucher` | number | no | Strict non-negative amount; added as a negative fee |
@@ -144,7 +144,7 @@ throttled and the window is one minute.
 | `products[].currency` | string | no | 3-letter code; all lines must agree |
 | `products[].quantity` | int | **yes** | Whole number, 1–100000 |
 | `products[].price` | number | **yes** | Gross unit price, strict non-negative amount, must be > 0 |
-| `products[].vat` | number | no | 0–100 |
+| `products[].vat` | number | no | 0–100; optional when store taxes disabled or customer is tax-exempt. Required and validated against WooCommerce tax rate on taxable products in tax-enabled stores |
 
 ### 3.1 Monetary format
 
@@ -307,7 +307,7 @@ WooCommerce order creation:
    - Preserves the original order data intact.
    - Adds an internal operator order note to the WooCommerce order informing the merchant
      about the new payload hash and received Pepita status/payment status.
-   - Records a redacted reconciliation event in the plugin log (`reconciliation_needed`).
+   - Records a redacted reconciliation event in the plugin log (event `order_duplicate` with `reconciliation_event: changed_payload_refused`).
    - Returns HTTP 409 Conflict.
 3. **Retry risks:** If Pepita's sender treats 409 as a retryable transient failure rather than
    a business conflict, repetitive webhooks could cause log bloat or webhook queue backlogs.

@@ -223,6 +223,28 @@ try {
 		}
 	);
 
+	WPS_IT::test(
+		'Tax-exempt order: customer tax exemption with 0% payload VAT on taxable product creates clean zero-tax order',
+		static function () use ( $run ): void {
+			$external_id = 'IT-TAX-EXEMPT-ZERO-' . $run;
+			$payload     = WPS_IT::order_payload( 'order-transfer-unpaid.json', $external_id );
+			$payload['customer']['is_vat_exempt'] = 'yes';
+			$payload['products'][0]['vat']         = 0;
+
+			$response = WPS_IT::post_order( $payload );
+			WPS_IT::same( 200, $response['code'], 'Tax-exempt order with 0% VAT failed: ' . $response['body'] );
+
+			$order = wc_get_order( (int) $response['json']['orderId'] );
+			WPS_IT::instance( \WC_Order::class, $order, 'Order not found.' );
+
+			WPS_IT::close( 2990.0, (float) $order->get_total(), 0.01, 'Order total changed.' );
+			WPS_IT::close( 0.0, (float) $order->get_total_tax(), 0.01, 'Tax-exempt order must have zero tax.' );
+			WPS_IT::close( 0.0, (float) $order->get_cart_tax(), 0.01, 'Cart tax must be zero.' );
+			WPS_IT::close( 0.0, (float) $order->get_shipping_tax(), 0.01, 'Shipping tax must be zero.' );
+			WPS_IT::same( 0, count( $order->get_items( 'tax' ) ), 'Tax-exempt order must have no tax rows.' );
+		}
+	);
+
 	// -------------------------------------------------------------------------
 	// Test 6: Incompatible VAT validation fails safely with 422
 	// -------------------------------------------------------------------------

@@ -156,8 +156,13 @@ final class Order_Repository {
 	private static function update_claim( string $external_id, string $payload, string $payload_hash, string $now, string $stale_before ) {
 		global $wpdb;
 
-		$table = self::table();
-		$keep  = (bool) Settings::get( 'order_api_keep_payloads', false );
+		$table          = self::table();
+		$keep           = (bool) Settings::get( 'order_api_keep_payloads', false );
+		$existing_claim = self::get( $external_id );
+		$has_order      = null !== $existing_claim && (int) ( $existing_claim['wc_order_id'] ?? 0 ) > 0;
+		$target_hash    = $has_order && '' !== (string) ( $existing_claim['payload_hash'] ?? '' )
+			? (string) $existing_claim['payload_hash']
+			: $payload_hash;
 
 		if ( $keep ) {
 			return $wpdb->query(
@@ -167,7 +172,7 @@ final class Order_Repository {
 					 WHERE external_id = %s AND (status = %s OR updated_at < %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 					self::STATUS_PROCESSING,
 					$payload,
-					$payload_hash,
+					$target_hash,
 					$now,
 					$external_id,
 					self::STATUS_FAILED,
@@ -182,7 +187,7 @@ final class Order_Repository {
 				 SET status = %s, payload = NULL, payload_hash = %s, attempts = attempts + 1, last_error = NULL, updated_at = %s
 				 WHERE external_id = %s AND (status = %s OR updated_at < %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 				self::STATUS_PROCESSING,
-				$payload_hash,
+				$target_hash,
 				$now,
 				$external_id,
 				self::STATUS_FAILED,

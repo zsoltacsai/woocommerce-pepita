@@ -215,12 +215,13 @@ not a substitute for the live M9 staging validation.
     preserving exact total amounts, standard `WC_Order_Item_Tax` lines, taxable shipping
     breakdown, and compatibility with invoicing plugins without adding VAT a second time.
     Mismatched or invalid tax rates fail safely with 422 before order creation.
-15. **Changed-content duplicates (independent re-review NEW-2 — RESOLVED).** A re-send
+15. **Changed-content duplicates (independent re-review NEW-2 — PARTIALLY RESOLVED).** A re-send
     of the same external id with a different payload hash returns 409 Conflict. In accordance
     with security requirements, existing orders are never overwritten, duplicate orders are
-    never created, a redacted reconciliation event is logged, and an operator order note is
-    recorded on the existing WooCommerce order to keep store staff informed. Clarification
-    questions for Pepita's lifecycle contract have been documented.
+    never created, a redacted reconciliation event is logged (`changed_payload_refused`), and an operator
+    order note is recorded on the existing WooCommerce order to keep store staff informed. Automated
+    lifecycle status mutation remains refused/held pending partner team clarification questions documented
+    in `PEPITA-API-INTEGRATION.md`.
 16. **Custom order statuses and label retention (independent re-review NEW-7).**
     Labels are deleted only for the known-closed statuses `completed`,
     `cancelled`, `refunded`, `failed` and `trash`. Custom statuses are treated as

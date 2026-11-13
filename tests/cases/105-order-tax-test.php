@@ -398,3 +398,177 @@ $suite->add(
 		WPS_Assert::contains( 'NEW-2', end( $notes ) );
 	}
 );
+
+$suite->add(
+	'tax: taxable product with tax-exempt customer creates clean zero-tax order even with 0% payload VAT',
+	static function () use ( $tax_payload ): void {
+		WPS_Test_State::$tax_enabled = true;
+		update_option( 'woocommerce_calc_taxes', 'yes' );
+
+		$rate_id = WC_Tax::_insert_tax_rate(
+			array(
+				'tax_rate_class'    => '',
+				'tax_rate'          => '27.0000',
+				'tax_rate_name'     => 'ÁFA 27%',
+				'tax_rate_shipping' => 1,
+			)
+		);
+
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 607,
+				'name'       => 'Taxable Termék for Exempt Customer',
+				'sku'        => 'SKU-EXEMPT-1',
+				'price'      => '1000',
+				'tax_status' => 'taxable',
+				'tax_class'  => '',
+			)
+		);
+
+		// Customer is VAT-exempt and Pepita zeroes VAT
+		$payload = $tax_payload(
+			array(
+				'id'       => 'PEP-TAX-EXEMPT-ZERO',
+				'customer' => array(
+					'is_vat_exempt' => 'yes',
+				),
+				'products' => array(
+					array(
+						'id'       => 'wps-607',
+						'sku'      => 'SKU-EXEMPT-1',
+						'currency' => 'HUF',
+						'quantity' => 2,
+						'price'    => 1000,
+						'vat'      => 0,
+					),
+				),
+			)
+		);
+
+		$result = ( new Importer() )->import( $payload );
+
+		WPS_Assert::same( 'created', $result['status'] );
+		WPS_Assert::same( 200, $result['http'] );
+
+		$order = WPS_Test_State::$orders[ $result['order_id'] ];
+		WPS_Assert::equals( 2990.0, $order->get_total() );
+		WPS_Assert::equals( 0.0, $order->get_total_tax() );
+		WPS_Assert::equals( 0.0, $order->get_cart_tax() );
+		WPS_Assert::equals( 0.0, $order->get_shipping_tax() );
+		WPS_Assert::same( 0, count( $order->get_items( 'tax' ) ) );
+
+		WC_Tax::_delete_tax_rate( $rate_id );
+	}
+);
+
+$suite->add(
+	'duplicate: crash-recovery with changed payload returns 409 and protects order',
+	static function () use ( $tax_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+
+		WPS_Test_State::add_product(
+			array(
+				'id'    => 608,
+				'name'  => 'Crash Duplicate Test',
+				'sku'   => 'SKU-CRASH-DUP',
+				'price' => '1000',
+			)
+		);
+
+		$first_payload = $tax_payload(
+			array(
+				'id'       => 'PEP-CRASH-DUP-1',
+				'products' => array(
+					array(
+						'id'       => 'wps-608',
+						'sku'      => 'SKU-CRASH-DUP',
+						'currency' => 'HUF',
+						'quantity' => 1,
+						'price'    => 1000,
+						'vat'      => 27,
+					),
+				),
+			)
+		);
+
+		$importer = new Importer();
+		$first    = $importer->import( $first_payload );
+		WPS_Assert::same( 200, $first['http'] );
+		$order_id = $first['order_id'];
+
+		$order = WPS_Test_State::$orders[ $order_id ];
+		$notes_before = count( $order->get_customer_notes() );
+
+		// Simulate crash before completion / lost claim by resetting repository row
+		global $wpdb;
+		$wpdb->delete( Order_Repository::table(), array( 'external_id' => 'PEP-CRASH-DUP-1' ) );
+
+		// Send altered payload: different quantity
+		$altered_payload = $first_payload;
+		$altered_payload['products'][0]['quantity'] = 5;
+
+		$second = $importer->import( $altered_payload );
+
+		WPS_Assert::same( 409, $second['http'] );
+		WPS_Assert::same( 'conflict', $second['status'] );
+
+		// Original order total preserved intact
+		WPS_Assert::equals( 1990.0, $order->get_total() );
+
+		// Note recorded
+		$notes = $order->get_customer_notes();
+		WPS_Assert::true( count( $notes ) > $notes_before );
+		WPS_Assert::contains( 'NEW-2', end( $notes ) );
+	}
+);
+
+$suite->add(
+	'duplicate: canonical payload key ordering produces identical hash',
+	static function () use ( $tax_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+
+		WPS_Test_State::add_product(
+			array(
+				'id'    => 609,
+				'name'  => 'Canonical Key Order Test',
+				'sku'   => 'SKU-CANONICAL-1',
+				'price' => '1000',
+			)
+		);
+
+		$base = $tax_payload(
+			array(
+				'id'       => 'PEP-CANON-1',
+				'products' => array(
+					array(
+						'id'       => 'wps-609',
+						'sku'      => 'SKU-CANONICAL-1',
+						'currency' => 'HUF',
+						'quantity' => 1,
+						'price'    => 1000,
+						'vat'      => 27,
+					),
+				),
+			)
+		);
+
+		$importer = new Importer();
+		$first    = $importer->import( $base );
+		WPS_Assert::same( 200, $first['http'] );
+		WPS_Assert::same( 'created', $first['status'] );
+
+		// Reorder top-level keys
+		$keys     = array_keys( $base );
+		shuffle( $keys );
+		$reordered = array();
+		foreach ( $keys as $k ) {
+			$reordered[ $k ] = $base[ $k ];
+		}
+
+		$second = $importer->import( $reordered );
+		WPS_Assert::same( 200, $second['http'] );
+		WPS_Assert::same( 'duplicate', $second['status'] );
+	}
+);

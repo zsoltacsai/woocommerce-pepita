@@ -87,7 +87,7 @@ PV-07, PV-10) and raised ten follow-ups:
 | New ID | Severity | Finding | Disposition |
 |---|---|---|---|
 | NEW-1 | MEDIUM (accounting) | Zeroed cart/shipping tax means WooCommerce tax lines show no VAT | **Fixed** — tax-aware order creation partitions gross amounts into net and tax rows via WC_Tax APIs; exact gross total is preserved; standard WC_Order_Item_Tax rows and shipping tax added |
-| NEW-2 | MEDIUM (functional) | Changed-content duplicate returns 409 forever, so later status updates are refused | **Fixed** — non-destructive duplicate handling preserves order, records redacted reconciliation event, adds operator order note to WooCommerce order, and documents clarification questions for Pepita |
+| NEW-2 | MEDIUM (functional) | Changed-content duplicate returns 409 forever, so later status updates are refused | **Partially resolved** — non-destructive 409 conflict, operator reconciliation note, and redacted reconciliation log implemented; Pepita status lifecycle synchronization policy remains refused/held pending partner team clarification |
 | NEW-3 | MEDIUM (CF-11 gap) | `billing_street_address` / `shipping_street_address` were not redacted | **Fixed** — added to `PII_KEYS`; regression test extended |
 | NEW-4 | LOW (migration) | `activate()` skipped the collation migration; ALTER result unchecked | **Fixed** — migration runs on activation, the result is recorded in `wps_pepita_collation_ok`, and a failed ALTER is retried (throttled) on later requests |
 | NEW-5 | LOW (client IP) | An unparseable forwarding hop fell back to the proxy address | **Fixed** — chain fails closed (`0.0.0.0`); `ip:port`/`[v6]:port` normalised; `/0` rejected. Tests cover fail-closed, normalisation and `/0` |
@@ -99,7 +99,9 @@ PV-07, PV-10) and raised ten follow-ups:
 | NEW-11 | MEDIUM (release hygiene) | Tracked `dist/wp-pepita-sync.zip` was the stale 1.0.0 build | **Fixed** — rebuilt from 1.1.0 source; `uninstall.php` now also removes `wps_pepita_collation_ok` |
 
 Re-review verdict: **PASS (remediation complete)**. No CRITICAL/HIGH. After the fixes above,
-NEW-1 and NEW-2 are fully resolved and verified in both unit and integration suites (HPOS and legacy),
+NEW-1 is fully resolved and NEW-2 is partially resolved (non-destructive 409 conflict, operator
+reconciliation note, and redacted reconciliation log; lifecycle status update synchronization
+held pending partner clarification), verified in both unit and integration suites (HPOS and legacy),
 and production stays NO-GO pending M9 Pepita staging validation.
 
 ## 7. What this document deliberately does not contain

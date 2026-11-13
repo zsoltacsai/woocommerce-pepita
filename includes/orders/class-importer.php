@@ -45,9 +45,10 @@ final class Importer {
 			return $this->result( 'error', 400, 'Hiányzik vagy érvénytelen a Pepita rendelésazonosító (id).' );
 		}
 
-		$payload_json = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
-		$payload_json = is_string( $payload_json ) ? $payload_json : '';
-		$payload_hash = hash( 'sha256', $payload_json );
+		$canonical_payload = $this->canonicalize( $payload );
+		$payload_json      = wp_json_encode( $canonical_payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		$payload_json      = is_string( $payload_json ) ? $payload_json : '';
+		$payload_hash      = hash( 'sha256', $payload_json );
 		$payload['__hash'] = $payload_hash;
 
 		$claim = Order_Repository::claim( $external_id, (string) ( $payload['origin'] ?? '' ), $payload_json, $payload_hash );
@@ -56,52 +57,7 @@ final class Importer {
 			$order_id    = (int) ( $claim['row']['wc_order_id'] ?? 0 );
 			$stored_hash = (string) ( $claim['row']['payload_hash'] ?? '' );
 
-			if ( '' !== $stored_hash && ! hash_equals( $stored_hash, $payload_hash ) ) {
-				$existing_order = wc_get_order( $order_id );
-
-				if ( $existing_order instanceof \WC_Order ) {
-					$existing_order->add_order_note(
-						sprintf(
-							'Figyelem: Ismételt Pepita rendelésértesítés érkezett eltérő tartalommal (új hash: %s). A meglévő rendelést a rendszer nem módosította a rendelés integritásának védelmében (NEW-2). Új Pepita státusz: %s, fizetési státusz: %s.',
-							substr( $payload_hash, 0, 12 ),
-							(string) ( $payload['status'] ?? 'n/a' ),
-							(string) ( $payload['payment_status'] ?? 'n/a' )
-						)
-					);
-				}
-
-				Logger::warning(
-					'order_duplicate',
-					'Ismételt Pepita rendelésértesítés eltérő tartalommal: a meglévő rendelést nem módosítottuk.',
-					array(
-						'external_id'           => $external_id,
-						'order_id'              => $order_id,
-						'stored_hash'           => substr( $stored_hash, 0, 16 ),
-						'new_hash'              => substr( $payload_hash, 0, 16 ),
-						'reconciliation_event'  => 'changed_payload_refused',
-						'pepita_status'         => (string) ( $payload['status'] ?? '' ),
-						'pepita_payment_status' => (string) ( $payload['payment_status'] ?? '' ),
-						'redacted_new_payload'  => Redactor::redact( $payload ),
-					),
-					'order',
-					$order_id
-				);
-
-				return $this->result( 'conflict', 409, 'A rendelés már korábban importálásra került, de az új értesítés tartalma eltér. Kérjük, ellenőrizze a rendelést a WooCommerce-ben.' );
-			}
-
-			Logger::info(
-				'order_duplicate',
-				'Ismételt Pepita rendelésértesítés: a rendelés már importálva van, nem hoztunk létre újat.',
-				array(
-					'external_id' => $external_id,
-					'order_id'    => $order_id,
-				),
-				'order',
-				$order_id
-			);
-
-			return $this->result( 'duplicate', 200, 'A rendelés már korábban importálásra került.', $order_id );
+			return $this->handle_existing_order( $external_id, $order_id, $stored_hash, $payload_hash, $payload );
 		}
 
 		if ( 'busy' === $claim['state'] ) {
@@ -117,9 +73,12 @@ final class Importer {
 		$existing = $this->find_order_by_external_id( $external_id );
 
 		if ( $existing > 0 ) {
-			Order_Repository::complete( $external_id, $existing );
+			$existing_order = wc_get_order( $existing );
+			$stored_hash    = $existing_order instanceof \WC_Order
+				? (string) $existing_order->get_meta( self::META_PAYLOAD_HASH )
+				: (string) ( $claim['row']['payload_hash'] ?? '' );
 
-			return $this->result( 'duplicate', 200, 'A rendelés már korábban importálásra került.', $existing );
+			return $this->handle_existing_order( $external_id, $existing, $stored_hash, $payload_hash, $payload, true );
 		}
 
 		try {
@@ -398,7 +357,9 @@ final class Importer {
 				return array( 'error' => sprintf( 'A(z) %d. tételhez tartozó termék nem publikált.', $index + 1 ) );
 			}
 
-			if ( $tax_enabled ) {
+			$is_tax_exempt = (string) ( $customer['is_vat_exempt'] ?? '' ) === 'yes';
+
+			if ( $tax_enabled && ! $is_tax_exempt ) {
 				$tax_status = method_exists( $product, 'get_tax_status' ) ? $product->get_tax_status() : 'taxable';
 				$raw_vat    = $item['vat'] ?? null;
 				$vat_parsed = Money::parse_vat( $raw_vat );
@@ -531,7 +492,7 @@ final class Importer {
 			}
 
 			$tax_enabled   = function_exists( 'wc_tax_enabled' ) && wc_tax_enabled();
-			$is_tax_exempt = (string) ( $customer['is_vat_exempt'] ?? '' ) === 'yes' || (bool) $order->get_meta( '_is_vat_exempt' );
+			$is_tax_exempt = (string) ( $customer['is_vat_exempt'] ?? '' ) === 'yes';
 
 			$rate_cart_taxes     = array();
 			$rate_shipping_taxes = array();
@@ -1126,6 +1087,97 @@ final class Importer {
 		}
 
 		return (bool) array_intersect( (array) $user->roles, array( 'administrator', 'shop_manager' ) );
+	}
+
+	/**
+	 * Canonicalize payload recursively for deterministic hash identity.
+	 *
+	 * @param mixed $data
+	 * @return mixed
+	 */
+	private function canonicalize( $data ) {
+		if ( ! is_array( $data ) ) {
+			return $data;
+		}
+
+		$is_assoc = array_keys( $data ) !== range( 0, count( $data ) - 1 );
+		if ( $is_assoc ) {
+			ksort( $data );
+		}
+
+		foreach ( $data as $key => $value ) {
+			$data[ $key ] = $this->canonicalize( $value );
+		}
+
+		return $data;
+	}
+
+	/**
+	 * Handle duplicate order notifications idempotently or refuse conflicting payloads.
+	 *
+	 * @param string               $external_id
+	 * @param int                  $order_id
+	 * @param string               $stored_hash
+	 * @param string               $payload_hash
+	 * @param array<string, mixed> $payload
+	 * @param bool                 $reclaimed Whether this came from the crash-recovery fallback.
+	 * @return array<string, mixed>
+	 */
+	private function handle_existing_order( string $external_id, int $order_id, string $stored_hash, string $payload_hash, array $payload, bool $reclaimed = false ): array {
+		if ( $reclaimed && $order_id > 0 ) {
+			Order_Repository::complete( $external_id, $order_id );
+		}
+
+		$existing_order = $order_id > 0 ? wc_get_order( $order_id ) : false;
+
+		if ( '' === $stored_hash && $existing_order instanceof \WC_Order ) {
+			$stored_hash = (string) $existing_order->get_meta( self::META_PAYLOAD_HASH );
+		}
+
+		if ( '' !== $stored_hash && ! hash_equals( $stored_hash, $payload_hash ) ) {
+			if ( $existing_order instanceof \WC_Order ) {
+				$existing_order->add_order_note(
+					sprintf(
+						'Figyelem: Ismételt Pepita rendelésértesítés érkezett eltérő tartalommal (új hash: %s). A meglévő rendelést a rendszer nem módosította a rendelés integritásának védelmében (NEW-2). Új Pepita státusz: %s, fizetési státusz: %s.',
+						substr( $payload_hash, 0, 12 ),
+						(string) ( $payload['status'] ?? 'n/a' ),
+						(string) ( $payload['payment_status'] ?? 'n/a' )
+					)
+				);
+			}
+
+			Logger::warning(
+				'order_duplicate',
+				'Ismételt Pepita rendelésértesítés eltérő tartalommal: a meglévő rendelést nem módosítottuk.',
+				array(
+					'external_id'           => $external_id,
+					'order_id'              => $order_id,
+					'stored_hash'           => substr( $stored_hash, 0, 16 ),
+					'new_hash'              => substr( $payload_hash, 0, 16 ),
+					'reconciliation_event'  => 'changed_payload_refused',
+					'pepita_status'         => (string) ( $payload['status'] ?? '' ),
+					'pepita_payment_status' => (string) ( $payload['payment_status'] ?? '' ),
+					'redacted_new_payload'  => Redactor::redact( $payload ),
+				),
+				'order',
+				$order_id
+			);
+
+			return $this->result( 'conflict', 409, 'A rendelés már korábban importálásra került, de az új értesítés tartalma eltér. Kérjük, ellenőrizze a rendelést a WooCommerce-ben.' );
+		}
+
+		Logger::info(
+			'order_duplicate',
+			'Ismételt Pepita rendelésértesítés: a rendelés már importálva van, nem hoztunk létre újat.',
+			array(
+				'external_id' => $external_id,
+				'order_id'    => $order_id,
+			),
+			'order',
+			$order_id
+		);
+
+		return $this->result( 'duplicate', 200, 'A rendelés már korábban importálásra került.', $order_id );
 	}
 
 	/**
