@@ -144,7 +144,7 @@ throttled and the window is one minute.
 | `products[].currency` | string | no | 3-letter code; all lines must agree |
 | `products[].quantity` | int | **yes** | Whole number, 1–100000 |
 | `products[].price` | number | **yes** | Gross unit price, strict non-negative amount, must be > 0 |
-| `products[].vat` | number | no | 0–100; optional when store taxes disabled or customer is tax-exempt. Required and validated against WooCommerce tax rate on taxable products in tax-enabled stores |
+| `products[].vat` | number | no | 0–100; optional. When provided on a taxable product in a tax-enabled store (for non-exempt customers), it is validated against the configured WooCommerce tax rate (mismatch → 422) |
 
 ### 3.1 Monetary format
 
@@ -329,6 +329,9 @@ enabling automated lifecycle status mutations:
    accepted as acknowledgement for duplicate deliveries?
 5. **Out-of-order delivery:** Can webhook deliveries occur out of order, and how are sequence
    guarantees established?
+6. **Tax-exempt pricing semantics:** For tax-exempt buyers (`customer.is_vat_exempt === 'yes'`),
+   does Pepita's `products[].price` represent a net price or does it still include standard VAT?
+   The plugin zeroes WooCommerce tax and treats `products[].price` as the total payable amount.
 
 Package-label PDFs are kept for `order_api_label_retention_days` (default 30).
 The daily maintenance job deletes expired labels of closed orders and clears

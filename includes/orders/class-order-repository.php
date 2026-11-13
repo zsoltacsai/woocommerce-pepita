@@ -164,14 +164,16 @@ final class Order_Repository {
 			? (string) $existing_claim['payload_hash']
 			: $payload_hash;
 
-		if ( $keep ) {
+		if ( $keep && ( ! $has_order || null !== ( $existing_claim['payload'] ?? null ) ) ) {
+			$target_payload = $has_order ? (string) $existing_claim['payload'] : $payload;
+
 			return $wpdb->query(
 				$wpdb->prepare(
 					"UPDATE {$table}
 					 SET status = %s, payload = %s, payload_hash = %s, attempts = attempts + 1, last_error = NULL, updated_at = %s
 					 WHERE external_id = %s AND (status = %s OR updated_at < %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 					self::STATUS_PROCESSING,
-					$payload,
+					$target_payload,
 					$target_hash,
 					$now,
 					$external_id,

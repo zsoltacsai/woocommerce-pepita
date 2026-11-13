@@ -76,6 +76,9 @@ pending) and PV-01 (fixed).
 | Unpinned image digests (CF-13) | No Docker access to pull/verify | Before CI relies on the images |
 | No private vulnerability channel | Single maintainer; owner decision | Before public distribution |
 | Live staging validation pending | Environment lacks Docker/MySQL | Mandatory M9 gate |
+| XML parser hardening vs SSRF | `LIBXML_NONET` in `class-validator.php` prevents entity expansion/XXE network access during local XML validation; it is not an outbound SSRF control (the plugin makes no outbound HTTP requests) | If outbound XML fetchers are introduced |
+| Pre-save crash recovery orphan window | If PHP crashes after `wc_create_order()` but before metadata save, an order exists without `_wps_pepita_order_id` | If persistent unhandled process crashes occur during order creation |
+| Legacy orders without payload hash | Existing WooCommerce orders created before 1.1.0 lack `_wps_pepita_payload_hash` meta; crash-recovery adopts them with duplicate 200 without payload comparison | Pre-1.1.0 historical data |
 
 ## 6. Independent re-review at remediation HEAD
 
@@ -98,7 +101,7 @@ PV-07, PV-10) and raised ten follow-ups:
 | NEW-10 | INFO | IPv4-mapped IPv6, `/0`, query-string key, empty optional amounts | **Partially fixed** — `/0` rejected; others documented as residual |
 | NEW-11 | MEDIUM (release hygiene) | Tracked `dist/wp-pepita-sync.zip` was the stale 1.0.0 build | **Fixed** — rebuilt from 1.1.0 source; `uninstall.php` now also removes `wps_pepita_collation_ok` |
 
-Re-review verdict: **PASS (remediation complete)**. No CRITICAL/HIGH. After the fixes above,
+Re-review verdict: **CONDITIONAL PASS (remediation complete, production hold)**. No CRITICAL/HIGH. After the fixes above,
 NEW-1 is fully resolved and NEW-2 is partially resolved (non-destructive 409 conflict, operator
 reconciliation note, and redacted reconciliation log; lifecycle status update synchronization
 held pending partner clarification), verified in both unit and integration suites (HPOS and legacy),

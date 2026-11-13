@@ -559,15 +559,25 @@ $suite->add(
 		WPS_Assert::same( 200, $first['http'] );
 		WPS_Assert::same( 'created', $first['status'] );
 
-		// Reorder top-level keys
-		$keys     = array_keys( $base );
-		shuffle( $keys );
-		$reordered = array();
-		foreach ( $keys as $k ) {
-			$reordered[ $k ] = $base[ $k ];
-		}
+		// Deterministically reverse associative keys at all nesting levels
+		$reverse_keys = static function ( $data ) use ( &$reverse_keys ) {
+			if ( ! is_array( $data ) ) {
+				return $data;
+			}
+			$is_assoc = array_keys( $data ) !== range( 0, count( $data ) - 1 );
+			$result   = array();
+			$keys     = array_keys( $data );
+			if ( $is_assoc ) {
+				$keys = array_reverse( $keys );
+			}
+			foreach ( $keys as $k ) {
+				$result[ $k ] = $reverse_keys( $data[ $k ] );
+			}
+			return $result;
+		};
 
-		$second = $importer->import( $reordered );
+		$reordered = $reverse_keys( $base );
+		$second    = $importer->import( $reordered );
 		WPS_Assert::same( 200, $second['http'] );
 		WPS_Assert::same( 'duplicate', $second['status'] );
 	}
