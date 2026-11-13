@@ -29,7 +29,7 @@ The staging distribution archive has been generated in a strictly reproducible, 
 | **Plugin Version** | `1.1.0` (`WPS_PEPITA_VERSION`) |
 | **Database Schema Version** | `1.1.0` (`WPS_PEPITA_DB_VERSION`) |
 | **Commit SHA** | `security/m9-staging-readiness` HEAD |
-| **Package SHA-256** | `7a2237ad4436f3b9179a06bbcb2a5aeba7504cb08a90cda572b58523f3eb30e2` |
+| **Package SHA-256** | `b0b3843655480c45124eea748bdb4cf8cc5240af08698795d1db02ba4a94ece8` |
 | **Archive File Count** | 55 files |
 | **Archive Uncompressed Size** | 443,264 bytes (~433 KB) |
 | **Archive Compressed Size** | 137,867 bytes (~135 KB) |

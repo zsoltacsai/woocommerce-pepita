@@ -517,7 +517,6 @@ final class Importer {
 
 			Order_Repository::associate( $external_id, (int) $order_id, $attempt );
 
-		try {
 			$prices_include_tax = function_exists( 'wc_prices_include_tax' ) ? wc_prices_include_tax() : false;
 			if ( method_exists( $order, 'set_prices_include_tax' ) ) {
 				$order->set_prices_include_tax( $prices_include_tax );
