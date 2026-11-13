@@ -118,6 +118,18 @@ $render_feed_card = static function ( string $type, array $state, bool $running,
 <div class="wrap wps-wrap">
 	<h1><?php esc_html_e( 'Pepita feedek', 'wp-pepita-sync' ); ?></h1>
 
+	<?php if ( Settings::is_beta_feed_only() ) : ?>
+		<div class="notice notice-info inline" style="border-left-color: #2271b1; background: #f0f6fc; padding: 12px 16px; margin: 15px 0;">
+			<h3 style="margin: 0 0 6px 0; color: #135e96;">
+				<span class="dashicons dashicons-tag" style="font-size: 18px; line-height: 18px;"></span>
+				<?php esc_html_e( 'Béta Feed-Only Konfiguráció', 'wp-pepita-sync' ); ?>
+			</h3>
+			<p style="margin: 0 0 4px 0;">
+				<?php esc_html_e( 'A feed generálás és időzítés aktív. A feed URL-ek token-védettek. A rendelésfogadás teljesen le van tiltva. Csak a kijelölt kategóriák termékei kerülnek exportálásra.', 'wp-pepita-sync' ); ?>
+			</p>
+		</div>
+	<?php endif; ?>
+
 	<p class="wps-lead">
 		<?php esc_html_e( 'A feedek előre, ütemezetten készülnek el, és a Pepita az alábbi URL-ekről tölti le őket. A készletfeed csak a legutóbbi teljes feeddel azonos kínálatot tartalmazhat.', 'wp-pepita-sync' ); ?>
 	</p>

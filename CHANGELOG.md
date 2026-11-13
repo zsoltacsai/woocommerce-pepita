@@ -4,6 +4,16 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased — M9-D Beta Feed-Only Release Readiness
+
+### Added (M9-D Beta)
+- **Mandatory Hard Category Allowlist**: When `beta_feed_only` is active, only merchant-approved WooCommerce categories are exported (`Category_Rules::has_included_categories()`, `Product_Selection::resolve()`). Products without approved categories or in unruled categories are strictly excluded (`beta_unapproved_category`). Explicit product inclusion overrides cannot bypass category exclusion. Overlapping membership in an excluded category wins.
+- **Beta Mode Operational Safety**: `Settings::is_beta_feed_only()` forces `order_api_enabled = false`, `feed_public = false`, and `default_included = false`. Order API endpoint `/wp-json/wps/v1/pepita/order` returns HTTP 503 Service Unavailable immediately without processing or side-effects.
+- **Publication Crash-Consistency & Pointer Swap**: `Storage` now publishes immutable versioned generation artifacts (`pepita-full.<gen>.xml`, `catalog.<gen>.jsonl`, `pepita-stock.<gen>.xml`) and manages active/previous state via an atomic pointer file (`active-generation.json`). A worker terminated mid-generation leaves the previous generation fully active and uncorrupted.
+- **Admin Category Matrix UI**: Hungarian banner, 4-card metric summary (Total, Included, Excluded, Unruled), and effective rule resolution status badges in the Categories admin screen.
+- **Beta Handoff Documentation**: Authoritative operations handoff guide in `docs/m9d/BETA-FEED-HANDOFF.md` with instructions for the Pepita sales contact, rollback procedures, and explicit live registration hold warnings.
+- **Comprehensive Test Coverage**: Added `tests/cases/190-beta-category-allowlist-test.php`, `tests/cases/195-publication-crash-consistency-test.php`, and `tests/cases/200-beta-order-api-isolation-test.php` (totaling 235 unit tests passing).
+
 ## Unreleased — M9-D Official XML Contract Compliance
 
 ### Added (M9-D)

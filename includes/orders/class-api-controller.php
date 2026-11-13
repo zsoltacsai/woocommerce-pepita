@@ -81,6 +81,10 @@ final class Api_Controller {
 	 * @return \WP_REST_Response
 	 */
 	public function handle( \WP_REST_Request $request ): \WP_REST_Response {
+		if ( Settings::is_beta_feed_only() ) {
+			return $this->error( 503, 'A Pepita rendelésfogadás a béta időszakban ki van kapcsolva (feed-only béta).' );
+		}
+
 		if ( ! (bool) Settings::get( 'order_api_enabled', true ) ) {
 			return $this->error( 503, 'A Pepita rendelésfogadás ki van kapcsolva ebben az áruházban.' );
 		}
