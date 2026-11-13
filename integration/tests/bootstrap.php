@@ -160,7 +160,14 @@ final class WPS_IT {
 			'timeout'     => 60,
 			'redirection' => 0,
 			'sslverify'   => false,
+			'headers'     => array(
+				// Keep request/response validators byte-identical: the HTTP API
+				// rewrites an ETag with a "-gzip" suffix when it decompresses.
+				'Accept-Encoding' => 'identity',
+			),
 		);
+
+		$args['headers'] = array_merge( $defaults['headers'], (array) ( $args['headers'] ?? array() ) );
 
 		$response = wp_remote_request( $url, array_merge( $defaults, $args ) );
 
@@ -354,10 +361,14 @@ final class WPS_IT {
 	public static function orders_by_external_id( string $external_id ): array {
 		$orders = wc_get_orders(
 			array(
-				'limit'      => -1,
-				'type'       => 'shop_order',
-				'meta_key'   => \WPS\Pepita\Orders\Importer::META_ORDER_ID, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
-				'meta_value' => $external_id, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+				// WooCommerce 11 returns no rows for limit=-1 combined with a
+				// type filter, so use a bounded positive page size.
+				'limit'         => 100,
+				'type'          => 'shop_order',
+				// Do not reuse a cached negative result from before a retry.
+				'cache_results' => false,
+				'meta_key'      => \WPS\Pepita\Orders\Importer::META_ORDER_ID, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_value'    => $external_id, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
 			)
 		);
 

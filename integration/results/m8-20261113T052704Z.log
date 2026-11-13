@@ -1,0 +1,217 @@
+Client:
+ Version:    29.9.2
+ Context:    default
+ Debug Mode: false
+ Plugins:
+  buildx: Docker Buildx (Docker Inc.)
+    Version:  0.38.1
+    Path:     /usr/lib/docker/cli-plugins/docker-buildx
+  compose: Docker Compose (Docker Inc.)
+    Version:  5.6.1
+    Path:     /usr/lib/docker/cli-plugins/docker-compose
+
+Server:
+ Containers: 5
+  Running: 5
+  Paused: 0
+  Stopped: 0
+ Images: 3
+ Server Version: 29.9.2
+ Storage Driver: overlayfs
+  driver-type: io.containerd.snapshotter.v1
+ Logging Driver: json-file
+ Cgroup Driver: systemd
+ Cgroup Version: 2
+ Plugins:
+  Volume: local
+  Network: bridge host ipvlan macvlan null overlay
+  Log: awslogs fluentd gcplogs gelf journald json-file local splunk syslog
+ CDI spec directories:
+  /etc/cdi
+  /var/run/cdi
+ Swarm: inactive
+ Runtimes: runc io.containerd.runc.v2
+ Default Runtime: runc
+ Init Binary: docker-init
+ containerd version: b7a25261e029d68978bbf290df0a62fc819b3c51.m
+ runc version: 
+ init version: de40ad0
+ Security Options:
+  seccomp
+   Profile: builtin
+  cgroupns
+ Kernel Version: 7.2.15-1-omarchy
+ Operating System: Omarchy
+ OSType: linux
+ Architecture: x86_64
+ CPUs: 4
+ Total Memory: 15.51GiB
+ Name: omarchy
+ ID: dff13817-fbbb-4e60-878f-b05bd23523dd
+ Docker Root Dir: /var/lib/docker
+ Debug Mode: false
+ Experimental: false
+ Insecure Registries:
+  127.0.0.0/8
+  ::1/128
+ Live Restore Enabled: false
+ Firewall Backend: iptables
+  EnableUserlandProxy: true
+  UserlandProxyPath: /usr/bin/docker-proxy
+
+=== 2026-11-13T05:27:08Z hpos (expected HPOS=yes) ===
+Seeding WooCommerce options...
+Creating categories...
+Creating product image...
+Creating products...
+Configuring plugin settings...
+Seed complete.
+  p1=241 p2=242 p3=243 p4=244 var=245
+Environment
+  PASS  PHP 8.5 is the runtime
+  PASS  MySQL 8.4 is the database server
+  PASS  WordPress 7.1.4 is installed
+  PASS  WooCommerce 11.3.0 is active
+  PASS  WP-CLI bootstraps the store
+  PASS  WP Pepita Sync is active
+  PASS  Required PHP extensions are loaded
+  PASS  Harness configuration is explicit
+  PASS  The order storage mode matches this test configuration
+  PASS  Store currency and locale are deterministic
+Database schema
+  PASS  Activation created both plugin tables
+  PASS  create_tables() recreates a missing schema from scratch
+  PASS  Log table columns are the documented schema
+  PASS  Order claim table columns are the documented schema
+  PASS  Required indexes and the unique external id constraint exist
+  PASS  Tables use utf8mb4 and InnoDB
+  PASS  The unique index rejects a duplicate external id
+  PASS  The logger writes to the real table
+  PASS  maybe_upgrade() migrates an old schema version idempotently
+  PASS  create_tables() is idempotent
+Feed generation
+  PASS  The seeded catalog matches the documented fixture
+  PASS  Product selection resolves include, exclude and default rules
+  PASS  The full feed generation completes with exact counters
+  PASS  The published full feed is a valid Pepita XML document
+  PASS  The simple product is mapped with prices, identifiers and stock
+  PASS  The out-of-stock product keeps its price but reports zero availability
+  PASS  The variable product exports its axes and both variations
+  PASS  The stock feed generation completes and matches the full-feed signature
+  PASS  The stock feed contains only the documented stock elements
+  PASS  The stock feed refuses to publish without a successful full feed
+Feed HTTP delivery
+  PASS  The full feed is served over HTTP with the correct headers
+  PASS  The stock feed is served over HTTP with the stock filename
+  PASS  The token is also accepted from the documented header
+  PASS  Missing and invalid tokens are rejected
+  PASS  Unknown feed slugs return 404
+  PASS  ETag and Last-Modified produce conditional 304 responses
+  PASS  A public feed can be enabled without a token and then disabled again
+  PASS  A missing feed file fails closed with 503 and Retry-After
+REST API
+  PASS  The order route is registered in the WordPress REST server
+  PASS  A missing API key returns the documented 401 envelope
+  PASS  An invalid API key returns 401
+  PASS  The API key is accepted from X-WPS-Api-Key and X-Api-Key
+  PASS  Malformed and empty bodies return 400
+  PASS  An oversized body returns 413 before parsing
+  PASS  A disabled order API returns 503 and can be re-enabled
+  PASS  HTTPS enforcement rejects plain HTTP and can be disabled
+  PASS  The IP allowlist accepts the real source address and rejects others
+  PASS  The per-IP rate limit returns 429 after the configured number of requests
+Order import
+  PASS  An unpaid transfer order is imported with the documented mapping
+  PASS  A paid cash-on-delivery order is imported as processing
+  PASS  A variation SKU resolves to the concrete WooCommerce variation
+  PASS  An invalid product is rejected without an order and the claim is retryable
+  PASS  Documented validation failures return 422 and create no order
+  PASS  The package label can be disabled without affecting the order
+Idempotency
+  PASS  A repeated delivery returns the original order and changes nothing
+  PASS  The durable claim transitions claimed -> busy -> failed -> claimed -> completed
+  PASS  A lost claim row recovers the existing order by its external id meta
+  PASS  The order lookup used by crash recovery is exact and does not match prefixes
+Scheduler execution
+  PASS  Action Scheduler runs a queued full-feed generation
+  PASS  WP-Cron fallback executes a full-feed generation when Action Scheduler is disabled
+
+60 passed, 0 failed
+=== 2026-11-13T05:28:08Z legacy (expected HPOS=no) ===
+Seeding WooCommerce options...
+Creating categories...
+Creating product image...
+Creating products...
+Configuring plugin settings...
+Seed complete.
+  p1=219 p2=220 p3=221 p4=222 var=223
+Environment
+  PASS  PHP 8.5 is the runtime
+  PASS  MySQL 8.4 is the database server
+  PASS  WordPress 7.1.4 is installed
+  PASS  WooCommerce 11.3.0 is active
+  PASS  WP-CLI bootstraps the store
+  PASS  WP Pepita Sync is active
+  PASS  Required PHP extensions are loaded
+  PASS  Harness configuration is explicit
+  PASS  The order storage mode matches this test configuration
+  PASS  Store currency and locale are deterministic
+Database schema
+  PASS  Activation created both plugin tables
+  PASS  create_tables() recreates a missing schema from scratch
+  PASS  Log table columns are the documented schema
+  PASS  Order claim table columns are the documented schema
+  PASS  Required indexes and the unique external id constraint exist
+  PASS  Tables use utf8mb4 and InnoDB
+  PASS  The unique index rejects a duplicate external id
+  PASS  The logger writes to the real table
+  PASS  maybe_upgrade() migrates an old schema version idempotently
+  PASS  create_tables() is idempotent
+Feed generation
+  PASS  The seeded catalog matches the documented fixture
+  PASS  Product selection resolves include, exclude and default rules
+  PASS  The full feed generation completes with exact counters
+  PASS  The published full feed is a valid Pepita XML document
+  PASS  The simple product is mapped with prices, identifiers and stock
+  PASS  The out-of-stock product keeps its price but reports zero availability
+  PASS  The variable product exports its axes and both variations
+  PASS  The stock feed generation completes and matches the full-feed signature
+  PASS  The stock feed contains only the documented stock elements
+  PASS  The stock feed refuses to publish without a successful full feed
+Feed HTTP delivery
+  PASS  The full feed is served over HTTP with the correct headers
+  PASS  The stock feed is served over HTTP with the stock filename
+  PASS  The token is also accepted from the documented header
+  PASS  Missing and invalid tokens are rejected
+  PASS  Unknown feed slugs return 404
+  PASS  ETag and Last-Modified produce conditional 304 responses
+  PASS  A public feed can be enabled without a token and then disabled again
+  PASS  A missing feed file fails closed with 503 and Retry-After
+REST API
+  PASS  The order route is registered in the WordPress REST server
+  PASS  A missing API key returns the documented 401 envelope
+  PASS  An invalid API key returns 401
+  PASS  The API key is accepted from X-WPS-Api-Key and X-Api-Key
+  PASS  Malformed and empty bodies return 400
+  PASS  An oversized body returns 413 before parsing
+  PASS  A disabled order API returns 503 and can be re-enabled
+  PASS  HTTPS enforcement rejects plain HTTP and can be disabled
+  PASS  The IP allowlist accepts the real source address and rejects others
+  PASS  The per-IP rate limit returns 429 after the configured number of requests
+Order import
+  PASS  An unpaid transfer order is imported with the documented mapping
+  PASS  A paid cash-on-delivery order is imported as processing
+  PASS  A variation SKU resolves to the concrete WooCommerce variation
+  PASS  An invalid product is rejected without an order and the claim is retryable
+  PASS  Documented validation failures return 422 and create no order
+  PASS  The package label can be disabled without affecting the order
+Idempotency
+  PASS  A repeated delivery returns the original order and changes nothing
+  PASS  The durable claim transitions claimed -> busy -> failed -> claimed -> completed
+  PASS  A lost claim row recovers the existing order by its external id meta
+  PASS  The order lookup used by crash recovery is exact and does not match prefixes
+Scheduler execution
+  PASS  Action Scheduler runs a queued full-feed generation
+  PASS  WP-Cron fallback executes a full-feed generation when Action Scheduler is disabled
+
+60 passed, 0 failed

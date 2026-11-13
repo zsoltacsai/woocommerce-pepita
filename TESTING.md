@@ -16,6 +16,24 @@ $ find . -name '*.php' -not -path './dist/*' -print0 | xargs -0 -n1 php -l
 
 These numbers are produced by the commands above. They are not estimated.
 
+### Integration suite (real WordPress/WooCommerce/MySQL)
+
+```bash
+sudo -n ./integration/scripts/run.sh
+```
+
+| Store | Expected HPOS | Result |
+|---|---|---|
+| `wordpress-hpos` | yes | 60 passed, 0 failed |
+| `wordpress-legacy` | no | 60 passed, 0 failed |
+
+The run takes about two minutes for both stores and re-seeds each store before
+executing the cases, so repeated runs are deterministic. Log:
+`integration/results/m8-20261113T052704Z.log`.
+
+Stack verified inside the containers by the environment cases: PHP 8.5,
+MySQL 8.4, WordPress 7.1.4, WooCommerce 11.3.0.
+
 ## 2. How the suite works
 
 The plugin depends on WordPress and WooCommerce, but the test suite does not
@@ -113,20 +131,40 @@ The suite is not decorative; it found real bugs that were fixed in the plugin:
 3. `Importer` never stored the computed payload hash, so
    `_wps_pepita_payload_hash` was always empty.
 
-## 5. What is not covered
+The Compose suite added four more:
 
-These require a real WordPress + WooCommerce environment and are **not** verified
-by this suite:
+4. Order notes were added before the order was saved, so a note could be lost on
+   a freshly created order.
+5. Non-taxonomy attribute names were used as XML attribute keys without
+   sanitisation.
+6. The crash-recovery lookup by external id could reuse a cached empty result
+   and create a duplicate order; it now passes `cache_results => false`.
+7. The harness itself had to be corrected for WooCommerce 11 behaviour
+   (`limit => -1` with a type filter, `wc_get_order_notes()` limits), the WP HTTP
+   API's `-gzip` ETag suffix, WP-Cron lock semantics and Action Scheduler's
+   per-process time budget.
 
-- Actual `dbDelta` schema creation on MySQL/MariaDB.
-- Real `WC_Product`/`WC_Order` hydration, HPOS order tables, and WooCommerce
-  email/gateway behaviour.
-- Real HTTP behaviour of the feed endpoint and REST route (headers, 304, auth
-  through a web server).
+## 5. What the suites do not cover
+
+The stub suite covers the plugin logic without WordPress. The Compose suite
+(`integration/`) covers the same plugin against a real WordPress, WooCommerce and
+MySQL stack on both HPOS and legacy storage, including:
+
+- `dbDelta` schema creation on MySQL 8.4.
+- Real `WC_Product`/`WC_Order` hydration, HPOS and legacy order tables.
+- Real HTTP behaviour of the feed endpoint and REST route (headers, ETag, 304,
+  auth through Apache).
 - Action Scheduler and WP-Cron execution.
+- Duplicate delivery, retry after failure and crash recovery.
+
+What still requires Pepita staging or real hosting:
+
+- Pepita's acceptance of the full and stock feeds and the variation shape.
+- Pepita's live order-forwarding payload and response behaviour.
 - Browser behaviour of the admin UI, AJAX polling and nonce flows.
-- WordPress multisite, object cache, and page-cache interactions.
+- Page cache, object cache and reverse-proxy interactions.
 - Payment gateway mapping against a specific store's gateway IDs.
+- WordPress multisite.
 
 See `COMPATIBILITY-REPORT.md` §5 for the manual test plan that closes these gaps.
 

@@ -444,30 +444,32 @@ final class Importer {
 
 		$this->apply_package_label( $order, $payload, $external_id );
 
-		$order->add_order_note(
-			sprintf(
-				'Pepita rendelés importálva. Pepita rendelésazonosító: %s. Fizetési mód: %s. Szállítási mód: %s. Fizetési státusz: %s.',
-				$external_id,
-				$payment['title'],
-				$shipping['title'],
-				$paid ? 'fizetve' : 'nincs fizetve'
-			)
-		);
-
-		if ( '' !== (string) ( $payload['customer_message'] ?? '' ) ) {
-			$order->add_order_note( 'Vásárlói megjegyzés: ' . (string) $payload['customer_message'] );
-		}
-
-		if ( '' !== (string) ( $payload['courier_message'] ?? '' ) ) {
-			$order->add_order_note( 'Futár megjegyzés: ' . (string) $payload['courier_message'] );
-		}
-
 		$order->set_status( $status, 'Pepita import' );
 
 		$email_filters = $this->suppress_emails();
 
 		try {
 			$order_id = $order->save();
+
+			if ( $order_id ) {
+				$order->add_order_note(
+					sprintf(
+						'Pepita rendelés importálva. Pepita rendelésazonosító: %s. Fizetési mód: %s. Szállítási mód: %s. Fizetési státusz: %s.',
+						$external_id,
+						$payment['title'],
+						$shipping['title'],
+						$paid ? 'fizetve' : 'nincs fizetve'
+					)
+				);
+
+				if ( '' !== (string) ( $payload['customer_message'] ?? '' ) ) {
+					$order->add_order_note( 'Vásárlói megjegyzés: ' . (string) $payload['customer_message'] );
+				}
+
+				if ( '' !== (string) ( $payload['courier_message'] ?? '' ) ) {
+					$order->add_order_note( 'Futár megjegyzés: ' . (string) $payload['courier_message'] );
+				}
+			}
 		} finally {
 			$this->restore_emails( $email_filters );
 		}
@@ -688,11 +690,14 @@ final class Importer {
 
 		$orders = wc_get_orders(
 			array(
-				'limit'      => 1,
-				'return'     => 'ids',
-				'meta_key'   => self::META_ORDER_ID, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
-				'meta_value' => $external_id, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
-				'status'     => 'any',
+				'limit'         => 1,
+				'return'        => 'ids',
+				// A persistent object cache must never serve a stale negative
+				// result here: that would create a duplicate order.
+				'cache_results' => false,
+				'meta_key'      => self::META_ORDER_ID, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_value'    => $external_id, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+				'status'        => 'any',
 			)
 		);
 

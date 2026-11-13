@@ -12,7 +12,10 @@ defined( 'ABSPATH' ) || exit;
 use WPS\Pepita\Catalog\Category_Rules;
 use WPS\Pepita\Catalog\Product_Mapper;
 use WPS\Pepita\Catalog\Product_Selection;
+use WPS\Pepita\Feed\Lock;
+use WPS\Pepita\Feed\Scheduler;
 use WPS\Pepita\Settings;
+use WPS\Pepita\Storage;
 
 /**
  * Delete a previous seed, if any.
@@ -214,6 +217,18 @@ function wps_it_seed_variable( int $category_id, int $image_id ): array {
 
 wps_it_seed_cleanup();
 
+// A rerun starts from clean scheduler and feed state in each isolated store.
+Scheduler::unschedule_all();
+Lock::release_all();
+delete_option( 'wps_pepita_generation_full' );
+delete_option( 'wps_pepita_generation_stock' );
+delete_option( 'wps_pepita_feed_state_full' );
+delete_option( 'wps_pepita_feed_state_stock' );
+delete_option( 'wps_pepita_dirty_full' );
+delete_option( 'wps_pepita_dirty_stock' );
+Storage::reset();
+Storage::purge();
+
 WP_CLI::log( 'Seeding WooCommerce options...' );
 
 update_option( 'woocommerce_currency', 'HUF' );
@@ -376,6 +391,7 @@ Product_Selection::clear_cache();
 delete_option( 'wps_it_mail_log' );
 delete_option( 'wps_it_email_gate_log' );
 delete_option( 'wps_it_disable_as' );
+Scheduler::schedule_all();
 
 update_option(
 	'wps_it_seed',

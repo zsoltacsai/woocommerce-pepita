@@ -27,13 +27,17 @@ WPS_IT::test(
 		$recurring = as_next_scheduled_action( Scheduler::HOOK_FULL, array(), Scheduler::GROUP );
 		WPS_IT::true( false !== $recurring, 'The plugin did not schedule its recurring full feed action.' );
 
+		Scheduler::mark_dirty( 'full' );
 		$action_id = as_schedule_single_action( time() - 1, Scheduler::HOOK_QUEUE_FULL, array(), Scheduler::GROUP, false );
 		WPS_IT::greater( 0, (int) $action_id, 'The test generation action was not queued.' );
 
-		\ActionScheduler_QueueRunner::instance()->run();
+		// A fresh runner is required in a long-lived CLI process: the shared
+		// singleton measures its time budget from construction and would stop
+		// after the first action of an earlier-served queue.
+		( new \ActionScheduler_QueueRunner() )->run();
+
 		WPS_IT::true( Storage::exists( 'full' ), 'Action Scheduler did not publish the full feed.' );
 		WPS_IT::false( Scheduler::is_dirty( 'full' ), 'Action Scheduler left the full feed marked dirty.' );
-
 		Scheduler::unschedule_all();
 		Settings::update( array( 'batch_size' => $previous_batch_size, 'batches_per_run' => $previous_batches ) );
 	}
@@ -54,7 +58,19 @@ WPS_IT::test(
 
 		Scheduler::mark_dirty( 'full' );
 		wp_schedule_single_event( time() - 1, Scheduler::HOOK_QUEUE_FULL );
-		wp_cron();
+		// Keep this request focused on the plugin's fallback event: Action
+		// Scheduler's own per-minute WP-Cron event would otherwise run first.
+		wp_clear_scheduled_hook( 'action_scheduler_run_queue' );
+		delete_transient( 'doing_cron' );
+		// Call wp-cron.php as an external scheduler: it takes the lock itself.
+		// Sending a doing_wp_cron value after deleting the transient would fail
+		// the lock check and return before running any event.
+		$cron = WPS_IT::http( 'GET', WPS_IT::base_url() . '/wp-cron.php' );
+		WPS_IT::true( in_array( $cron['code'], array( 200, 204 ), true ), 'wp-cron.php did not complete the cron request.' );
+
+		// The generation ran in the web process; drop this process's cached
+		// option values before asserting on the shared database state.
+		wp_cache_flush();
 
 		WPS_IT::true( Storage::exists( 'full' ), 'WP-Cron did not publish the full feed.' );
 		WPS_IT::false( Scheduler::is_dirty( 'full' ), 'WP-Cron left the full feed marked dirty.' );

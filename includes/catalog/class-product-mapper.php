@@ -412,7 +412,9 @@ final class Product_Mapper {
 				continue;
 			}
 
-			$key      = (string) $attribute->get_name();
+			$key      = $attribute->is_taxonomy()
+				? (string) $attribute->get_name()
+				: sanitize_title( (string) $attribute->get_name() );
 			$taxonomy = $attribute->is_taxonomy() ? $key : '';
 			$name     = function_exists( 'wc_attribute_label' ) ? (string) wc_attribute_label( $key, $product ) : $key;
 

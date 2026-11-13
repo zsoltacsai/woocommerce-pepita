@@ -1,8 +1,8 @@
 # DEVELOPMENT-STATUS — WP Pepita Sync
 
-Last updated: 2026-11-12
+Last updated: 2026-11-13
 Version: 1.0.0
-Overall state: **feature-complete, unit-tested, staging validation pending**
+Overall state: **feature-complete, unit- and integration-tested locally, live Pepita staging validation pending**
 
 ## 1. Milestones
 
@@ -15,7 +15,8 @@ Overall state: **feature-complete, unit-tested, staging validation pending**
 | M5 | Admin: menu, eight screens, AJAX, metabox, list columns, category fields | ✅ Complete |
 | M6 | Tests: harness, 14 case files, 133 cases, defect fixes | ✅ Complete |
 | M7 | Documentation and packaging | ✅ Complete (this session) |
-| M8 | Live staging validation | ⛔ Blocked — needs a WordPress/WooCommerce host |
+| M8 | Local Compose integration suite (HPOS + legacy) | ✅ Complete — 60/60 on both stores |
+| M9 | Live Pepita staging validation | ⛔ Blocked — needs a seller staging account |
 
 ## 2. What was built
 
@@ -71,6 +72,18 @@ Overall state: **feature-complete, unit-tested, staging validation pending**
   `SECURITY-REPORT.md`, `COMPATIBILITY-REPORT.md`.
 - `bin/build.sh` and `dist/wp-pepita-sync.zip`.
 
+### M8 — Local Compose integration suite
+
+- `integration/` provisions two independent stores on MySQL 8.4: one with HPOS
+  enabled, one on legacy order storage, both on WordPress 7.1.4 / PHP 8.5 /
+  WooCommerce 11.3.0.
+- `integration/scripts/setup.sh` installs both stores; `run.sh` re-seeds each
+  store and runs 60 cases per store through WP-CLI, writing the output to
+  `integration/results/`.
+- The cases exercise real HTTP (feed endpoint, ETag/304, auth), the REST order
+  route, `dbDelta` schema creation, HPOS and legacy order CRUD, duplicate
+  delivery, retry after failure, labels, Action Scheduler and WP-Cron.
+
 ## 3. Test results (actual)
 
 Command:
@@ -108,6 +121,21 @@ Performance (from `130-performance-test.php`, 1000 products):
 These are harness numbers. Production timing depends on image count, description
 length and tax lookups.
 
+Integration suite:
+
+```bash
+sudo -n ./integration/scripts/run.sh
+```
+
+| Store | Expected HPOS | Result |
+|---|---|---|
+| `wordpress-hpos` | yes | 60 passed, 0 failed |
+| `wordpress-legacy` | no | 60 passed, 0 failed |
+
+Log: `integration/results/m8-20261113T052704Z.log`. The suite was run twice
+consecutively with identical results. Inside the containers the environment
+cases confirmed PHP 8.5, MySQL 8.4, WordPress 7.1.4 and WooCommerce 11.3.0.
+
 ## 4. Defects found and fixed during testing
 
 1. **Swallowed start errors** — `Generator::run()` returned a generic
@@ -119,6 +147,22 @@ length and tax lookups.
    unpublished products produced 500 instead of 422. Fixed by returning `error`.
 3. **Missing payload hash** — the computed SHA-256 was never attached to the
    payload, leaving `_wps_pepita_payload_hash` empty. Fixed with `__hash`.
+
+The integration suite found four further issues, all fixed:
+
+4. **Notes before the order was saved** — order notes were added before
+   `save()`, so on a fresh order the note could be lost. Notes are now added
+   after the order is saved.
+5. **Unsanitised custom attribute keys** — non-taxonomy attribute names were
+   used as XML attribute keys verbatim. They now go through `sanitize_title()`.
+6. **Stale negative order lookup** — the crash-recovery lookup by external id
+   could reuse a cached empty result and create a duplicate order. It now passes
+   `cache_results => false`.
+7. **Harness-only defects** — the suite also had to correct its own assumptions
+   about WooCommerce 11 (`limit => -1` with a type filter returns no rows,
+   `wc_get_order_notes()` caps at one note), the WP HTTP API's `-gzip` ETag
+   suffix, WP-Cron lock semantics, and Action Scheduler's per-process time
+   budget. These are test-harness fixes, not plugin behaviour changes.
 
 ## 5. Files delivered
 
@@ -187,9 +231,10 @@ COMPATIBILITY-REPORT.md
 
 ### Blocker
 
-- **No WordPress/WooCommerce installation is available in this environment.**
-  Every integration point is proven against stubs, not a live stack. The plugin
-  must not be called production-ready until M8 is complete.
+- **No Pepita seller staging account or credentials.** The plugin is proven
+  against a real local WordPress/WooCommerce/MySQL stack, but Pepita has not
+  accepted a feed or forwarded an order to it. The plugin must not be called
+  production-ready until that staging pass is complete.
 
 ### Known limitations (by design, documented)
 
@@ -200,15 +245,23 @@ COMPATIBILITY-REPORT.md
 - Multisite is not officially supported.
 - The stock feed is a full snapshot; very large catalogs produce a large file.
 
-### Not verified
+### Verified locally by the Compose suite
 
-- `dbDelta` on real MySQL/MariaDB.
-- HPOS order tables end to end.
-- Real REST/HTTP headers and 304 behaviour.
-- Action Scheduler execution.
-- Browser behaviour of the admin UI.
-- Page cache and object cache interactions.
+- `dbDelta` on MySQL 8.4.
+- HPOS order tables and legacy post-based orders end to end.
+- Real REST/HTTP headers, ETag and 304 behaviour.
+- Action Scheduler and WP-Cron execution.
+- Duplicate delivery, retry after failure and crash recovery.
+- Feed generation, stock-feed consistency and removal policies over real data.
+
+### Still unverified
+
+- Pepita's acceptance of the full and stock feeds, including the variation shape.
+- Pepita's live order-forwarding payload and response behaviour.
 - Payment gateway mapping against real gateway IDs.
+- Browser behaviour of the admin UI.
+- Page cache, object cache and reverse-proxy interactions on real hosting.
+- Multisite.
 
 ## 7. Next steps
 

@@ -15,4 +15,18 @@ The test cases use documented payload fixtures in `fixtures/`; they do not call 
 
 ## Verification status
 
-Compose syntax and the integration PHP files can be checked without starting services. M8 is not accepted until `run.sh` has completed successfully on both stores. If Docker cannot be reached, `run.sh` records the daemon error and exits with status 2 before running any integration case.
+The suite passes locally on both stores with the pinned images:
+
+| Store | Expected HPOS | Result |
+|---|---|---|
+| `wordpress-hpos` | yes | 60 passed, 0 failed |
+| `wordpress-legacy` | no | 60 passed, 0 failed |
+
+Log: `results/m8-20261113T052704Z.log`. `run.sh` re-seeds each store before the
+cases, so repeated runs are deterministic.
+
+This proves the plugin against a real WordPress/WooCommerce/MySQL stack. It does
+not prove Pepita's acceptance of the feeds or its live order-forwarding
+behaviour; that still needs a seller staging account. If Docker cannot be
+reached, `run.sh` records the daemon error and exits with status 2 before running
+any integration case.

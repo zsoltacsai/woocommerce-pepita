@@ -4,6 +4,27 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Local Docker Compose integration suite: two WordPress 7.1.4 / PHP 8.5 /
+  MySQL 8.4 / WooCommerce 11.3.0 stores, one with HPOS and one with legacy order
+  storage. `integration/scripts/run.sh` re-seeds both and runs 60 cases per store.
+  Both stores pass: 60 passed, 0 failed.
+
+### Fixed
+
+- Order notes are now added after the order is saved, so they are not lost on a
+  freshly created order.
+- Non-taxonomy product attribute names are sanitised with `sanitize_title()`
+  before being used as XML attribute keys.
+- The crash-recovery order lookup by external id passes `cache_results => false`
+  so a cached empty result cannot cause a duplicate order.
+- Integration harness corrections for WooCommerce 11 (`limit => -1` with a type
+  filter, order-note limits), the WP HTTP API `-gzip` ETag suffix, WP-Cron lock
+  semantics and Action Scheduler's per-process time budget.
+
 ## [1.0.0] — 2026-11-12
 
 Initial release. Feature-complete and covered by the bundled test suite; live

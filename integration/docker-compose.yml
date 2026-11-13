@@ -14,6 +14,22 @@ x-wordpress-env: &wordpress-env
     define( 'AUTOMATIC_UPDATER_DISABLED', true );
     define( 'WP_AUTO_UPDATE_CORE', false );
 
+x-cli-service: &cli-service
+  image: ${WORDPRESS_CLI_IMAGE:-wordpress:cli-2.12.0-php8.5}
+  # Match the Apache image's www-data UID for shared-volume writes.
+  user: "33:33"
+  depends_on:
+    db:
+      condition: service_healthy
+  environment: &cli-environment
+    WORDPRESS_DB_HOST: db:3306
+    WORDPRESS_DB_USER: wordpress
+    WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD:-wps_it_password}
+    WP_CLI_CACHE_DIR: /tmp/wp-cli-cache
+    WPS_FEED_TOKEN: ${WPS_FEED_TOKEN:-it-feed-token-0123456789abcdef0123456789abcdef}
+    WPS_ORDER_API_KEY: ${WPS_ORDER_API_KEY:-it-order-key-0123456789abcdef0123456789abcdef}
+  entrypoint: ["sleep", "infinity"]
+
 services:
   db:
     image: ${MYSQL_IMAGE:-mysql:8.4.13}
@@ -74,29 +90,29 @@ services:
       retries: 30
       start_period: 20s
 
-  cli:
-    image: ${WORDPRESS_CLI_IMAGE:-wordpress:cli-2.12.0-php8.5}
-    depends_on:
-      db:
-        condition: service_healthy
-      wordpress-hpos:
-        condition: service_started
-      wordpress-legacy:
-        condition: service_started
+  cli-hpos:
+    <<: *cli-service
     environment:
-      WORDPRESS_DB_HOST: db:3306
-      WORDPRESS_DB_USER: wordpress
-      WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD:-wps_it_password}
-      WPS_FEED_TOKEN: ${WPS_FEED_TOKEN:-it-feed-token-0123456789abcdef0123456789abcdef}
-      WPS_ORDER_API_KEY: ${WPS_ORDER_API_KEY:-it-order-key-0123456789abcdef0123456789abcdef}
+      <<: *cli-environment
+      WORDPRESS_DB_NAME: wps_hpos
     volumes:
-      - wp-hpos:/var/www/html/hpos
-      - wp-legacy:/var/www/html/legacy
+      - wp-hpos:/var/www/html
       - ../dist:/dist:ro
       - ./tests:/integration/tests:ro
       - ./fixtures:/integration/fixtures:ro
       - ./mu-plugins:/integration/mu-plugins:ro
-    entrypoint: ["sleep", "infinity"]
+
+  cli-legacy:
+    <<: *cli-service
+    environment:
+      <<: *cli-environment
+      WORDPRESS_DB_NAME: wps_legacy
+    volumes:
+      - wp-legacy:/var/www/html
+      - ../dist:/dist:ro
+      - ./tests:/integration/tests:ro
+      - ./fixtures:/integration/fixtures:ro
+      - ./mu-plugins:/integration/mu-plugins:ro
 
 volumes:
   db-data:

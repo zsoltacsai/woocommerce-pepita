@@ -4,11 +4,11 @@
 
 | Component | Declared | Verified here | Notes |
 |---|---|---|---|
-| WordPress | 6.4+ | No | Stubs only |
-| WooCommerce | 8.0+ | No | Stubs only |
-| PHP | 8.1+ | **8.5.12** | Lint + full suite |
-| MySQL / MariaDB | 5.7 / 10.3+ | No | `dbDelta` stubbed |
-| HPOS | Declared compatible | No | CRUD only, no direct order SQL |
+| WordPress | 6.4+ | **7.1.4** | Compose integration suite (minimum 6.4 not exercised) |
+| WooCommerce | 8.0+ | **11.3.0** | Compose integration suite (8.0–10.x not exercised) |
+| PHP | 8.1+ | **8.5.12** | Lint + full unit suite + Compose suite |
+| MySQL / MariaDB | 5.7 / 10.3+ | **MySQL 8.4.13** | Real `dbDelta` and queries; MariaDB not exercised |
+| HPOS | Declared compatible | **Yes and no** | Both storage modes pass the same 60-case suite |
 | Multisite | Not declared | No | Per-site tables and options |
 
 The plugin header states `Requires at least: 6.4`, `Requires PHP: 8.1`,
@@ -113,8 +113,10 @@ If `DISABLE_WP_CRON` is set, a system cron must call `wp cron event run
 
 ## 8. Known limitations
 
-1. **No live integration test was possible in this environment.** WordPress and
-   WooCommerce are not installed, so behaviour is proven against stubs.
+1. **Pepita-side integration is unverified.** The plugin passes a real
+   WordPress/WooCommerce/MySQL Compose suite on both HPOS and legacy storage, but
+   no Pepita seller staging account was available: feed acceptance, the variation
+   shape and live order forwarding still need a staging pass.
 2. **Product types.** Only `simple` and `variable` are exported. Subscriptions,
    bundles, grouped and external products are rejected with
    `unsupported_product_type`.
@@ -130,16 +132,27 @@ If `DISABLE_WP_CRON` is set, a system cron must call `wp cron event run
 
 Before production, on staging with the real stack:
 
-1. Activate on WordPress 6.4/6.7 and WooCommerce 8.0/9.x/10.x.
-2. Confirm `dbDelta` created both tables with the expected indexes.
-3. Enable HPOS and repeat the order import tests.
-4. Run the manual plan in `TESTING.md` §6.
+1. Activate on the store's actual WordPress and WooCommerce versions (the local
+   suite covers WordPress 7.1.4 / WooCommerce 11.3.0 only).
+2. Confirm `dbDelta` created both tables with the expected indexes (already
+   exercised on MySQL 8.4; repeat on the store's server).
+3. Repeat the order import tests on the store's order storage mode.
+4. Run the manual plan in `TESTING.md` §6, including Pepita acceptance.
 5. Test with a page cache and an object cache enabled.
 6. Test with `WP_DEBUG` and `WP_DEBUG_LOG` on; confirm no notices.
 7. Confirm the feed directory is not reachable directly over HTTP.
-8. Confirm Action Scheduler runs the continuation jobs.
+8. Confirm Action Scheduler runs the continuation jobs (locally verified).
 
-## 10. Version matrix to record after staging
+## 10. Version matrix
+
+Locally verified by the Compose suite:
+
+| WordPress | WooCommerce | PHP | HPOS | Result |
+|---|---|---|---|---|
+| 7.1.4 | 11.3.0 | 8.5 | off | 60 passed, 0 failed |
+| 7.1.4 | 11.3.0 | 8.5 | on | 60 passed, 0 failed |
+
+Still to record on staging:
 
 | WordPress | WooCommerce | PHP | HPOS | Result |
 |---|---|---|---|---|
@@ -147,7 +160,6 @@ Before production, on staging with the real stack:
 | _pending_ | _pending_ | 8.2 | off | |
 | _pending_ | _pending_ | 8.3 | on | |
 | _pending_ | _pending_ | 8.4 | on | |
-| _pending_ | _pending_ | 8.5 | on | |
 
 This table must be filled with real results before the plugin is called
 production-ready.

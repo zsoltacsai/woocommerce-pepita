@@ -41,7 +41,9 @@ WPS_IT::test(
 		WPS_IT::close( 2990.0, (float) $order->get_total(), 0.01, 'The order total is wrong.' );
 		WPS_IT::close( 2000.0, (float) $order->get_subtotal(), 0.01, 'The item subtotal is wrong.' );
 		WPS_IT::close( 1490.0, (float) $order->get_shipping_total(), 0.01, 'The shipping total is wrong.' );
-		WPS_IT::close( -500.0, (float) $order->get_fee_total(), 0.01, 'The voucher fee is wrong.' );
+		$fees      = $order->get_items( 'fee' );
+		$fee_total = array_sum( array_map( static fn ( $fee ): float => (float) $fee->get_total(), $fees ) );
+		WPS_IT::close( -500.0, $fee_total, 0.01, 'The voucher fee is wrong.' );
 
 		WPS_IT::same( 'Anna', $order->get_billing_first_name(), 'Billing first name is wrong.' );
 		WPS_IT::same( 'Kis', $order->get_billing_last_name(), 'Billing last name is wrong.' );
@@ -104,7 +106,7 @@ WPS_IT::test(
 		WPS_IT::same( 'Pepita utalvány', $fee->get_name(), 'The voucher fee name is wrong.' );
 		WPS_IT::close( -500.0, (float) $fee->get_total(), 0.01, 'The voucher fee total is wrong.' );
 
-		$notes = wc_get_order_notes( array( 'order_id' => $order_id, 'limit' => -1 ) );
+		$notes = wc_get_order_notes( array( 'order_id' => $order_id, 'limit' => 100 ) );
 		$text  = '';
 
 		foreach ( $notes as $note ) {

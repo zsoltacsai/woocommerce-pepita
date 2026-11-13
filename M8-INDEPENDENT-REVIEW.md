@@ -3,6 +3,8 @@
 ## Reviewed revision
 
 Integration implementation commit SHA: `5249843ccd73cb925738b33062c226e83980c75c`.
+The passing suite below additionally includes the M8 harness fixes committed after
+that revision (see `CHANGELOG.md` → `[Unreleased]`).
 
 Baseline requested by the task: `bc83e3c`.
 
@@ -18,12 +20,36 @@ Baseline requested by the task: `bc83e3c`.
 
 The local pre-existing PHP suite was run with PHP 8.5.12: **133 passed, 0 failed, 0 skipped**.
 
-The M8 Compose integration suite is **blocked and has not passed**. The Docker CLI cannot connect to `/var/run/docker.sock` under this account (`permission denied`). No WordPress, WooCommerce, MySQL container or real database integration case was run. The actual output is recorded in [the M8 run log](integration/results/m8-20261112T225304Z.log).
+The M8 Compose integration suite now **passes locally on both storage modes**:
+
+| Run | Store | Expected HPOS | Result |
+|---|---|---|---|
+| 2026-11-13T05:27:08Z | `wordpress-hpos` | yes | 60 passed, 0 failed |
+| 2026-11-13T05:28:08Z | `wordpress-legacy` | no | 60 passed, 0 failed |
+
+Full output: [integration/results/m8-20261113T052704Z.log](integration/results/m8-20261113T052704Z.log).
+
+The run used the pinned images from `.env.example`: `wordpress:7.1.4-php8.5-apache`,
+`wordpress:cli-2.12.0-php8.5`, `mysql:8.4.13` and WooCommerce 11.3.0. The
+environment cases assert PHP 8.5, MySQL 8.4, WordPress 7.1.4 and WooCommerce
+11.3.0 inside the containers, so the result is not taken on trust from the tags.
+
+`run.sh` re-seeds each store before executing the cases, and the suite was run
+twice consecutively with the same result, so the pass is repeatable rather than
+dependent on leftover container state.
+
+The earlier blocked run is kept as history:
+[integration/results/m8-20261112T225304Z.log](integration/results/m8-20261112T225304Z.log).
 
 ## Known limitations and required staging checks
 
-- M8 remains incomplete until the Compose suite passes on both HPOS and legacy stores with the pinned PHP 8.5 and MySQL 8.4 images.
-- The image tags and WooCommerce package pin are declared in `.env.example`. Upstream sources list the pinned WordPress PHP 8.5 tag and WP-CLI PHP 8.5 tag, and WooCommerce 11.3.0 was released on Nov. 11, 2026. The images/package could not be pulled or exercised here because the daemon is inaccessible.
+- The local suite proves the plugin against a real WordPress/WooCommerce/MySQL
+  stack, including HPOS and legacy order storage, real HTTP/ETag/304 behaviour,
+  Action Scheduler, WP-Cron, `dbDelta` and the REST order route. It does not prove
+  Pepita's own acceptance of the feeds or its live order-forwarding behaviour.
 - Pepita credentials and a seller staging account were not used. Manual staging must verify feed acceptance, product/category mapping, price and stock updates, and the seller's actual order-forwarding payload/response behavior.
 - Manual staging must verify real shipping/payment mappings, label handling, order status transitions, retries, duplicate delivery, and operational logging without placing a customer order.
+- The harness covers the plugin's behaviour with test-only credentials and
+  fixtures. Production hosting details (page cache, object cache, proxy, TLS
+  termination, real gateway IDs) still need a staging pass.
 - No production readiness tag or release claim is made.

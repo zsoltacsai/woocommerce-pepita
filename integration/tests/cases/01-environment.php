@@ -84,6 +84,17 @@ WPS_IT::test(
 );
 
 WPS_IT::test(
+	'The order storage mode matches this test configuration',
+	static function (): void {
+		$expected = 'yes' === (string) getenv( 'WPS_IT_EXPECT_HPOS' );
+		$enabled  = class_exists( '\\Automattic\\WooCommerce\\Utilities\\OrderUtil' )
+			&& \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
+
+		WPS_IT::same( $expected, $enabled, 'The active order data store does not match HPOS/legacy mode.' );
+	}
+);
+
+WPS_IT::test(
 	'Store currency and locale are deterministic',
 	static function (): void {
 		WPS_IT::same( 'HUF', get_woocommerce_currency(), 'Expected HUF.' );

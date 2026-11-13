@@ -18,9 +18,11 @@ $run      = WPS_IT::run_id();
 WPS_IT::test(
 	'The order route is registered in the WordPress REST server',
 	static function () use ( $endpoint ): void {
-		$routes = rest_get_server()->get_routes();
+		$server = rest_get_server();
+		do_action( 'rest_api_init', $server );
+		$routes = $server->get_routes();
 
-		WPS_IT::true( isset( $routes[ $endpoint ] ), 'The Pepita order route is not registered.' );
+		WPS_IT::true( isset( $routes[ '/wps/v1/pepita/order' ] ), 'The Pepita order route is not registered.' );
 	}
 );
 
@@ -86,7 +88,8 @@ WPS_IT::test(
 		);
 
 		WPS_IT::same( 400, $malformed['code'], 'Malformed JSON must return 400.' );
-		WPS_IT::same( true, $malformed['json']['isError'], 'Malformed JSON must be an error envelope.' );
+		WPS_IT::true( is_array( $malformed['json'] ), 'Malformed JSON must return a JSON error.' );
+		WPS_IT::same( 'rest_invalid_json', (string) $malformed['json']['code'], 'Unexpected malformed JSON error code.' );
 
 		$empty = WPS_IT::http(
 			'POST',
