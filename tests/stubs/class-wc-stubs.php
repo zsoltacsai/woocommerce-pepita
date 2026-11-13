@@ -354,7 +354,17 @@ class WC_Order_Item {
 	}
 
 	public function get_total_tax(): float {
-		return (float) ( $this->data['total_tax'] ?? 0 );
+		if ( isset( $this->data['total_tax'] ) ) {
+			return (float) $this->data['total_tax'];
+		}
+
+		$taxes = $this->data['taxes']['total'] ?? array();
+
+		if ( is_array( $taxes ) && ! empty( $taxes ) ) {
+			return (float) round( array_sum( $taxes ), 2 );
+		}
+
+		return 0.0;
 	}
 
 	public function set_total_tax( float $tax ): void {

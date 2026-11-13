@@ -725,11 +725,9 @@ final class Importer {
 
 					$total_shipping_tax = $shipping_tax;
 					$shipping_item->set_total( $net_shipping );
-					$shipping_item->set_total_tax( $shipping_tax );
 					$shipping_item->set_taxes( array( 'total' => $shipping_taxes ) );
 				} else {
 					$shipping_item->set_total( $gross_shipping );
-					$shipping_item->set_total_tax( 0.0 );
 					$shipping_item->set_taxes( array( 'total' => array() ) );
 				}
 
