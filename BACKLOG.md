@@ -5,13 +5,16 @@ and "Later" are improvements, not defects.
 
 ## Now — required before production
 
-1. **Staging validation.** Install on a real WordPress + WooCommerce staging
-   store and complete `TESTING.md` §6 and `COMPATIBILITY-REPORT.md` §9. Record
-   the version matrix.
-2. **HPOS end-to-end.** Enable HPOS, import paid, unpaid, voucher and label
-   orders, confirm totals, notes and meta.
-3. **Cron reliability.** Verify Action Scheduler continuations and the WP-Cron
-   fallback on a host with `DISABLE_WP_CRON` and a real system cron.
+1. **Pepita staging validation.** Install on a real seller staging store and
+   complete `TESTING.md` §6 and `COMPATIBILITY-REPORT.md` §9. Record the version
+   matrix. The local Compose suite already covers the WordPress/WooCommerce/MySQL
+   side.
+2. **HPOS end-to-end on staging.** Locally verified on both HPOS and legacy
+   storage; repeat paid, unpaid, voucher and label imports on the store's own
+   storage mode.
+3. **Cron reliability on real hosting.** Action Scheduler and the WP-Cron
+   fallback are verified locally; still test `DISABLE_WP_CRON` with a real system
+   cron on the host.
 4. **Feed acceptance.** Confirm Pepita ingests both feeds, matches the stock feed
    to the full feed, and accepts the variation shape.
 5. **Gateway mapping.** Choose a real WooCommerce gateway for `creditcard` and
