@@ -96,6 +96,7 @@ PV-07, PV-10) and raised ten follow-ups:
 | NEW-8 | LOW (logging) | Masked `ip` reduces rejection-log forensics | **Accepted** — access logs carry the source; log rows stay PII-free |
 | NEW-9 | LOW (tests) | Some tests were sequential/weak (lock, log bound) | **Partially fixed** — log-bound assertion tightened; concurrency remains runtime-only |
 | NEW-10 | INFO | IPv4-mapped IPv6, `/0`, query-string key, empty optional amounts | **Partially fixed** — `/0` rejected; others documented as residual |
+| NEW-11 | MEDIUM (release hygiene) | Tracked `dist/wp-pepita-sync.zip` was the stale 1.0.0 build | **Fixed** — rebuilt from 1.1.0 source; `uninstall.php` now also removes `wps_pepita_collation_ok` |
 
 Re-review verdict: **CONDITIONAL PASS**. No CRITICAL/HIGH. After the fixes above,
 the remaining MEDIUM items (NEW-1, NEW-2) are explicit business/contract

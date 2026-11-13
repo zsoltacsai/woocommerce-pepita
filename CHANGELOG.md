@@ -76,6 +76,8 @@ and the M9 Pepita staging validation pass.
 - New defaults: `order_api_keep_payloads=false`, `order_api_require_https=true`,
   `order_api_trusted_proxies=''`, `order_api_label_retention_days=30`.
 - `process_claim` stale window raised from 10 to 15 minutes.
+- `dist/wp-pepita-sync.zip` rebuilt so the tracked artifact matches the 1.1.0
+  source; `uninstall.php` also removes `wps_pepita_collation_ok`.
 - Unit suite: 133 → 156 cases. New files `115-money-test.php`,
   `116-redactor-test.php`, `150-retention-test.php`; adversarial cases added to
   the API, import, repository, XML and feed-generation suites.
