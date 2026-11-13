@@ -3,7 +3,7 @@
 **Decision:** GO — Staging Preparation Only  
 **Production Gate:** STRICT NO-GO (HOLD)  
 **Repository:** `zsoltacsai/woocommerce-pepita`  
-**Candidate Release Commit:** `d7abc001c7bae5611bbed35ff882f6dbe29308ca`  
+**Candidate Release Commit:** `a9d0bfb1e45217d283bf2e25df4a168afd08277f`  
 **Branch:** `security/m9-staging-readiness`  
 **Base Commit:** `a37099bbac334480d7bd943243e3696186aa4ab1` (PR #2 remediation HEAD)  
 **Date:** 2026-11-13  
@@ -14,7 +14,7 @@
 
 ## Executive Summary
 
-This document certifies that the **WP Pepita Sync** WooCommerce plugin has successfully resolved the four remaining security and financial integrity risks identified in the M9 audit scope, verified through automated unit tests across PHP 8.1–8.5 and full integration tests on real HPOS and legacy WooCommerce stores.
+This document certifies that the **WP Pepita Sync** WooCommerce plugin has successfully resolved the security, idempotency, and financial integrity risks identified in the M9 audit scope, verified through automated unit tests across PHP 8.1–8.5 and full integration tests on real HPOS and legacy WooCommerce stores.
 
 The staging distribution archive has been generated in a strictly reproducible, secret-free manner. Staging deployment is approved under isolated dry-run constraints. **Production deployment remains under strict NO-GO hold** pending live staging acceptance and partner team clarifications.
 
@@ -28,11 +28,11 @@ The staging distribution archive has been generated in a strictly reproducible, 
 | **Plugin Slug** | `wp-pepita-sync` |
 | **Plugin Version** | `1.1.0` (`WPS_PEPITA_VERSION`) |
 | **Database Schema Version** | `1.1.0` (`WPS_PEPITA_DB_VERSION`) |
-| **Commit SHA** | `d7abc001c7bae5611bbed35ff882f6dbe29308ca` |
-| **Package SHA-256** | `0fefdff825c3b1199ef222d28fa39790e798c993b4d5d4a04b8dd80beb5f6b1d` |
+| **Commit SHA** | `a9d0bfb1e45217d283bf2e25df4a168afd08277f` |
+| **Package SHA-256** | `b9869d5d66cf8246e16f6e41c5b0ef0424767c56a8e1d73a88f2eeed41b8f8e6` |
 | **Archive File Count** | 55 files |
-| **Archive Uncompressed Size** | 436,894 bytes (~427 KB) |
-| **Archive Compressed Size** | 135,932 bytes (~133 KB) |
+| **Archive Uncompressed Size** | 439,944 bytes (~430 KB) |
+| **Archive Compressed Size** | 136,919 bytes (~134 KB) |
 | **Secret-Free Verification** | Confirmed: no API keys, tokens, passwords, private salts, or credentials in archive |
 | **Development Leftovers** | Confirmed clean: `.git`, `tests/`, `integration/`, `dist/`, `.DS_Store`, `*.map` stripped |
 
