@@ -598,6 +598,7 @@ final class Importer {
 		$email_filters = $this->suppress_emails();
 		$save_fence    = null;
 		$finalized_id  = 0;
+		$final_saving  = false;
 
 		try {
 			$order = new \WC_Order();
@@ -987,7 +988,8 @@ final class Importer {
 			$order->delete_meta_data( '_wps_pepita_in_progress' );
 			$order->update_meta_data( self::META_IMPORTED_AT, current_time( 'mysql', true ) );
 
-			$order_id = $order->save();
+			$final_saving = true;
+			$order_id     = $order->save();
 
 			if ( $fenced ) {
 				return $this->fenced_out( $order );
@@ -1068,6 +1070,24 @@ final class Importer {
 				return $finalized_id;
 			}
 
+			// Once the final save started the order may already be persisted and finalized (a hook
+			// after the data-store write threw): never delete it here. The claim is failed by the
+			// caller; the retry adopts a finalized order or rebuilds one that still has the marker.
+			if ( $final_saving ) {
+				Logger::error(
+					'order_import',
+					'Hiba a rendelés végső mentése közben vagy után; a rendelést nem töröljük, az újrapróbálkozás rendezi.',
+					array(
+						'external_id' => $external_id,
+						'exception'   => $throwable->getMessage(),
+					),
+					'order',
+					(int) ( isset( $order ) && $order instanceof \WC_Order ? $order->get_id() : 0 )
+				);
+
+				return new \WP_Error( 'wps_order_save_failed', 'A rendelés végső mentése sikertelen.' );
+			}
+
 			// Never leave a half-built pending order behind: the retry would
 			// create a second one.
 			if ( isset( $order ) && $order instanceof \WC_Order ) {
@@ -1081,6 +1101,21 @@ final class Importer {
 			}
 
 			$this->restore_emails( $email_filters );
+		}
+	}
+
+	/**
+	 * A status transition may already have reduced stock for an order that is about to be discarded
+	 * (e.g. after a swallowed save failure); give it back so the rebuilt order does not reduce twice.
+	 * wc_maybe_increase_stock_levels() only acts when WooCommerce flagged the stock as reduced.
+	 */
+	private function restore_stock_before_delete( \WC_Order $order ): void {
+		if ( $order->get_id() > 0 && function_exists( 'wc_maybe_increase_stock_levels' ) ) {
+			try {
+				wc_maybe_increase_stock_levels( $order->get_id() );
+			} catch ( \Throwable $ignored ) {
+				unset( $ignored );
+			}
 		}
 	}
 
@@ -1157,6 +1192,7 @@ final class Importer {
 	 */
 	private function discard_order( \WC_Order $order, string $code = '', string $message = '' ): \WP_Error {
 		if ( $order->get_id() > 0 ) {
+			$this->restore_stock_before_delete( $order );
 			$order->delete( true );
 		}
 
@@ -1408,7 +1444,10 @@ final class Importer {
 			return 'hiányzik';
 		}
 
-		if ( '1' === (string) $order->get_meta( '_wps_pepita_in_progress' ) ) {
+		// Same predicate as the recovery path (is_order_incomplete): a marker order in an
+		// operator-final status is adopted (and finalized, see handle_existing_order), anything else
+		// with the marker is unfinished.
+		if ( $this->is_order_incomplete( $order ) ) {
 			return 'nincs véglegesítve';
 		}
 
@@ -1448,6 +1487,7 @@ final class Importer {
 		$order_id = $order->get_id();
 
 		try {
+			$this->restore_stock_before_delete( $order );
 			$deleted = $order->delete( true );
 			if ( $deleted ) {
 				Logger::warning(
@@ -1592,6 +1632,31 @@ final class Importer {
 	 */
 	private function handle_existing_order( string $external_id, int $order_id, string $stored_hash, string $payload_hash, array $payload, bool $reclaimed = false, int $attempt = 0 ): array {
 		$existing_order = $order_id > 0 ? wc_get_order( $order_id ) : false;
+
+		// Adopting a marker order that an operator already moved to a final status: finalize it
+		// consistently (clear the marker, stamp imported_at) instead of acknowledging an order that
+		// would keep failing the completed-claim gate on every later replay.
+		if ( $existing_order instanceof \WC_Order && '1' === (string) $existing_order->get_meta( '_wps_pepita_in_progress' ) ) {
+			$existing_order->delete_meta_data( '_wps_pepita_in_progress' );
+
+			if ( '' === (string) $existing_order->get_meta( self::META_IMPORTED_AT ) ) {
+				$existing_order->update_meta_data( self::META_IMPORTED_AT, current_time( 'mysql', true ) );
+			}
+
+			$existing_order->add_order_note( 'A félbehagyott Pepita import jelölője eltávolítva: a rendelés kézzel végleges állapotba került. Ellenőrizze a készletet és a végösszeget.' );
+			$existing_order->save();
+
+			Logger::warning(
+				'order_recovery',
+				'Félbehagyott (jelölt) rendelés átvéve és véglegesítve, mert végleges állapotú.',
+				array(
+					'external_id' => $external_id,
+					'order_id'    => $order_id,
+				),
+				'order',
+				$order_id
+			);
+		}
 
 		if ( '' === $stored_hash && $existing_order instanceof \WC_Order ) {
 			$stored_hash = (string) $existing_order->get_meta( self::META_PAYLOAD_HASH );

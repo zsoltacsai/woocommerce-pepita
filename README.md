@@ -128,7 +128,7 @@ wp wps-pepita purge-logs
 
 ```bash
 php -l woocommerce-pepita.php
-php tests/run.php            # 133 tests
+php tests/run.php            # unit suite (stubs)
 bash bin/build.sh            # dist/wp-pepita-sync.zip (+ .sha256)
 bash bin/verify-reproducible.sh   # same SHA-256 in every time zone / clean checkout
 ```

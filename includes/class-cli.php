@@ -178,6 +178,11 @@ final class Cli {
 	 * <external_id>
 	 * : Pepita order id.
 	 *
+	 * [--force]
+	 * : Reopen even if a finalized WooCommerce order (also in the trash) still exists. Rebuilding then
+	 *   creates a SECOND order and reduces stock again.
+	 *
+	 * @subcommand repair-claim
 	 * @param array<int, string>    $args
 	 * @param array<string, string> $assoc_args
 	 */
@@ -188,6 +193,40 @@ final class Cli {
 			\WP_CLI::error( 'Adja meg a Pepita rendelésazonosítót.' );
 
 			return;
+		}
+
+		$row = Order_Repository::get( $external_id );
+
+		if ( null === $row || Order_Repository::STATUS_COMPLETED !== (string) ( $row['status'] ?? '' ) ) {
+			\WP_CLI::error( 'Nincs ilyen lezárt igény.' );
+
+			return;
+		}
+
+		if ( empty( $assoc_args['force'] ) ) {
+			$candidates = array();
+
+			if ( (int) ( $row['wc_order_id'] ?? 0 ) > 0 ) {
+				$candidates[] = wc_get_order( (int) $row['wc_order_id'] );
+			}
+
+			$found = wc_get_orders(
+				array(
+					'limit'      => 20,
+					'return'     => 'objects',
+					'status'     => array_merge( array_keys( wc_get_order_statuses() ), array( 'trash' ) ),
+					'meta_key'   => \WPS\Pepita\Orders\Importer::META_ORDER_ID, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+					'meta_value' => $external_id, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+				)
+			);
+
+			foreach ( array_merge( $candidates, is_array( $found ) ? $found : array() ) as $order ) {
+				if ( $order instanceof \WC_Order && '1' !== (string) $order->get_meta( '_wps_pepita_in_progress' ) ) {
+					\WP_CLI::error( sprintf( 'A(z) #%d WooCommerce rendelés létezik és véglegesített (státusz: %s). Az újranyitás másodpéldányt hozna létre; ha mégis szükséges, használja a --force kapcsolót.', $order->get_id(), $order->get_status() ) );
+
+					return;
+				}
+			}
 		}
 
 		if ( Order_Repository::reopen_completed( $external_id ) ) {
@@ -201,6 +240,8 @@ final class Cli {
 
 	/**
 	 * Purge old log entries and stored payloads.
+	 *
+	 * @subcommand purge-logs
 	 *
 	 * @param array<int, string>    $args
 	 * @param array<string, string> $assoc_args

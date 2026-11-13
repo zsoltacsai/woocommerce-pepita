@@ -1654,9 +1654,45 @@ $suite->add(
 		WPS_Assert::same( 200, $first['http'] );
 
 		WPS_Test_State::$orders[ $order_id ]->update_meta_data( '_wps_pepita_in_progress', '1' );
+		WPS_Test_State::$orders[ $order_id ]->set_status( 'pending' );
 
 		$replay = $importer->import( $payload );
 		WPS_Assert::same( 500, $replay['http'], 'An unfinalized order must not be acknowledged on replay.' );
+	}
+);
+
+$suite->add(
+	'importer: a marker order an operator moved to a final status is adopted once, finalized, and then replays cleanly',
+	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
+		$importer = new Importer();
+		$payload  = $recovery_payload( array( 'id' => 'PEP-OPERATOR-FINAL-1' ) );
+
+		$first    = $importer->import( $payload );
+		$order_id = (int) $first['order_id'];
+		WPS_Assert::same( 200, $first['http'] );
+
+		WPS_Test_State::$orders[ $order_id ]->update_meta_data( '_wps_pepita_in_progress', '1' );
+		WPS_Test_State::$orders[ $order_id ]->set_status( 'processing' );
+
+		$second = $importer->import( $payload );
+		WPS_Assert::same( 200, $second['http'] );
+		WPS_Assert::same( $order_id, (int) $second['order_id'] );
+		WPS_Assert::same( '', (string) WPS_Test_State::$orders[ $order_id ]->get_meta( '_wps_pepita_in_progress' ), 'Adoption must finalize the marker.' );
+
+		$third = $importer->import( $payload );
+		WPS_Assert::same( 200, $third['http'], 'A later replay must not fail the completed-claim gate.' );
 	}
 );
 
