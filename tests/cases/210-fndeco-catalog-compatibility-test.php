@@ -671,3 +671,57 @@ $suite->add(
 		WPS_Assert::same( 'gross', $summary['tax_mode'] );
 	}
 );
+
+$suite->add(
+	'fndeco images: cached WebP derivative resolution does not trigger fatal error',
+	static function (): void {
+		WPS_Test_State::reset();
+
+		$upload_dir = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : array( 'basedir' => '/tmp', 'baseurl' => 'https://example.com/wp-content/uploads' );
+		$target_dir = rtrim( (string) ( $upload_dir['basedir'] ?? '' ), '/\\' ) . '/' . Image_Converter::DERIVATIVE_DIR;
+		if ( ! is_dir( $target_dir ) ) {
+			@mkdir( $target_dir, 0755, true );
+		}
+
+		$source_file = $target_dir . '/test-dummy.webp';
+		file_put_contents( $source_file, 'dummy-webp-data' );
+
+		WPS_Test_State::add_attachment( 555, 'https://example.test/uploads/test-dummy.webp' );
+		WPS_Test_State::$attached_files[ 555 ] = $source_file;
+		WPS_Test_State::$mime_types[ 555 ] = 'image/webp';
+
+		$mtime = (int) filemtime( $source_file );
+		$hash = substr( md5( '555-' . $mtime . '-' . filesize( $source_file ) ), 0, 12 );
+		$derivative_filename = sprintf( 'att-%d-%s.jpg', 555, $hash );
+		$derivative_path = $target_dir . '/' . $derivative_filename;
+		file_put_contents( $derivative_path, 'fake-jpeg-content' );
+
+		$warnings = array();
+		$resolved = Image_Converter::resolve_attachment_url( 555, $warnings );
+
+		WPS_Assert::contains( $derivative_filename, $resolved );
+		@unlink( $derivative_path );
+		@unlink( $source_file );
+	}
+);
+
+$suite->add(
+	'fndeco admin: settings_input includes beta_feed_only and feed_emergency_disabled',
+	static function (): void {
+		$admin = new \WPS\Pepita\Admin\Admin();
+		$ref = new \ReflectionClass( $admin );
+		$method = $ref->getMethod( 'settings_input' );
+		$method->setAccessible( true );
+
+		$raw = array(
+			'beta_feed_only'          => '1',
+			'feed_emergency_disabled' => '1',
+			'default_included'        => '0',
+		);
+
+		$parsed = $method->invoke( $admin, $raw );
+
+		WPS_Assert::true( $parsed['beta_feed_only'] );
+		WPS_Assert::true( $parsed['feed_emergency_disabled'] );
+	}
+);

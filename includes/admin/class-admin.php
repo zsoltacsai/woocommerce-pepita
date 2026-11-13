@@ -249,6 +249,8 @@ final class Admin {
 			'stock_requires_full',
 			'allow_empty_feed',
 			'feed_public',
+			'feed_emergency_disabled',
+			'beta_feed_only',
 			'order_api_enabled',
 			'order_api_require_https',
 			'order_api_keep_payloads',

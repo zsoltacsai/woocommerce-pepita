@@ -14,6 +14,7 @@ use WPS\Pepita\Catalog\Category_Rules;
 use WPS\Pepita\Catalog\Image_Converter;
 use WPS\Pepita\Catalog\Product_Mapper;
 use WPS\Pepita\Catalog\Product_Selection;
+use WPS\Pepita\Logger;
 use WPS\Pepita\Settings;
 
 defined( 'ABSPATH' ) || exit;
@@ -293,13 +294,13 @@ final class Preflight {
 			fputcsv(
 				$out,
 				array(
-					$item['id'] ?? '',
-					$item['sku'] ?? '',
-					$item['name'] ?? '',
-					$item['primary_category'] ?? '',
-					$item['severity'] ?? '',
-					$item['code'] ?? '',
-					$item['message'] ?? '',
+					Logger::sanitize_csv_field( $item['id'] ?? '' ),
+					Logger::sanitize_csv_field( $item['sku'] ?? '' ),
+					Logger::sanitize_csv_field( $item['name'] ?? '' ),
+					Logger::sanitize_csv_field( $item['primary_category'] ?? '' ),
+					Logger::sanitize_csv_field( $item['severity'] ?? '' ),
+					Logger::sanitize_csv_field( $item['code'] ?? '' ),
+					Logger::sanitize_csv_field( $item['message'] ?? '' ),
 				)
 			);
 		}

@@ -116,9 +116,13 @@ final class Image_Converter {
 			} else {
 				@mkdir( $target_dir, 0755, true );
 			}
+		}
 
-			// Add directory protections.
+		// Ensure directory protections exist regardless of directory creation time.
+		if ( ! is_file( $target_dir . '/index.php' ) ) {
 			@file_put_contents( $target_dir . '/index.php', "<?php\n// Silence is golden.\n" );
+		}
+		if ( ! is_file( $target_dir . '/.htaccess' ) ) {
 			@file_put_contents( $target_dir . '/.htaccess', "<FilesMatch \"\\.(jpe?g|png)$\">\nAllow from all\n</FilesMatch>\nOptions -Indexes\n" );
 		}
 
@@ -129,7 +133,6 @@ final class Image_Converter {
 		$derivative_url      = rtrim( (string) ( $upload_dir['baseurl'] ?? '' ), '/\\' ) . '/' . self::DERIVATIVE_DIR . '/' . $derivative_filename;
 
 		if ( file_exists( $derivative_path ) && filesize( $derivative_path ) > 0 ) {
-			self::validate_dimensions_on_file( $derivative_path, $warnings );
 			return str_replace( ' ', '%20', $derivative_url );
 		}
 
@@ -233,16 +236,36 @@ final class Image_Converter {
 
 		$file = function_exists( 'get_attached_file' ) ? (string) get_attached_file( $attachment_id ) : '';
 		if ( '' !== $file && file_exists( $file ) ) {
-			$size = @getimagesize( $file );
-			if ( is_array( $size ) && isset( $size[0], $size[1] ) ) {
-				$w = (int) $size[0];
-				$h = (int) $size[1];
-				if ( ( $w > 0 && $w < self::MIN_WIDTH ) || ( $h > 0 && $h < self::MIN_HEIGHT ) ) {
-					return array(
-						'code'    => 'insufficient_image_dimensions',
-						'message' => sprintf( 'A kép felbontása (%dx%d) nem éri el a Pepita Seller Center által elvárt minimális %dx%d képpontot.', $w, $h, self::MIN_WIDTH, self::MIN_HEIGHT ),
-					);
+			return self::validate_dimensions_on_file( $file );
+		}
+
+		return null;
+	}
+
+	/**
+	 * Validate dimensions on a file path directly.
+	 *
+	 * @param array<int, array{code: string, message: string}>|null $warnings
+	 * @return array{code: string, message: string}|null
+	 */
+	public static function validate_dimensions_on_file( string $path, ?array &$warnings = null ): ?array {
+		if ( '' === $path || ! file_exists( $path ) ) {
+			return null;
+		}
+
+		$size = @getimagesize( $path );
+		if ( is_array( $size ) && isset( $size[0], $size[1] ) ) {
+			$w = (int) $size[0];
+			$h = (int) $size[1];
+			if ( ( $w > 0 && $w < self::MIN_WIDTH ) || ( $h > 0 && $h < self::MIN_HEIGHT ) ) {
+				$warning = array(
+					'code'    => 'insufficient_image_dimensions',
+					'message' => sprintf( 'A kép felbontása (%dx%d) nem éri el a Pepita Seller Center által elvárt minimális %dx%d képpontot.', $w, $h, self::MIN_WIDTH, self::MIN_HEIGHT ),
+				);
+				if ( is_array( $warnings ) ) {
+					$warnings[] = $warning;
 				}
+				return $warning;
 			}
 		}
 
