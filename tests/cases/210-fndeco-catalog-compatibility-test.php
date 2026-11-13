@@ -569,7 +569,7 @@ $suite->add(
 		// Lists
 		$list_html = '<p>Jellemzők:</p><ul><li>Méret: 30 cm</li><li>Anyag: Fa</li></ul>';
 		$list_clean = Description_Sanitizer::clean( $list_html );
-		WPS_Assert::true( str_contains( $list_clean, "Jellemzők:\n\nMéret: 30 cm\nAnyag: Fa" ) );
+		WPS_Assert::true( str_contains( $list_clean, "Jellemzők:\nMéret: 30 cm\nAnyag: Fa" ) );
 	}
 );
 

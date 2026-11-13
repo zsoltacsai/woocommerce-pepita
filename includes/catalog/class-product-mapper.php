@@ -45,6 +45,16 @@ final class Product_Mapper {
 	private const MAX_VARIATION_AXES = 3;
 
 	/**
+	 * Recognized third-party SEO plugin primary category meta keys.
+	 *
+	 * @var string[]
+	 */
+	private const THIRD_PARTY_PRIMARY_CAT_KEYS = array(
+		'_yoast_wpseo_primary_product_cat',
+		'rank_math_primary_product_cat',
+	);
+
+	/**
 	 * Stable identifier: existing meta wins, otherwise derived from the product ID.
 	 * A SKU change can never alter this value.
 	 */
@@ -238,8 +248,6 @@ final class Product_Mapper {
 		$data['available'] = $product->is_in_stock();
 		$data['quantity']  = self::quantity( $product, $data['warnings'] );
 		$data['restock_date'] = self::restock_date( $data['product_id'] );
-
-		$data['photos'] = self::photos( $product, null, $data['warnings'] );
 	}
 
 	/**
@@ -820,19 +828,14 @@ final class Product_Mapper {
 			$primary_id = $override;
 		}
 
-		// Priority 2: Yoast SEO primary category.
-		if ( 0 === $primary_id ) {
-			$yoast = (int) get_post_meta( $product_id, '_yoast_wpseo_primary_product_cat', true );
-			if ( $yoast > 0 && in_array( $yoast, $eligible_terms, true ) ) {
-				$primary_id = $yoast;
-			}
-		}
-
-		// Priority 2 (cont): Rank Math primary category.
-		if ( 0 === $primary_id ) {
-			$rank_math = (int) get_post_meta( $product_id, 'rank_math_primary_product_cat', true );
-			if ( $rank_math > 0 && in_array( $rank_math, $eligible_terms, true ) ) {
-				$primary_id = $rank_math;
+		// Priority 2: Recognized third-party SEO plugin primary category.
+		if ( 0 === $primary_id && function_exists( 'get_post_meta' ) ) {
+			foreach ( self::THIRD_PARTY_PRIMARY_CAT_KEYS as $meta_key ) {
+				$seo_term_id = (int) get_post_meta( $product_id, $meta_key, true );
+				if ( $seo_term_id > 0 && in_array( $seo_term_id, $eligible_terms, true ) ) {
+					$primary_id = $seo_term_id;
+					break;
+				}
 			}
 		}
 

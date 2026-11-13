@@ -37,8 +37,6 @@ final class Image_Converter {
 		$is_webp = self::is_webp( $attachment_id );
 
 		if ( ! $is_webp ) {
-			// Check dimensions of standard image if available.
-			self::check_dimensions( $attachment_id, $warnings );
 			return Product_Mapper::attachment_url( $attachment_id );
 		}
 
@@ -46,7 +44,6 @@ final class Image_Converter {
 		if ( function_exists( 'wp_get_original_image_url' ) ) {
 			$orig_url = (string) wp_get_original_image_url( $attachment_id );
 			if ( '' !== $orig_url && ! self::is_webp_path( $orig_url ) ) {
-				self::check_dimensions( $attachment_id, $warnings );
 				return str_replace( ' ', '%20', $orig_url );
 			}
 		}
@@ -206,12 +203,14 @@ final class Image_Converter {
 
 	/**
 	 * Check dimension requirements without modifying/upscaling the image.
+	 * Returns diagnostic warning array or null if compliant.
 	 *
-	 * @param array<int, array{code: string, message: string}>|null $warnings
+	 * @param int $attachment_id
+	 * @return array{code: string, message: string}|null
 	 */
-	private static function check_dimensions( int $attachment_id, ?array &$warnings ): void {
-		if ( ! is_array( $warnings ) ) {
-			return;
+	public static function check_dimensions( int $attachment_id ): ?array {
+		if ( $attachment_id <= 0 ) {
+			return null;
 		}
 
 		if ( function_exists( 'wp_get_attachment_metadata' ) ) {
@@ -220,39 +219,29 @@ final class Image_Converter {
 				$w = (int) $meta['width'];
 				$h = (int) $meta['height'];
 				if ( ( $w > 0 && $w < self::MIN_DIMENSION ) || ( $h > 0 && $h < self::MIN_DIMENSION ) ) {
-					$warnings[] = array(
+					return array(
 						'code'    => 'insufficient_image_dimensions',
 						'message' => sprintf( 'A(z) #%d kép felbontása (%dx%d) kisebb a Pepita által elvárt %dx%d képpontnál.', $attachment_id, $w, $h, self::MIN_DIMENSION, self::MIN_DIMENSION ),
 					);
-					return;
 				}
 			}
 		}
 
 		$file = function_exists( 'get_attached_file' ) ? (string) get_attached_file( $attachment_id ) : '';
 		if ( '' !== $file && file_exists( $file ) ) {
-			self::validate_dimensions_on_file( $file, $warnings, $attachment_id );
-		}
-	}
-
-	/**
-	 * @param array<int, array{code: string, message: string}>|null $warnings
-	 */
-	private static function validate_dimensions_on_file( string $path, ?array &$warnings, int $attachment_id = 0 ): void {
-		if ( ! is_array( $warnings ) || ! file_exists( $path ) ) {
-			return;
-		}
-
-		$size = @getimagesize( $path );
-		if ( is_array( $size ) && isset( $size[0], $size[1] ) ) {
-			$w = (int) $size[0];
-			$h = (int) $size[1];
-			if ( ( $w > 0 && $w < self::MIN_DIMENSION ) || ( $h > 0 && $h < self::MIN_DIMENSION ) ) {
-				$warnings[] = array(
-					'code'    => 'insufficient_image_dimensions',
-					'message' => sprintf( 'A kép felbontása (%dx%d) kisebb a Pepita által elvárt %dx%d képpontnál.', $w, $h, self::MIN_DIMENSION, self::MIN_DIMENSION ),
-				);
+			$size = @getimagesize( $file );
+			if ( is_array( $size ) && isset( $size[0], $size[1] ) ) {
+				$w = (int) $size[0];
+				$h = (int) $size[1];
+				if ( ( $w > 0 && $w < self::MIN_DIMENSION ) || ( $h > 0 && $h < self::MIN_DIMENSION ) ) {
+					return array(
+						'code'    => 'insufficient_image_dimensions',
+						'message' => sprintf( 'A kép felbontása (%dx%d) kisebb a Pepita által elvárt %dx%d képpontnál.', $w, $h, self::MIN_DIMENSION, self::MIN_DIMENSION ),
+					);
+				}
 			}
 		}
+
+		return null;
 	}
 }

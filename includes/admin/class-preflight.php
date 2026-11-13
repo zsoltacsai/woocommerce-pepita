@@ -151,12 +151,12 @@ final class Preflight {
 
 			// Image checks.
 			$feat_id = (int) $product->get_image_id();
-			if ( $feat_id > 0 && Image_Converter::is_webp( $feat_id ) ) {
-				$summary['webp_conversions']++;
-			}
-
-			foreach ( $warnings as $w ) {
-				if ( ( $w['code'] ?? '' ) === 'insufficient_image_dimensions' ) {
+			if ( $feat_id > 0 ) {
+				if ( Image_Converter::is_webp( $feat_id ) ) {
+					$summary['webp_conversions']++;
+				}
+				$dim_warning = Image_Converter::check_dimensions( $feat_id );
+				if ( null !== $dim_warning ) {
 					$summary['resolution_issues']++;
 					$items[] = array(
 						'id'               => $product_id,
@@ -165,7 +165,7 @@ final class Preflight {
 						'primary_category' => $cat_path,
 						'severity'         => 'warning',
 						'code'             => 'insufficient_image_dimensions',
-						'message'          => $w['message'] ?? 'A kép felbontása nem éri el a 300x300 képpontot.',
+						'message'          => $dim_warning['message'],
 					);
 				}
 			}
