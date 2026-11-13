@@ -1029,22 +1029,24 @@ final class Importer {
 
 	/**
 	 * Abandon the order of a worker that lost its lease: a newer attempt owns the claim and
-	 * discards/rebuilds the order. Nothing is deleted or notified here; only ghost notes that
-	 * WooCommerce may have attached to an already-discarded order are removed.
+	 * discards/rebuilds the order. The order itself is never deleted or notified here; only the
+	 * fence's own error note that WooCommerce attaches to it is removed.
 	 */
 	private function fenced_out( \WC_Order $order ): \WP_Error {
 		$order_id = (int) $order->get_id();
 
-		if ( $order_id > 0 && function_exists( 'wp_delete_comment' ) && ! ( wc_get_order( $order_id ) instanceof \WC_Order ) ) {
+		if ( $order_id > 0 && function_exists( 'wp_delete_comment' ) ) {
 			global $wpdb;
 
-			// WooCommerce excludes order notes from ordinary comment queries and its note lookup
-			// is store-dependent, so the (already orphaned) notes are selected directly and removed
-			// through the WordPress API (which also removes their comment meta).
+			// WooCommerce 11 records the swallowed fence exception as an order note on the (already
+			// discarded) order. Remove exactly those error notes: they are selected by their id and
+			// message, directly, because WooCommerce excludes order notes from comment queries, its
+			// note lookup is store-dependent and wc_get_order() may still answer from its cache.
 			$note_ids = $wpdb->get_col(
 				$wpdb->prepare(
-					"SELECT comment_ID FROM {$wpdb->comments} WHERE comment_post_ID = %d AND comment_type = 'order_note'", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-					$order_id
+					"SELECT comment_ID FROM {$wpdb->comments} WHERE comment_post_ID = %d AND comment_type = 'order_note' AND comment_content LIKE %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					$order_id,
+					'%' . $wpdb->esc_like( self::FENCED_OUT ) . '%'
 				)
 			);
 
