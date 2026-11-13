@@ -1094,3 +1094,337 @@ $suite->add(
 		WPS_Assert::same( 'A rendelés rögzítése átmenetileg nem lehetséges.', $result['message'] );
 	}
 );
+
+$suite->add(
+	'repository: fence_incomplete_order_cleanup validates attempt and status atomically',
+	static function (): void {
+		$external_id = 'PEP-FENCE-UNIT-1';
+		global $wpdb;
+
+		// 1. Setup claim with status='processing', attempts=2, wc_order_id=505
+		$claim = Order_Repository::claim( $external_id, 'pepita.hu', '{}', 'hash-1' );
+		WPS_Assert::same( 'claimed', $claim['state'] );
+		$attempt = (int) $claim['row']['attempts'];
+		Order_Repository::associate( $external_id, 505, $attempt );
+
+		// 2. Fencing with wrong attempt fails
+		$failed_attempt = Order_Repository::fence_incomplete_order_cleanup( $external_id, 505, $attempt + 1 );
+		WPS_Assert::false( $failed_attempt );
+		$row = Order_Repository::get( $external_id );
+		WPS_Assert::same( 505, (int) $row['wc_order_id'] );
+
+		// 3. Fencing with mismatched expected order ID fails
+		$failed_id = Order_Repository::fence_incomplete_order_cleanup( $external_id, 999, $attempt );
+		WPS_Assert::false( $failed_id );
+		$row = Order_Repository::get( $external_id );
+		WPS_Assert::same( 505, (int) $row['wc_order_id'] );
+
+		// 4. Fencing with matching attempt and order ID succeeds and zeroes wc_order_id
+		$success = Order_Repository::fence_incomplete_order_cleanup( $external_id, 505, $attempt );
+		WPS_Assert::true( $success );
+		$row = Order_Repository::get( $external_id );
+		WPS_Assert::same( 0, (int) $row['wc_order_id'] );
+		WPS_Assert::same( 'processing', $row['status'] );
+		WPS_Assert::same( $attempt, (int) $row['attempts'] );
+
+		// 5. Subsequent fencing with wc_order_id = 0 still succeeds for current holder
+		$success_repeat = Order_Repository::fence_incomplete_order_cleanup( $external_id, 0, $attempt );
+		WPS_Assert::true( $success_repeat );
+
+		// 6. If claim transitions to completed, cleanup fence fails
+		Order_Repository::complete( $external_id, 505, 'hash-1', $attempt );
+		$failed_completed = Order_Repository::fence_incomplete_order_cleanup( $external_id, 0, $attempt );
+		WPS_Assert::false( $failed_completed );
+	}
+);
+
+$suite->add(
+	'importer: shell cleanup is aborted without deleting shell if worker loses lease before fence',
+	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
+		$importer    = new Importer();
+		$external_id = 'PEP-FENCE-PRE-CLEAN-1';
+		$payload     = $recovery_payload( array( 'id' => $external_id ) );
+
+		// Create an incomplete shell order
+		$shell = new \WC_Order();
+		$shell->set_created_via( 'wps-pepita' );
+		$shell->update_meta_data( Importer::META_ORDER_ID, $external_id );
+		$shell->update_meta_data( '_wps_pepita_in_progress', '1' );
+		$shell_id = $shell->save();
+		WPS_Assert::true( $shell_id > 0 );
+
+		// Create claim and make it stale (> 15 min)
+		$claim = Order_Repository::claim( $external_id, 'pepita.hu', wp_json_encode( $payload ), 'hash-1' );
+		WPS_Assert::same( 'claimed', $claim['state'] );
+		Order_Repository::associate( $external_id, $shell_id, (int) $claim['row']['attempts'] );
+
+		global $wpdb;
+		$wpdb->update(
+			Order_Repository::table(),
+			array( 'updated_at' => gmdate( 'Y-m-d H:i:s', time() - 2000 ) ),
+			array( 'external_id' => $external_id )
+		);
+
+		// Hook woocommerce_get_order: on the first call finding $shell_id, steal lease by bumping attempts to 99
+		$stolen = false;
+		$hook = static function ( $obj, $order_arg ) use ( &$stolen, $shell_id, $external_id ) {
+			$id = $obj instanceof \WC_Order ? $obj->get_id() : (int) $order_arg;
+			if ( $id === $shell_id && ! $stolen ) {
+				$stolen = true;
+				global $wpdb;
+				$wpdb->update(
+					Order_Repository::table(),
+					array( 'attempts' => 99 ),
+					array( 'external_id' => $external_id )
+				);
+			}
+			return $obj;
+		};
+
+		add_filter( 'woocommerce_get_order', $hook, 10, 2 );
+		$result = $importer->import( $payload );
+		remove_filter( 'woocommerce_get_order', $hook, 10 );
+
+		WPS_Assert::true( $stolen );
+		WPS_Assert::same( 409, $result['http'] );
+		WPS_Assert::same( 'retry', $result['status'] );
+
+		// The incomplete shell must NOT be deleted because fencing failed
+		WPS_Assert::true( isset( WPS_Test_State::$orders[ $shell_id ] ) );
+	}
+);
+
+$suite->add(
+	'importer: shell concurrently completed before cleanup is preserved and handed off',
+	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
+		$importer    = new Importer();
+		$external_id = 'PEP-FENCE-CONCURRENT-COMPLETION-1';
+		$payload     = $recovery_payload( array( 'id' => $external_id ) );
+		$hash        = Importer::hash_payload( $payload );
+
+		// Create an incomplete shell order
+		$shell = new \WC_Order();
+		$shell->set_created_via( 'wps-pepita' );
+		$shell->update_meta_data( Importer::META_ORDER_ID, $external_id );
+		$shell->update_meta_data( '_wps_pepita_in_progress', '1' );
+		$shell_id = $shell->save();
+		WPS_Assert::true( $shell_id > 0 );
+
+		// Create claim and make it stale (> 15 min)
+		$claim = Order_Repository::claim( $external_id, 'pepita.hu', wp_json_encode( $payload ), $hash );
+		WPS_Assert::same( 'claimed', $claim['state'] );
+		Order_Repository::associate( $external_id, $shell_id, (int) $claim['row']['attempts'] );
+
+		global $wpdb;
+		$wpdb->update(
+			Order_Repository::table(),
+			array( 'updated_at' => gmdate( 'Y-m-d H:i:s', time() - 2000 ) ),
+			array( 'external_id' => $external_id )
+		);
+
+		// Hook woocommerce_get_order: on the fresh reload call after fencing, simulate concurrent completion
+		$calls = 0;
+		$hook = static function ( $obj, $order_arg ) use ( &$calls, $shell_id, $hash ) {
+			$id = $obj instanceof \WC_Order ? $obj->get_id() : (int) $order_arg;
+			if ( $id === $shell_id ) {
+				++$calls;
+				if ( 2 === $calls && $obj instanceof \WC_Order ) {
+					// Concurrent process completes the order
+					$obj->delete_meta_data( '_wps_pepita_in_progress' );
+					$obj->update_meta_data( Importer::META_PAYLOAD_HASH, $hash );
+					$obj->set_status( 'processing' );
+					$obj->save();
+				}
+			}
+			return $obj;
+		};
+
+		add_filter( 'woocommerce_get_order', $hook, 10, 2 );
+		$result = $importer->import( $payload );
+		remove_filter( 'woocommerce_get_order', $hook, 10 );
+
+		WPS_Assert::same( 200, $result['http'] );
+		WPS_Assert::same( 'duplicate', $result['status'] );
+		WPS_Assert::same( $shell_id, $result['order_id'] );
+
+		// The shell was preserved, NOT deleted
+		WPS_Assert::true( isset( WPS_Test_State::$orders[ $shell_id ] ) );
+		WPS_Assert::same( 'processing', WPS_Test_State::$orders[ $shell_id ]->get_status() );
+	}
+);
+
+$suite->add(
+	'importer: safe_cleanup_incomplete_order quarantines shell if delete throws exception',
+	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
+		$importer    = new Importer();
+		$external_id = 'PEP-QUARANTINE-1';
+		$payload     = $recovery_payload( array( 'id' => $external_id ) );
+
+		// Create an incomplete shell order
+		$shell = new \WC_Order();
+		$shell->set_created_via( 'wps-pepita' );
+		$shell->update_meta_data( Importer::META_ORDER_ID, $external_id );
+		$shell->update_meta_data( '_wps_pepita_in_progress', '1' );
+		$shell_id = $shell->save();
+		WPS_Assert::true( $shell_id > 0 );
+
+		// Create claim and make it stale (> 15 min)
+		$claim = Order_Repository::claim( $external_id, 'pepita.hu', wp_json_encode( $payload ), 'hash-1' );
+		WPS_Assert::same( 'claimed', $claim['state'] );
+		Order_Repository::associate( $external_id, $shell_id, (int) $claim['row']['attempts'] );
+
+		global $wpdb;
+		$wpdb->update(
+			Order_Repository::table(),
+			array( 'updated_at' => gmdate( 'Y-m-d H:i:s', time() - 2000 ) ),
+			array( 'external_id' => $external_id )
+		);
+
+		// Make delete() throw an exception via hook
+		$delete_action = static function ( $id ) use ( $shell_id ) {
+			if ( (int) $id === $shell_id ) {
+				throw new \RuntimeException( 'Simulated disk failure during order deletion' );
+			}
+		};
+
+		add_action( 'woocommerce_delete_order', $delete_action );
+		$result = $importer->import( $payload );
+		remove_action( 'woocommerce_delete_order', $delete_action );
+
+		WPS_Assert::same( 200, $result['http'] );
+		WPS_Assert::same( 'created', $result['status'] );
+
+		$new_order_id = $result['order_id'];
+		WPS_Assert::not_same( $shell_id, $new_order_id );
+
+		// The shell was quarantined, NOT deleted
+		WPS_Assert::true( isset( WPS_Test_State::$orders[ $shell_id ] ) );
+		$quarantined = WPS_Test_State::$orders[ $shell_id ];
+		WPS_Assert::same( 'failed', $quarantined->get_status() );
+		WPS_Assert::true( '' !== (string) $quarantined->get_meta( '_wps_pepita_quarantined_from' ) );
+		// META_ORDER_ID must be cleared so it no longer collides
+		WPS_Assert::same( '', (string) $quarantined->get_meta( Importer::META_ORDER_ID ) );
+	}
+);
+
+$suite->add(
+	'importer: duplicate webhook for completed order does not mutate claim table',
+	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
+		$importer    = new Importer();
+		$external_id = 'PEP-NO-MUTATE-DUP-1';
+		$payload     = $recovery_payload( array( 'id' => $external_id ) );
+
+		// Initial clean import
+		$first_result = $importer->import( $payload );
+		WPS_Assert::same( 200, $first_result['http'] );
+		WPS_Assert::same( 'created', $first_result['status'] );
+		$order_id = $first_result['order_id'];
+
+		$claim_before = Order_Repository::get( $external_id );
+		WPS_Assert::same( 'completed', $claim_before['status'] );
+		WPS_Assert::same( $order_id, (int) $claim_before['wc_order_id'] );
+		$updated_at_before = $claim_before['updated_at'];
+
+		// Deliver identical duplicate replay
+		$second_result = $importer->import( $payload );
+		WPS_Assert::same( 200, $second_result['http'] );
+		WPS_Assert::same( 'duplicate', $second_result['status'] );
+		WPS_Assert::same( $order_id, $second_result['order_id'] );
+
+		// Verify claim table was NOT mutated
+		$claim_after = Order_Repository::get( $external_id );
+		WPS_Assert::same( 'completed', $claim_after['status'] );
+		WPS_Assert::same( $order_id, (int) $claim_after['wc_order_id'] );
+		WPS_Assert::same( $updated_at_before, $claim_after['updated_at'] );
+	}
+);
+
+$suite->add(
+	'importer: is_order_incomplete returns false for completed, processing, or populated orders',
+	static function (): void {
+		$importer = new Importer();
+		$ref      = new \ReflectionMethod( Importer::class, 'is_order_incomplete' );
+		$ref->setAccessible( true );
+
+		// 1. Order without in_progress flag is never incomplete
+		$order1 = new \WC_Order();
+		$order1->set_status( 'pending' );
+		WPS_Assert::false( $ref->invoke( $importer, $order1 ) );
+
+		// 2. Order with in_progress=1 and status completed is never incomplete
+		$order2 = new \WC_Order();
+		$order2->update_meta_data( '_wps_pepita_in_progress', '1' );
+		$order2->set_status( 'completed' );
+		WPS_Assert::false( $ref->invoke( $importer, $order2 ) );
+
+		// 3. Order with in_progress=1 and status processing is never incomplete
+		$order3 = new \WC_Order();
+		$order3->update_meta_data( '_wps_pepita_in_progress', '1' );
+		$order3->set_status( 'processing' );
+		WPS_Assert::false( $ref->invoke( $importer, $order3 ) );
+
+		// 4. Order with in_progress=1 and status pending but with line items is never incomplete
+		$order4 = new \WC_Order();
+		$order4->update_meta_data( '_wps_pepita_in_progress', '1' );
+		$order4->set_status( 'pending' );
+		$item = new \WC_Order_Item_Product();
+		$item->set_product_id( 701 );
+		$item->set_quantity( 1 );
+		$order4->add_item( $item );
+		WPS_Assert::false( $ref->invoke( $importer, $order4 ) );
+
+		// 5. Order with in_progress=1 and status pending with empty items IS incomplete
+		$order5 = new \WC_Order();
+		$order5->update_meta_data( '_wps_pepita_in_progress', '1' );
+		$order5->set_status( 'pending' );
+		WPS_Assert::true( $ref->invoke( $importer, $order5 ) );
+	}
+);

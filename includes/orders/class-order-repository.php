@@ -248,6 +248,15 @@ final class Order_Repository {
 					&& self::STATUS_COMPLETED === ( $row['status'] ?? '' );
 			}
 		} else {
+			$existing_row = self::get( $external_id );
+			if ( null !== $existing_row && self::STATUS_COMPLETED === ( $existing_row['status'] ?? '' ) ) {
+				$existing_wc_id = (int) ( $existing_row['wc_order_id'] ?? 0 );
+				$existing_hash  = (string) ( $existing_row['payload_hash'] ?? '' );
+				if ( $existing_wc_id === $order_id && ( '' === $payload_hash || $existing_hash === $payload_hash ) ) {
+					return true;
+				}
+			}
+
 			if ( '' !== $payload_hash ) {
 				$res = $wpdb->query(
 					$wpdb->prepare(
@@ -346,6 +355,57 @@ final class Order_Repository {
 		);
 
 		return false !== $res;
+	}
+
+	/**
+	 * Atomically fence cleanup of an incomplete shell order.
+	 *
+	 * Verifies that the current worker still owns the lease (status = 'processing'
+	 * and attempts = $attempt) and that wc_order_id matches $expected_order_id (or 0).
+	 * Sets wc_order_id = 0 atomically to prevent concurrent adoption while deletion proceeds.
+	 *
+	 * @param string $external_id
+	 * @param int    $expected_order_id
+	 * @param int    $attempt
+	 * @return bool True if fencing succeeded and this worker owns the lease, false otherwise.
+	 */
+	public static function fence_incomplete_order_cleanup( string $external_id, int $expected_order_id, int $attempt ): bool {
+		global $wpdb;
+
+		if ( $attempt <= 0 ) {
+			return false;
+		}
+
+		$table = self::table();
+		$res   = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table}
+				 SET wc_order_id = 0, updated_at = %s
+				 WHERE external_id = %s
+				   AND status = %s
+				   AND attempts = %d
+				   AND (wc_order_id = %d OR wc_order_id = 0)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				current_time( 'mysql', true ),
+				$external_id,
+				self::STATUS_PROCESSING,
+				$attempt,
+				max( 0, $expected_order_id )
+			)
+		);
+
+		if ( false === $res ) {
+			return false;
+		}
+
+		if ( 0 === (int) $res ) {
+			$row = self::get( $external_id );
+			return null !== $row
+				&& (int) ( $row['attempts'] ?? 0 ) === $attempt
+				&& self::STATUS_PROCESSING === ( $row['status'] ?? '' )
+				&& 0 === (int) ( $row['wc_order_id'] ?? 0 );
+		}
+
+		return true;
 	}
 
 	/**

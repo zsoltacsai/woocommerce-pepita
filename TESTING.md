@@ -223,7 +223,7 @@ MySQL stack on both HPOS and legacy storage, including:
 - Action Scheduler and WP-Cron execution.
 - Duplicate delivery, retry after failure and crash recovery.
 - Tax-enabled stores with `prices_include_tax` set to `yes` and `no`
-  (`08-tax.php`, added by this revision, **not yet executed**).
+  (`08-tax.php`, executed and passing in Docker CI).
 
 What still requires Pepita staging or real hosting:
 

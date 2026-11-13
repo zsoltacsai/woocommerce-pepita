@@ -229,15 +229,23 @@ not a substitute for the live M9 staging validation.
 17. **Crash recovery & orphan window closure (M9 Risk Closure — RESOLVED).** The order is
     instantiated and persisted with its external ID, initial hash, and `_wps_pepita_in_progress = '1'`
     marker in its very first `save()`, followed immediately by claim association
-    (`Order_Repository::associate()`). On recovery, `is_order_incomplete()` checks for the
-    marker; incomplete shells left by a terminated process are cleanly purged (`delete(true)`)
-    and recreated from scratch, eliminating orphan orders and duplicates. Successful completion
-    removes the marker and sets `_wps_pepita_imported_at`.
+    (`Order_Repository::associate()`). On recovery, `Order_Repository::fence_incomplete_order_cleanup()`
+    atomically fences lease ownership in MySQL before deletion; if the fence fails, the worker aborts with
+    HTTP 409 retry without deleting. A fresh reload verifies the order was not concurrently completed
+    or populated. Only orders matching the strict definition (`_wps_pepita_in_progress === '1'`, status
+    in `pending`/`failed`/`draft`, and zero line items) can ever be deleted; completed or processing orders
+    are never deleted. If deletion fails, `safe_cleanup_incomplete_order()` quarantines the shell
+    (`_wps_pepita_quarantined_from`, `failed` status, external ID cleared) to prevent collisions.
 18. **Historical order replay without payload hash (M9 Risk Closure — RESOLVED).** Replays of
     pre-1.1.0 orders lacking `_wps_pepita_payload_hash` are validated fail-closed against
     invariant business fields: full payload syntax and product validation, currency, exact
     grand total, customer billing email, line item count, and per-line SKU and quantity match.
     Mismatches are rejected with 409 Conflict, an operator note, and warning log; matching replays
+    backfill the hash.
+19. **Unfenced duplicate complete elimination (M9 Risk Closure — RESOLVED).** In `handle_existing_order()`,
+    duplicate webhooks for already-completed claims do not perform redundant database writes on the
+    claim table, and the redundant unfenced `complete(..., 0)` call has been eliminated. Only reclaimed
+    leases execute `complete()` with attempt verification, returning HTTP 409 retry on lost lease.
     safely backfill the hash in WooCommerce metadata and claims table.
 
 ## 10. Recommendations

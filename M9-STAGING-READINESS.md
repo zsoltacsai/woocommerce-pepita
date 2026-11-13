@@ -29,7 +29,7 @@ The staging distribution archive has been generated in a strictly reproducible, 
 | **Plugin Version** | `1.1.0` (`WPS_PEPITA_VERSION`) |
 | **Database Schema Version** | `1.1.0` (`WPS_PEPITA_DB_VERSION`) |
 | **Commit SHA** | `security/m9-staging-readiness` HEAD |
-| **Package SHA-256** | `c11970604fb39fc9b680a4335edc33dd17f5538bf3968cb2c42dc0715f972dcc` |
+| **Package SHA-256** | `63ca05e193d131f7fd0860c08dc4f8e685eacf8172ab80463b22a6a64f6d8ba2` |
 | **Archive Entry Count** | 55 entries (47 files + 8 directories) |
 | **Archive Uncompressed Size** | 445,466 bytes (~435 KB) |
 | **Archive Compressed Size** | 134,845 bytes (~132 KB) |
@@ -43,15 +43,24 @@ The staging distribution archive has been generated in a strictly reproducible, 
 The four remaining risks identified during M9 staging preparation have been investigated, fixed, and verified with deterministic tests:
 
 ### 2.1 Crash Between WooCommerce Order Creation and Metadata Persistence
-* **Problem**: `wc_create_order()` allocates a persistent order record in the WooCommerce database immediately. If PHP crashed (process termination, SIGKILL, memory exhaustion, timeout) before metadata was saved, an incomplete order existed in WooCommerce without `_wps_pepita_order_id`. On subsequent retry, crash recovery failed to locate the orphaned record and invoked `wc_create_order()` a second time, leaving a duplicate ghost shell order in the merchant's store.
+* **Problem**: `wc_create_order()` allocates a persistent order record in the WooCommerce database immediately. If PHP crashed (process termination, SIGKILL, memory exhaustion, timeout) before metadata was saved, an incomplete order existed in WooCommerce without `_wps_pepita_order_id`. On subsequent retry, crash recovery failed to locate the orphaned record and invoked `wc_create_order()` a second time, leaving a duplicate ghost shell order in the merchant's store. Furthermore, if an interrupted shell cleanup was attempted by a stale worker without atomic lease fencing, it could race with an active worker and unsafely delete an order already adopted or completed.
 * **Remediation**:
   1. **Early Email & Hook Suppression**: `suppress_emails()` is invoked at the very beginning of `create_order()` in a `try ... finally` block, ensuring no creation hooks or customer/admin notifications fire during incomplete shell allocation or line item construction.
   2. **Initial In-Progress Metadata**: The order is allocated with `set_created_via('wps-pepita')`, currency, `META_ORDER_ID`, `META_PAYLOAD_HASH`, and `_wps_pepita_in_progress = '1'` prior to the initial database write (`$order->save()`).
   3. **Immediate Claim Association**: Immediately following the initial save, `Order_Repository::associate($external_id, $order_id, $attempt)` records the assigned WooCommerce order ID in the active claim row in MySQL.
-  4. **Crash Recovery Shell Purge**: On webhook retry following an interrupted attempt, `find_order_by_external_id()` locates the existing order (via metadata or claim row). If `is_order_incomplete()` detects `_wps_pepita_in_progress === '1'`, the incomplete shell is logged (`order_recovery`), forcefully deleted via `$existing_order->delete(true)`, disassociated in MySQL via `associate($external_id, 0, $attempt)`, and a clean, complete order is rebuilt from scratch.
-  5. **Atomic In-Progress Removal**: Upon full successful order population, `_wps_pepita_in_progress` is removed, `_wps_pepita_imported_at` timestamp is written, and the order is saved.
+  4. **Atomic Incomplete-Order Cleanup Fencing**: Before attempting to clean up any incomplete shell order, the worker executes `Order_Repository::fence_incomplete_order_cleanup($external_id, $expected_order_id, $attempt)`. This atomically verifies in MySQL that `status = 'processing'`, `attempts = $attempt`, and `(wc_order_id = $expected_order_id OR wc_order_id = 0)`, simultaneously setting `wc_order_id = 0`. If this fencing query fails (returns false), the worker lost its lease; it logs a warning and returns `HTTP 409 retry` immediately without deleting the order.
+  5. **Fresh Reload & Status Verification**: Following successful fencing, the worker reloads the order fresh from the database via `wc_get_order()`. If `!is_order_incomplete($fresh_order)` (e.g. another worker completed the order or populated line items), the order is preserved, re-associated via `associate()`, and handed off to `handle_existing_order()`.
+  6. **Strict Incomplete Shell Definition**: `is_order_incomplete(\WC_Order $order)` strictly guarantees that an order with status `completed`, `processing`, or having line items is **never** incomplete. Only orders with `_wps_pepita_in_progress === '1'` AND status in (`pending`, `failed`, `draft`, `checkout-draft`) AND completely empty line items are treated as incomplete shells.
+  7. **Pre-Delete Check & Quarantine Fallback**: The worker verifies `is_attempt_current($external_id, $attempt)` immediately before deletion. In `safe_cleanup_incomplete_order()`, `$order->delete(true)` is guarded with a try-catch block. If deletion throws an exception or fails, the orphaned shell is quarantined: metadata `_wps_pepita_quarantined_from` is added, `_wps_pepita_order_id` is stripped so it cannot collide with future lookups, `_wps_pepita_in_progress` is removed, status is set to `failed` with a quarantine order note, and an error is logged.
+  8. **Atomic In-Progress Removal**: Upon full successful order population, `_wps_pepita_in_progress` is removed, `_wps_pepita_imported_at` timestamp is written, and the order is saved.
 * **Verification**:
-  - Unit test `recovery: mid-creation crash leaving incomplete shell is discarded and cleanly rebuilt` in [106-recovery-and-replay-test.php](file:///home/zsolt/Projects/woocommerce-pepita/tests/cases/106-recovery-and-replay-test.php#L55).
+  - Unit tests in [106-recovery-and-replay-test.php](file:///home/zsolt/Projects/woocommerce-pepita/tests/cases/106-recovery-and-replay-test.php):
+    * `recovery: mid-creation crash leaving incomplete shell is discarded and cleanly rebuilt`
+    * `repository: fence_incomplete_order_cleanup validates attempt and status atomically`
+    * `importer: shell cleanup is aborted without deleting shell if worker loses lease before fence`
+    * `importer: shell concurrently completed before cleanup is preserved and handed off`
+    * `importer: safe_cleanup_incomplete_order quarantines shell if delete throws exception`
+    * `importer: is_order_incomplete returns false for completed, processing, or populated orders`
   - HPOS integration test `Mid-creation crash leaving an incomplete order shell is discarded and cleanly rebuilt` in [07-idempotency.php](file:///home/zsolt/Projects/woocommerce-pepita/integration/tests/cases/07-idempotency.php#L196).
 
 ### 2.2 Replay Handling for Historical Orders Lacking Payload Hash
@@ -91,6 +100,15 @@ The four remaining risks identified during M9 staging preparation have been inve
   3. **Fail-Closed Claim Gates**: If a claim read-back returns a null row or non-positive attempt count, processing fails closed immediately with HTTP 500 error instead of silently bypassing fencing.
 * **Verification**:
   - Integration test `A lost claim row recovers the existing order by its external id meta` in [07-idempotency.php](file:///home/zsolt/Projects/woocommerce-pepita/integration/tests/cases/07-idempotency.php#L127).
+
+### 2.5 Elimination of Unfenced Duplicate Completion Writes
+* **Problem**: In `handle_existing_order()`, when handling duplicate webhooks for an already completed order, the code called `Order_Repository::complete( $external_id, $order_id, $payload_hash, 0 )`. Because `$expected_attempt` was 0, it executed an unfenced `UPDATE` query on `wps_pepita_order_claims` on every duplicate webhook receipt, even though the order claim was already `completed` and the hash was already synchronized.
+* **Remediation**:
+  1. **Elimination of Redundant Writes**: Removed the unfenced `complete(..., 0)` call from `handle_existing_order()`. When a replay arrives for an already-completed claim (`$reclaimed === false`), no database write is performed on the claim table.
+  2. **Strict Lease Fencing on Reclaimed Replays**: Only when an existing order is reclaimed (`$reclaimed === true`) does `handle_existing_order()` call `Order_Repository::complete($external_id, $order_id, $payload_hash, $attempt)`. If completion fails due to lease takeover, it returns `HTTP 409 retry`.
+  3. **Repository Defense**: `Order_Repository::complete()` checks whether an existing row is already completed with identical `wc_order_id` and `payload_hash` before running any query when `$expected_attempt === 0`, ensuring idempotent no-op safety.
+* **Verification**:
+  - Unit test `importer: duplicate webhook for completed order does not mutate claim table` in [106-recovery-and-replay-test.php](file:///home/zsolt/Projects/woocommerce-pepita/tests/cases/106-recovery-and-replay-test.php).
 
 ---
 
@@ -247,23 +265,45 @@ a staging tesztelés megkezdése előtt:
 Válaszukat és a technikai egyeztetést előre is köszönjük!
 ```
 
+### 6.1 Staging Environment Preflight & Operational Isolation Requirements
+
+Before deploying the distribution package to the staging host, the following operational isolation gates must be confirmed:
+
+1. **Real TLS Termination**:
+   - The staging environment must use HTTPS with a valid, trusted TLS certificate and HSTS enabled.
+   - Plain HTTP webhook intake is strictly rejected.
+2. **Reverse-Proxy Configuration**:
+   - Proper forwarding headers (`X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host`) must be configured on Nginx/Apache.
+   - The real remote IP must be preserved in `$_SERVER['REMOTE_ADDR']` to ensure accurate rate limiting and security audit logs.
+3. **Mandatory Email Interception**:
+   - A mail trap (e.g., Mailhog, Mailpit, or WP Mail Logging with outgoing delivery disabled via `add_filter('pre_wp_mail', '__return_false')`) must be active.
+   - Under no circumstances may staging order intake send emails to real customer or administrator addresses.
+4. **ERP & External Service Isolation**:
+   - All third-party ERP, invoicing (e.g. Számlázz.hu, Billingo), warehouse, or fulfillment integrations must be placed in sandbox/mock mode or disabled to prevent phantom accounting or inventory adjustments.
+
 ---
 
 ## 7. Dry-Run Acceptance Test Plan
 
-Prior to any production consideration, the staging team will execute the following 11 synthetic acceptance test scenarios on the isolated staging environment:
+### Hierarchy of Verification Layers
+To ensure rigorous operational readiness without conflating automated test suite coverage with staging deployment:
+1. **Automated Unit Suite**: 191 unit tests across 19 suites in `tests/cases/` run across PHP 8.1–8.5 in CI.
+2. **Automated Docker Integration Suite**: 71 integration scenarios in `integration/tests/cases/` run on real WordPress 6.8.3, WooCommerce 9.8.5, and MySQL 8.4 in CI under both HPOS and Legacy post storage.
+3. **Separate Staging Server Dry-Run Acceptance (ST-01 to ST-11)**: The synthetic acceptance scenarios below, to be executed on the isolated staging environment host prior to any production consideration.
+4. **Official Pepita Partner Feed Ingestion**: Ingestion and validation of feed URLs by Pepita's technical team.
+5. **Live Partner Webhook Validation**: Intake validation against Pepita's partner test harness.
 
 | ID | Test Scenario | Execution Steps | Expected Outcome |
 |---|---|---|---|
 | **ST-01** | **Clean Installation & Migration** | Upload `wp-pepita-sync.zip` to staging WP admin, activate plugin. | Options initialized with defaults; DB tables `wps_pepita_order_claims` and `wps_pepita_logs` created with collation `utf8mb4_bin`; collation check flag recorded. |
-| **ST-02** | **Full Product Feed Generation** | Trigger product feed generation via admin UI or `wp pepita feed generate products`. | Complete XML feed generated in private storage; validates cleanly against Pepita XSD; UTF-8 sanitization strips noncharacters. |
-| **ST-03** | **Stock Feed Generation** | Trigger stock feed generation with full catalog. | Stock XML feed generated; reflects current stock and prices; executes in lightweight bounded memory. |
+| **ST-02** | **Full Product Feed Generation** | Trigger product feed generation via admin UI or `wp pepita feed generate products`. | Complete XML feed generated in private storage; validates cleanly against Pepita feed specification using structural and well-formedness XML validation (XMLReader/DOMDocument, specification-based as Pepita does not publish an official machine-readable XSD schema); UTF-8 sanitization strips noncharacters. |
+| **ST-03** | **Stock Feed Generation** | Trigger stock feed generation with full catalog. | Complete stock XML feed generated (full catalog snapshot containing id, price, and stock for all eligible products, never a delta feed); reflects current stock and prices; executes in lightweight bounded memory. |
 | **ST-04** | **Tax-Aware Order Intake** | POST synthetic paid order webhook with 27% VAT products, shipping, and discount voucher. | Order created in WooCommerce; exact gross total preserved; tax lines partitioned via standard `WC_Order_Item_Tax`; package label PDF saved. |
 | **ST-05** | **Zero-VAT / Exempt Order Intake** | POST synthetic order with 0% VAT products. | Order created with zero tax lines; total matches gross sum exactly; no 422 failure. |
 | **ST-06** | **Unpaid COD Order Intake** | POST synthetic cash-on-delivery order. | Order created with status `on-hold`; no payment date stamped; customer/courier notes recorded. |
-| **ST-07** | **Identical Duplicate Replay** | Deliver the exact same order webhook twice. | Returns HTTP 200 duplicate; returns original order ID; no duplicate order created; claim attempts count preserved. |
+| **ST-07** | **Identical Duplicate Replay** | Deliver the exact same order webhook twice. | Returns HTTP 200 duplicate; returns original order ID; no duplicate order created; claim table not mutated; claim attempts count preserved. |
 | **ST-08** | **Altered Duplicate Conflict** | Deliver the same order ID with altered product price or quantity. | Returns HTTP 409 Conflict; original order untouched; operator note added to order; warning logged with `changed_payload_refused`. |
-| **ST-09** | **Interrupted Crash Recovery** | Simulate crash by creating an incomplete order shell with `_wps_pepita_in_progress=1`, make claim lease stale, then replay webhook. | Incomplete shell is purged from WooCommerce; exactly 1 complete order created; returns HTTP 200. |
+| **ST-09** | **Interrupted Crash Recovery** | Simulate crash by creating an incomplete order shell with `_wps_pepita_in_progress=1`, make claim lease stale, then replay webhook. | Atomic cleanup fence succeeds; incomplete shell purged from WooCommerce (or quarantined on failure); exactly 1 complete order created; returns HTTP 200. |
 | **ST-10** | **Maintenance Cron & Retention** | Run maintenance job `wp pepita maintenance run` or WP-Cron. | Purges expired feed locks, deletes raw payloads older than retention, purges package labels for closed orders. |
 | **ST-11** | **Rollback & Uninstall** | Deactivate plugin; verify data preserved; reactivate and verify seamless resume. | Deactivation leaves tables and orders intact. Reactivation resumes immediately without migration error. |
 
@@ -286,7 +326,7 @@ If any critical defect or operational instability occurs during staging validati
 
 * **Staging Gate**: **GO (CONDITIONAL APPROVAL)**
   - All four security and financial integrity risks are closed and verified with automated regression and integration suites (185 unit tests, 71 integration scenarios).
-  - Reproducible, secret-free distribution package `dist/wp-pepita-sync.zip` (SHA-256: `c11970604fb39fc9b680a4335edc33dd17f5538bf3968cb2c42dc0715f972dcc`, 55 entries: 47 files + 8 directories) is prepared and verified.
+  - Reproducible, secret-free distribution package `dist/wp-pepita-sync.zip` (SHA-256: `63ca05e193d131f7fd0860c08dc4f8e685eacf8172ab80463b22a6a64f6d8ba2`, 55 entries: 47 files + 8 directories) is prepared and verified.
   - CI verification runs across all supported PHP versions and HPOS modes with 100% pass rate.
   - Independent review by Mad-Eye Moody confirms conditional readiness for isolated staging deployment following lease fencing and order preservation fixes.
 

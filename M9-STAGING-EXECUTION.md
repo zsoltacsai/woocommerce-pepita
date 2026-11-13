@@ -5,7 +5,7 @@
 **Repository:** `zsoltacsai/woocommerce-pepita`  
 **Target Pull Request:** [PR #2 (security/claude-audit-remediation)](https://github.com/zsoltacsai/woocommerce-pepita/pull/2) (Draft, Unmerged)  
 **Exact Review & Candidate SHA:** `1cbadd24353ea0eb31c63e29c1eca4db4417034a`  
-**Distribution Package SHA-256:** `c11970604fb39fc9b680a4335edc33dd17f5538bf3968cb2c42dc0715f972dcc`  
+**Distribution Package SHA-256:** `63ca05e193d131f7fd0860c08dc4f8e685eacf8172ab80463b22a6a64f6d8ba2`  
 **Date:** 2026-11-13  
 **Auditor:** Alastor "Mad-Eye" Moody (Independent QA via Claude Haiku 5.5 / `claude-haiku-5-5`)  
 **Development Harness:** T3 Code Orchestrator / Gemini 3.8 Flash
@@ -36,7 +36,7 @@ The release candidate has been synchronized with [PR #2](https://github.com/zsol
 | **Plugin Version** | `1.1.0` (`WPS_PEPITA_VERSION`) |
 | **Database Version** | `1.1.0` (`WPS_PEPITA_DB_VERSION`) |
 | **Candidate Commit** | `1cbadd24353ea0eb31c63e29c1eca4db4417034a` |
-| **Package SHA-256** | `c11970604fb39fc9b680a4335edc33dd17f5538bf3968cb2c42dc0715f972dcc` |
+| **Package SHA-256** | `63ca05e193d131f7fd0860c08dc4f8e685eacf8172ab80463b22a6a64f6d8ba2` |
 | **Entry Count** | 55 entries (47 files + 8 directories) |
 | **Compressed Size** | 134,845 bytes (~132 KB) |
 | **Uncompressed Size** | 445,466 bytes (~435 KB) |
@@ -79,23 +79,27 @@ Both integration test jobs execute against real containerized stacks:
 
 ---
 
-## 4. Synthetic Staging Acceptance Scenarios (ST-01 to ST-11)
+## 4. Automated CI Suite Readiness for Synthetic Staging Scenarios (ST-01 to ST-11)
 
-All 11 acceptance scenarios defined in [M9-STAGING-READINESS.md](file:///home/zsolt/Projects/woocommerce-pepita/M9-STAGING-READINESS.md) have been executed with concrete automated evidence:
+The code capabilities underlying the 11 synthetic staging acceptance scenarios defined in [M9-STAGING-READINESS.md](file:///home/zsolt/Projects/woocommerce-pepita/M9-STAGING-READINESS.md) have been verified through automated unit tests and Docker-based CI integration tests.
 
-| Scenario | Scope & Execution | Status | Automated Test Evidence |
+> [!IMPORTANT]
+> **Operational Verification Hierarchy**:
+> Automated CI tests (`tests/cases/` and `integration/tests/cases/`) prove code correctness and protocol compliance in a simulated environment. They do **not** replace execution on a real, isolated staging server. Formal execution of ST-01 through ST-11 on a dedicated WordPress staging server with real TLS, reverse-proxy, and mail traps remains a strict prerequisite before production consideration.
+
+| Scenario | Scope & Capabilities | CI Code Readiness | Automated Test Evidence |
 |---|---|---|---|
-| **ST-01** | **Clean Installation & Migration**: Activation creates `wps_pepita_order_claims` and `wps_pepita_logs` with `utf8mb4_bin` collation. | **PASS** | `02-schema.php`: tests 21–31 (`create_tables()`, `maybe_upgrade()`, column validation). |
-| **ST-02** | **Full Product Feed Generation**: Valid XML generation with Unicode noncharacter filtering. | **PASS** | `03-feed-generation.php`: tests 32–39, 44 (`full feed generation completes with exact counters`). |
-| **ST-03** | **Stock Feed Generation**: Lightweight stock feed mirrors catalog without duplicates. | **PASS** | `03-feed-generation.php`: tests 40–42 (`stock feed generation completes`). |
-| **ST-04** | **Tax-Aware Order Intake**: Gross total preserved, 27% VAT partitioned via `WC_Order_Item_Tax`. | **PASS** | `08-tax.php`: tests 82–85 (`taxable 27% VAT: net, tax, gross and tax rows preserved`). |
-| **ST-05** | **Zero-VAT / Exempt Order Intake**: Customer tax exemption creates zero-tax orders without error. | **PASS** | `08-tax.php`: tests 86–87 (`customer tax exemption creates clean zero-tax order`). |
-| **ST-06** | **Unpaid COD Order Intake**: Cash-on-delivery orders placed on-hold without payment stamp. | **PASS** | `06-order-import.php`: test 64 (`unpaid transfer order imported as on-hold`). |
-| **ST-07** | **Identical Duplicate Replay**: Repeated webhook returns HTTP 200 duplicate with original order ID. | **PASS** | `07-idempotency.php`: test 71 (`repeated delivery returns original order and changes nothing`). |
-| **ST-08** | **Altered Duplicate Conflict**: Mismatched payload returns HTTP 409 Conflict, order unmodified. | **PASS** | `07-idempotency.php`: test 77 & `106-recovery-and-replay-test.php` (altered total/SKU rejected). |
-| **ST-09** | **Crash Recovery & Concurrency**: Incomplete shells cleaned up; stale worker fenced out on complete; single order preserved. | **PASS** | `07-idempotency.php`: test 76 & `106-recovery-and-replay-test.php` (fencing tests 1–5). |
-| **ST-10** | **Maintenance Cron & Retention**: Expired locks cleared, raw payloads purged, labels retained. | **PASS** | `09-scheduler.php`: tests 79–80 & `150-retention-test.php` (Action Scheduler & cron execution). |
-| **ST-11** | **Rollback & Uninstall**: Deactivation/reactivation preserves orders and claims safely. | **PASS** | `02-schema.php`: tests 22, 30–31 (idempotent table recreation and upgrade). |
+| **ST-01** | **Clean Installation & Migration**: Activation creates `wps_pepita_order_claims` and `wps_pepita_logs` with `utf8mb4_bin` collation. | **READY (CI PASS)** | `02-schema.php`: tests 21–31 (`create_tables()`, `maybe_upgrade()`, column validation). |
+| **ST-02** | **Full Product Feed Generation**: Valid XML generation with Unicode noncharacter filtering and specification-based structural validation (not official XSD). | **READY (CI PASS)** | `03-feed-generation.php`: tests 32–39, 44 (`full feed generation completes with exact counters`). |
+| **ST-03** | **Stock Feed Generation**: Complete catalog stock feed snapshot (entire current eligible catalog, never a delta feed) without duplicates. | **READY (CI PASS)** | `03-feed-generation.php`: tests 40–42 (`stock feed generation completes`). |
+| **ST-04** | **Tax-Aware Order Intake**: Gross total preserved, 27% VAT partitioned via `WC_Order_Item_Tax`. | **READY (CI PASS)** | `08-tax.php`: tests 82–85 (`taxable 27% VAT: net, tax, gross and tax rows preserved`). |
+| **ST-05** | **Zero-VAT / Exempt Order Intake**: Customer tax exemption creates zero-tax orders without error. | **READY (CI PASS)** | `08-tax.php`: tests 86–87 (`customer tax exemption creates clean zero-tax order`). |
+| **ST-06** | **Unpaid COD Order Intake**: Cash-on-delivery orders placed on-hold without payment stamp. | **READY (CI PASS)** | `06-order-import.php`: test 64 (`unpaid transfer order imported as on-hold`). |
+| **ST-07** | **Identical Duplicate Replay**: Repeated webhook returns HTTP 200 duplicate with original order ID; claims table not mutated. | **READY (CI PASS)** | `07-idempotency.php`: test 71 & `106-recovery-and-replay-test.php` (no write on duplicate). |
+| **ST-08** | **Altered Duplicate Conflict**: Mismatched payload returns HTTP 409 Conflict, order unmodified. | **READY (CI PASS)** | `07-idempotency.php`: test 77 & `106-recovery-and-replay-test.php` (altered total/SKU rejected). |
+| **ST-09** | **Crash Recovery & Concurrency**: Incomplete shells cleaned up under atomic lease fence (or quarantined on failure); stale worker fenced out on complete; single order preserved. | **READY (CI PASS)** | `07-idempotency.php`: test 76 & `106-recovery-and-replay-test.php` (fencing tests 1–11). |
+| **ST-10** | **Maintenance Cron & Retention**: Expired locks cleared, raw payloads purged, labels retained. | **READY (CI PASS)** | `09-scheduler.php`: tests 79–80 & `150-retention-test.php` (Action Scheduler & cron execution). |
+| **ST-11** | **Rollback & Uninstall**: Deactivation/reactivation preserves orders and claims safely. | **READY (CI PASS)** | `02-schema.php`: tests 22, 30–31 (idempotent table recreation and upgrade). |
 
 ---
 
@@ -103,10 +107,11 @@ All 11 acceptance scenarios defined in [M9-STAGING-READINESS.md](file:///home/zs
 
 ### A. Recovery Concurrency
 1. **Simulated Interrupted Creation**: An incomplete order shell tagged with `_wps_pepita_in_progress = '1'` is abandoned midway.
-2. **Shell Adoption & Cleanup**: Subsequent webhook delivery adopts the shell via `Order_Repository::find_order_by_external_id()`, completes line item generation, clears the in-progress flag, and finalizes the order.
-3. **Lease Expiration & Reclaim**: An interrupted worker's lease expires after 15 minutes (`WPS_PEPITA_LEASE_TIMEOUT_SECONDS`). A competing worker reclaims the lease atomically via `Order_Repository::claim()`, incrementing the `attempts` counter.
-4. **Stale Worker Fence-Out**: If the original stalled worker awakens at `Order_Repository::complete()`, its stale attempt counter is rejected (`0 rows updated`). Crucially, the fenced worker **does not delete the completed order** (`$order->delete(true)` was removed per Mad-Eye finding 1). Instead, it logs a warning and returns `HTTP 409 retry`.
-5. **Single Order Guarantee**: Exactly one valid, non-duplicate WooCommerce order exists in the database.
+2. **Atomic Cleanup Fencing**: Before attempting shell deletion, the worker executes `Order_Repository::fence_incomplete_order_cleanup($external_id, $expected_order_id, $attempt)`. If the worker lost its lease, cleanup aborts and returns `HTTP 409 retry` without deleting the order.
+3. **Fresh Order Reload & Verification**: Following successful fencing, the order is reloaded fresh. If concurrently completed or populated with items (`!is_order_incomplete()`), it is preserved and handed off to `handle_existing_order()`.
+4. **Pre-Delete Check & Quarantine Fallback**: The worker re-verifies `is_attempt_current()` immediately before deletion. If deletion throws an exception or fails, the shell is quarantined (`_wps_pepita_quarantined_from`, status `failed`, external ID cleared).
+5. **Stale Worker Fence-Out**: If a stalled worker awakens at `Order_Repository::complete()`, its stale attempt counter is rejected (`0 rows updated`). The fenced worker does not delete the completed order, logs a warning, and returns `HTTP 409 retry`.
+6. **Single Order Guarantee**: Exactly one valid, non-duplicate WooCommerce order exists in the database.
 
 ### B. Financial Integrity
 1. **Net, VAT, Gross Partitioning**: Verified under both `prices_include_tax = yes` and `prices_include_tax = no`. Net line amounts plus calculated tax sum to the exact gross price sent by Pepita.
@@ -116,8 +121,8 @@ All 11 acceptance scenarios defined in [M9-STAGING-READINESS.md](file:///home/zs
 5. **No External Invoicing**: External billing plugins (Számlázz.hu, Billingo) are de-hooked; no invoices or live credit card charges occur.
 
 ### C. Feed Consistency
-1. **Full Product Feed**: Generates complete XML catalog adhering to Pepita merchant schema.
-2. **Stock Feed**: Generates delta stock feed with identical product identifiers (`<id>`, `<sku>`) matching the full feed signature.
+1. **Full Product Feed**: Generates complete XML catalog adhering to Pepita merchant specification with UTF-8 noncharacter filtering.
+2. **Stock Feed**: Generates complete stock feed snapshot (entire current eligible catalog containing id, price, and stock for all products, never a delta feed) with identical product identifiers (`<id>`, `<sku>`) matching the full feed signature.
 3. **Variable Products**: Product axes and variations mapped deterministically.
 4. **Out of Stock**: Correctly tagged with `<availability>0</availability>` while maintaining pricing.
 5. **Pepita Disclaimer**: Official Pepita acceptance cannot be claimed solely from local XML validation until verified against Pepita's partner feed ingest endpoint.
@@ -127,6 +132,12 @@ All 11 acceptance scenarios defined in [M9-STAGING-READINESS.md](file:///home/zs
 2. **Log Redaction**: Customer PII (street addresses, phone numbers, emails, API keys) redacted in `wps_pepita_logs`.
 3. **Private Storage**: PDF package labels stored in protected upload directory with `.htaccess` / nginx deny rules and `%PDF-` magic header enforcement.
 4. **Zero Notifications**: `suppress_emails()` active during all order imports; no customer order emails dispatched.
+
+### E. Staging Operational Isolation Preflight
+1. **Real TLS Termination**: Staging host must enforce HTTPS with trusted TLS certificate and HSTS. Plain HTTP webhook delivery is strictly rejected.
+2. **Reverse Proxy Configuration**: Nginx/Apache reverse proxies must pass `X-Forwarded-For`, `X-Forwarded-Proto`, and preserve client IP in `$_SERVER['REMOTE_ADDR']`.
+3. **Mandatory Mail Interception**: Outgoing emails must be trapped (Mailpit / Mailhog / `pre_wp_mail` short-circuit). No staging customer notifications may leak to live recipients.
+4. **ERP & External Sync Disconnection**: All external ERP, accounting (Számlázz.hu, Billingo), and shipping carrier sync integrations must be mocked or disabled.
 
 ---
 

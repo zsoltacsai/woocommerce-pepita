@@ -96,24 +96,68 @@ final class Importer {
 
 			if ( $existing_order instanceof \WC_Order ) {
 				if ( $this->is_order_incomplete( $existing_order ) ) {
-					// Incomplete order left by a mid-creation process termination.
-					// Discard the broken shell and rebuild cleanly without duplicates.
-					Logger::warning(
-						'order_recovery',
-						'Félbehagyott Pepita rendelés észlelve korábbi összeomlás után; a csonka rendelést töröltük és újra létrehozzuk.',
-						array(
-							'external_id' => $external_id,
-							'orphan_id'   => $existing,
-						),
-						'order',
-						$existing
-					);
+					// 1. Atomically fence the cleanup attempt in the claim table before initiating order deletion.
+					$fenced = Order_Repository::fence_incomplete_order_cleanup( $external_id, $existing, $attempt );
+					if ( ! $fenced ) {
+						Logger::warning(
+							'order_recovery',
+							'A félbehagyott rendelés törlése megszakítva: a feldolgozási bérlet lejárt vagy átadásra került.',
+							array(
+								'external_id' => $external_id,
+								'orphan_id'   => $existing,
+								'attempt'     => $attempt,
+							),
+							'order',
+							$existing
+						);
 
-					$existing_order->delete( true );
-					$reset = Order_Repository::associate( $external_id, 0, $attempt );
-					if ( ! $reset ) {
 						return $this->result( 'retry', 409, 'A rendelés feldolgozási zárolása lejárt, a feldolgozást egy újabb kísérlet vette át.' );
 					}
+
+					// 2. Reload the order state fresh from the database before deleting.
+					$fresh_order = wc_get_order( $existing );
+					if ( ! ( $fresh_order instanceof \WC_Order ) || ! $this->is_order_incomplete( $fresh_order ) ) {
+						Logger::info(
+							'order_recovery',
+							'A félbehagyottnak hitt rendelés időközben befejeződött vagy tételeket kapott; megőrizzük és meglévőként kezeljük.',
+							array(
+								'external_id' => $external_id,
+								'order_id'    => $existing,
+							),
+							'order',
+							$existing
+						);
+
+						$target_order = ( $fresh_order instanceof \WC_Order ) ? $fresh_order : $existing_order;
+						$stored_hash  = (string) $target_order->get_meta( self::META_PAYLOAD_HASH );
+						if ( '' === $stored_hash ) {
+							$stored_hash = (string) ( $claim['row']['payload_hash'] ?? '' );
+						}
+
+						Order_Repository::associate( $external_id, $existing, $attempt );
+
+						return $this->handle_existing_order( $external_id, $existing, $stored_hash, $payload_hash, $payload, true, $attempt );
+					}
+
+					// 3. Pre-delete check: confirm is_attempt_current() one more time before calling delete().
+					if ( ! Order_Repository::is_attempt_current( $external_id, $attempt ) ) {
+						Logger::warning(
+							'order_recovery',
+							'A félbehagyott rendelés törlése megszakítva a törlés előtti ellenőrzésnél: a bérlet lejárt.',
+							array(
+								'external_id' => $external_id,
+								'orphan_id'   => $existing,
+								'attempt'     => $attempt,
+							),
+							'order',
+							$existing
+						);
+
+						return $this->result( 'retry', 409, 'A rendelés feldolgozási zárolása lejárt, a feldolgozást egy újabb kísérlet vette át.' );
+					}
+
+					// 4. Safely delete or quarantine.
+					$this->safe_cleanup_incomplete_order( $fresh_order, $external_id, $attempt );
 					$existing = 0;
 				} else {
 					$stored_hash = (string) $existing_order->get_meta( self::META_PAYLOAD_HASH );
@@ -1174,9 +1218,101 @@ final class Importer {
 
 	/**
 	 * Check whether an existing order was left incomplete by a mid-creation crash.
+	 *
+	 * An order with status 'completed', 'processing', or having line items is NEVER incomplete.
+	 * Only orders with _wps_pepita_in_progress === '1' AND status in ('pending', 'failed', 'draft', 'checkout-draft')
+	 * AND empty line items can ever be considered incomplete shells.
 	 */
 	private function is_order_incomplete( \WC_Order $order ): bool {
-		return '1' === (string) $order->get_meta( '_wps_pepita_in_progress' );
+		if ( '1' !== (string) $order->get_meta( '_wps_pepita_in_progress' ) ) {
+			return false;
+		}
+
+		$status = str_replace( 'wc-', '', $order->get_status() );
+		if ( in_array( $status, array( 'completed', 'processing' ), true ) ) {
+			return false;
+		}
+
+		if ( ! in_array( $status, array( 'pending', 'failed', 'draft', 'checkout-draft' ), true ) ) {
+			return false;
+		}
+
+		$line_items = $order->get_items( 'line_item' );
+		if ( ! empty( $line_items ) ) {
+			return false;
+		}
+
+		$all_items = $order->get_items();
+		if ( ! empty( $all_items ) ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Safely delete an incomplete order shell, quarantining it if deletion fails.
+	 *
+	 * @param \WC_Order $order
+	 * @param string    $external_id
+	 * @param int       $attempt
+	 * @return bool True if deleted, false if quarantined on failure.
+	 */
+	private function safe_cleanup_incomplete_order( \WC_Order $order, string $external_id, int $attempt ): bool {
+		$order_id = $order->get_id();
+
+		try {
+			$deleted = $order->delete( true );
+			if ( $deleted ) {
+				Logger::warning(
+					'order_recovery',
+					'Félbehagyott Pepita rendelés észlelve korábbi összeomlás után; a csonka rendelést töröltük és újra létrehozzuk.',
+					array(
+						'external_id' => $external_id,
+						'orphan_id'   => $order_id,
+					),
+					'order',
+					$order_id
+				);
+
+				return true;
+			}
+		} catch ( \Throwable $e ) {
+			Logger::error(
+				'order_recovery',
+				'A félbehagyott csonka rendelés törlése sikertelen volt (kivétel történt), karanténba helyezve: ' . $e->getMessage(),
+				array(
+					'external_id' => $external_id,
+					'orphan_id'   => $order_id,
+					'error'       => $e->getMessage(),
+				),
+				'order',
+				$order_id
+			);
+		}
+
+		// Quarantine the orphaned order
+		try {
+			$order->update_meta_data( '_wps_pepita_quarantined_from', sprintf( 'external_id=%s;attempt=%d', $external_id, $attempt ) );
+			$order->delete_meta_data( self::META_ORDER_ID );
+			$order->delete_meta_data( '_wps_pepita_in_progress' );
+			$order->set_status( 'failed', sprintf( 'Pepita csonka rendelés karanténba helyezve (kísérlet: %d, Pepita ID: %s) sikertelen törlés miatt.', $attempt, $external_id ) );
+			$order->save();
+		} catch ( \Throwable $q_err ) {
+			Logger::error(
+				'order_recovery',
+				'A csonka rendelés karanténba helyezése sem sikerült: ' . $q_err->getMessage(),
+				array(
+					'external_id' => $external_id,
+					'orphan_id'   => $order_id,
+					'error'       => $q_err->getMessage(),
+				),
+				'order',
+				$order_id
+			);
+		}
+
+		return false;
 	}
 
 	/**
@@ -1448,14 +1584,10 @@ final class Importer {
 		}
 
 		// Replay is valid: complete claim if reclaimed, and sync claim hash
-		if ( $order_id > 0 ) {
-			if ( $reclaimed ) {
-				$completed = Order_Repository::complete( $external_id, $order_id, $payload_hash, $attempt );
-				if ( ! $completed ) {
-					return $this->result( 'retry', 409, 'A rendelés feldolgozási zárolása lejárt, a feldolgozást egy újabb kísérlet vette át.' );
-				}
-			} else {
-				Order_Repository::complete( $external_id, $order_id, $payload_hash, 0 );
+		if ( $order_id > 0 && $reclaimed ) {
+			$completed = Order_Repository::complete( $external_id, $order_id, $payload_hash, $attempt );
+			if ( ! $completed ) {
+				return $this->result( 'retry', 409, 'A rendelés feldolgozási zárolása lejárt, a feldolgozást egy újabb kísérlet vette át.' );
 			}
 		}
 
