@@ -1045,39 +1045,6 @@ final class Importer {
 		}
 
 		return new \WP_Error( 'wps_fenced_out', 'A rendelés zárolása lejárt a mentés előtt, a feldolgozást más folyamat vette át.' );
-			}
-
-			// Never leave a half-built pending order behind: the retry would
-			// create a second one.
-			if ( isset( $order ) && $order instanceof \WC_Order ) {
-				$this->discard_order( $order );
-			}
-
-			throw $throwable;
-		} finally {
-			if ( null !== $save_fence ) {
-				remove_action( 'woocommerce_before_order_object_save', $save_fence, PHP_INT_MAX );
-			}
-
-			$this->restore_emails( $email_filters );
-		}
-	}
-
-	/**
-	 * Abandon the order of a worker that lost its lease: a newer attempt owns the claim and
-	 * discards/rebuilds the order. Nothing is deleted or notified here; only ghost notes that
-	 * WooCommerce may have attached to an already-discarded order are removed.
-	 */
-	private function fenced_out( \WC_Order $order ): \WP_Error {
-		$order_id = (int) $order->get_id();
-
-		if ( $order_id > 0 && function_exists( 'get_comments' ) && function_exists( 'wp_delete_comment' ) && ! ( wc_get_order( $order_id ) instanceof \WC_Order ) ) {
-			foreach ( (array) get_comments( array( 'post_id' => $order_id, 'type' => 'order_note', 'status' => 'any' ) ) as $comment ) {
-				wp_delete_comment( $comment, true );
-			}
-		}
-
-		return new \WP_Error( 'wps_fenced_out', 'A rendelés zárolása lejárt a mentés előtt, a feldolgozást más folyamat vette át.' );
 	}
 
 	/**
