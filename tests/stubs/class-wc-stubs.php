@@ -38,6 +38,7 @@ class WC_Product {
 				'short_description' => '',
 				'sku'               => '',
 				'tax_class'         => '',
+				'tax_status'        => 'taxable',
 				'stock_status'      => 'instock',
 				'manage_stock'      => false,
 				'stock_quantity'    => null,
@@ -114,6 +115,14 @@ class WC_Product {
 
 	public function get_tax_class(): string {
 		return (string) $this->data['tax_class'];
+	}
+
+	public function get_tax_status(): string {
+		return (string) ( $this->data['tax_status'] ?? 'taxable' );
+	}
+
+	public function set_tax_status( string $status ): void {
+		$this->data['tax_status'] = $status;
 	}
 
 	public function is_in_stock(): bool {
@@ -853,6 +862,10 @@ class WC_Order {
 		$total = 0.0;
 
 		foreach ( $this->items as $item ) {
+			if ( $item instanceof WC_Order_Item_Tax ) {
+				continue;
+			}
+
 			if ( $item instanceof WC_Order_Item_Shipping ) {
 				$total += $item->get_total();
 				continue;

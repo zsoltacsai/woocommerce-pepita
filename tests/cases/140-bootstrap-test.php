@@ -130,7 +130,7 @@ $suite->add(
 		$settings = get_option( Settings::OPTION, array() );
 
 		WPS_Assert::true( is_array( $settings ) );
-		WPS_Assert::same( '1.0.0', (string) get_option( 'wps_pepita_db_version', '' ) );
+		WPS_Assert::same( '1.1.0', (string) get_option( 'wps_pepita_db_version', '' ) );
 		WPS_Assert::true( strlen( (string) ( $settings['feed_token'] ?? '' ) ) >= 32 );
 		WPS_Assert::true( strlen( (string) ( $settings['order_api_key'] ?? '' ) ) >= 32 );
 		WPS_Assert::true( is_dir( Storage::dir() ) );

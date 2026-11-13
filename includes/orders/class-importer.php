@@ -510,7 +510,7 @@ final class Importer {
 		}
 
 		try {
-			$prices_include_tax = 'yes' === get_option( 'woocommerce_prices_include_tax', 'no' );
+			$prices_include_tax = function_exists( 'wc_prices_include_tax' ) ? wc_prices_include_tax() : false;
 			if ( method_exists( $order, 'set_prices_include_tax' ) ) {
 				$order->set_prices_include_tax( $prices_include_tax );
 			}
@@ -552,8 +552,9 @@ final class Importer {
 
 				$rates              = array();
 				$configured_percent = 0.0;
+				$tax_status         = method_exists( $product, 'get_tax_status' ) ? $product->get_tax_status() : 'taxable';
 
-				if ( $tax_enabled && ! $is_tax_exempt && 'none' !== $product->get_tax_status() ) {
+				if ( $tax_enabled && ! $is_tax_exempt && 'none' !== $tax_status ) {
 					$tax_class = method_exists( $product, 'get_tax_class' ) ? $product->get_tax_class() : '';
 
 					if ( class_exists( '\WC_Tax' ) ) {
@@ -591,7 +592,7 @@ final class Importer {
 
 					$line_taxes = array();
 					if ( 1 === count( $rates ) ) {
-						$single_rate_id = (string) key( $rates );
+						$single_rate_id = (string) array_key_first( $rates );
 						$line_taxes[ $single_rate_id ] = $line_tax;
 						$rate_cart_taxes[ $single_rate_id ] = round( ( $rate_cart_taxes[ $single_rate_id ] ?? 0.0 ) + $line_tax, 2 );
 					} elseif ( class_exists( '\WC_Tax' ) && method_exists( '\WC_Tax', 'calc_inclusive_tax' ) ) {
@@ -702,7 +703,7 @@ final class Importer {
 
 					$shipping_taxes = array();
 					if ( 1 === count( $shipping_rates ) ) {
-						$s_rate_id = (string) key( $shipping_rates );
+						$s_rate_id = (string) array_key_first( $shipping_rates );
 						$shipping_taxes[ $s_rate_id ] = $shipping_tax;
 						$rate_shipping_taxes[ $s_rate_id ] = round( ( $rate_shipping_taxes[ $s_rate_id ] ?? 0.0 ) + $shipping_tax, 2 );
 					} elseif ( class_exists( '\WC_Tax' ) && method_exists( '\WC_Tax', 'calc_inclusive_tax' ) ) {
@@ -724,9 +725,11 @@ final class Importer {
 
 					$total_shipping_tax = $shipping_tax;
 					$shipping_item->set_total( $net_shipping );
+					$shipping_item->set_total_tax( $shipping_tax );
 					$shipping_item->set_taxes( array( 'total' => $shipping_taxes ) );
 				} else {
 					$shipping_item->set_total( $gross_shipping );
+					$shipping_item->set_total_tax( 0.0 );
 					$shipping_item->set_taxes( array( 'total' => array() ) );
 				}
 

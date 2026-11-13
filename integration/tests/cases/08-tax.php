@@ -236,7 +236,7 @@ try {
 
 			$response = WPS_IT::post_order( $payload );
 			WPS_IT::same( 422, $response['code'], 'Incompatible VAT must return 422.' );
-			WPS_IT::contains( 'nem egyezik a WooCommerce-ben beállított adókulccsal', (string) $response['body'], 'Wrong error message.' );
+			WPS_IT::contains( 'nem egyezik a WooCommerce-ben beállított adókulccsal', (string) ( $response['json']['message'] ?? '' ), 'Wrong error message: ' . (string) $response['body'] );
 
 			// No WooCommerce order created
 			WPS_IT::same( 0, count( WPS_IT::orders_by_external_id( $external_id ) ), 'No order should be created on tax mismatch.' );
