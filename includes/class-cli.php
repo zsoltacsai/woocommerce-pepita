@@ -6,6 +6,7 @@
  * wp wps-pepita generate full|stock [--runtime=20]
  * wp wps-pepita orders [--status=...] [--limit=20]
  * wp wps-pepita purge-logs
+ * wp wps-pepita repair-claim <external_id>
  *
  * @package WPS\Pepita
  */
@@ -164,6 +165,38 @@ final class Cli {
 		}
 
 		\WP_CLI\Utils\format_items( 'table', $rows, array( 'external_id', 'status', 'wc_order', 'attempts', 'created_at', 'error' ) );
+	}
+
+	/**
+	 * Reopen a completed claim whose WooCommerce order is missing or unfinalized.
+	 *
+	 * The next webhook replay (or Pepita retry) for this id rebuilds the order. Use only after checking
+	 * that the order really is missing/unfinalized (see the order_import error log).
+	 *
+	 * ## OPTIONS
+	 *
+	 * <external_id>
+	 * : Pepita order id.
+	 *
+	 * @param array<int, string>    $args
+	 * @param array<string, string> $assoc_args
+	 */
+	public function repair_claim( array $args, array $assoc_args ): void {
+		$external_id = isset( $args[0] ) ? (string) $args[0] : '';
+
+		if ( '' === $external_id ) {
+			\WP_CLI::error( 'Adja meg a Pepita rendelésazonosítót.' );
+
+			return;
+		}
+
+		if ( Order_Repository::reopen_completed( $external_id ) ) {
+			\WP_CLI::success( 'A lezárt igény újranyitva; a következő webhook-ismétlés újraépíti a rendelést.' );
+
+			return;
+		}
+
+		\WP_CLI::error( 'Nincs ilyen lezárt igény.' );
 	}
 
 	/**

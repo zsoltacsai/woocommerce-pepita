@@ -1590,3 +1590,89 @@ $suite->add(
 		WPS_Assert::true( $ref->invoke( $importer, $order5 ) );
 	}
 );
+
+$suite->add(
+	'importer: replay of a completed claim whose order is missing is a 500 failure (never 200) and repair-claim lets it rebuild',
+	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
+		$importer = new Importer();
+		$payload  = $recovery_payload( array( 'id' => 'PEP-LOST-ORDER-1' ) );
+
+		$first = $importer->import( $payload );
+		WPS_Assert::same( 200, $first['http'] );
+		$order_id = (int) $first['order_id'];
+		WPS_Assert::true( $order_id > 0 );
+
+		// RR20 victim: claim completed, WooCommerce order gone.
+		unset( WPS_Test_State::$orders[ $order_id ] );
+
+		$replay = $importer->import( $payload );
+		WPS_Assert::same( 500, $replay['http'], 'A completed claim with a missing order must not be acknowledged.' );
+		WPS_Assert::same( 'error', $replay['status'] );
+
+		WPS_Assert::true( Order_Repository::reopen_completed( 'PEP-LOST-ORDER-1' ) );
+		WPS_Assert::false( Order_Repository::reopen_completed( 'PEP-LOST-ORDER-1' ), 'Only a completed claim can be reopened.' );
+
+		$again = $importer->import( $payload );
+		WPS_Assert::same( 200, $again['http'] );
+		WPS_Assert::same( 'created', $again['status'] );
+		WPS_Assert::true( (int) $again['order_id'] > 0 );
+	}
+);
+
+$suite->add(
+	'importer: replay of a completed claim whose order still carries the in-progress marker is a 500 failure',
+	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
+		$importer = new Importer();
+		$payload  = $recovery_payload( array( 'id' => 'PEP-UNFINALIZED-1' ) );
+
+		$first    = $importer->import( $payload );
+		$order_id = (int) $first['order_id'];
+		WPS_Assert::same( 200, $first['http'] );
+
+		WPS_Test_State::$orders[ $order_id ]->update_meta_data( '_wps_pepita_in_progress', '1' );
+
+		$replay = $importer->import( $payload );
+		WPS_Assert::same( 500, $replay['http'], 'An unfinalized order must not be acknowledged on replay.' );
+	}
+);
+
+$suite->add(
+	'importer: an unfinalized marker order is incomplete whatever its non-final status (filtered default status)',
+	static function (): void {
+		$importer = new Importer();
+		$ref      = new \ReflectionMethod( Importer::class, 'is_order_incomplete' );
+		$ref->setAccessible( true );
+
+		$order = new \WC_Order();
+		$order->update_meta_data( '_wps_pepita_in_progress', '1' );
+		$order->set_status( 'on-hold' );
+		WPS_Assert::true( $ref->invoke( $importer, $order ) );
+
+		$order->set_status( 'cancelled' );
+		WPS_Assert::false( $ref->invoke( $importer, $order ), 'An operator-final status takes the order out of recovery.' );
+	}
+);

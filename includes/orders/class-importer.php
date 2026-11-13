@@ -83,6 +83,28 @@ final class Importer {
 				return $this->result( 'error', 500, 'A rendelés nem található a WooCommerce rendszerében.' );
 			}
 
+			// A completed claim must be backed by an existing, finalized order. Never acknowledge a
+			// replay (HTTP 200) for an order that is missing or still carries the in-progress
+			// marker: Pepita would stop retrying while the merchant has no valid order. Surface a
+			// failure instead and require operator repair (wp wps-pepita repair-claim <id>).
+			$problem = $this->completed_order_problem( $order_id );
+
+			if ( '' !== $problem ) {
+				Logger::error(
+					'order_import',
+					'A Pepita rendelés lezártként szerepel a nyilvántartásban, de a WooCommerce rendelés ' . $problem . '.',
+					array(
+						'external_id' => $external_id,
+						'order_id'    => $order_id,
+						'repair'      => 'wp wps-pepita repair-claim ' . $external_id,
+					),
+					'claim',
+					$order_id
+				);
+
+				return $this->result( 'error', 500, 'A rendelés lezártként szerepel, de a WooCommerce rendelés ' . $problem . '. Üzemeltetői javítás szükséges.' );
+			}
+
 			return $this->handle_existing_order( $external_id, $order_id, $stored_hash, $payload_hash, $payload, false, $attempt );
 		}
 
@@ -575,6 +597,7 @@ final class Importer {
 
 		$email_filters = $this->suppress_emails();
 		$save_fence    = null;
+		$finalized_id  = 0;
 
 		try {
 			$order = new \WC_Order();
@@ -931,6 +954,11 @@ final class Importer {
 			if ( $fenced ) {
 				return $this->fenced_out( $order );
 			}
+
+			$save_error = $this->last_save_error( $order );
+			if ( '' !== $save_error ) {
+				return new \WP_Error( 'wps_order_save_failed', $save_error );
+			}
 			$order->set_cart_tax( $total_cart_tax );
 			$order->set_shipping_tax( $total_shipping_tax );
 			$order->set_total( (float) $validated['total'] );
@@ -964,6 +992,17 @@ final class Importer {
 			if ( $fenced ) {
 				return $this->fenced_out( $order );
 			}
+
+			// WooCommerce >= 11.2.2 catches exceptions inside save() (logs them, still runs the
+			// status transition) and returns the id. A swallowed failure must never be reported as
+			// an imported order: leave the unfinalized marker order for the retry to rebuild.
+			$save_error = $this->last_save_error( $order );
+			if ( '' !== $save_error ) {
+				return new \WP_Error( 'wps_order_save_failed', $save_error );
+			}
+
+			// From here on the order is finalized and persisted: nothing below may discard it.
+			$finalized_id = (int) $order_id;
 
 			if ( $order_id ) {
 				$order->add_order_note(
@@ -1011,6 +1050,24 @@ final class Importer {
 				return new \WP_Error( 'wps_fenced_out', 'A rendelés zárolása lejárt a mentés előtt, a feldolgozást más folyamat vette át.' );
 			}
 
+			// A finalized, persisted order is never discarded (it may already be acknowledged by a
+			// takeover worker): log the late failure (e.g. in a note/log hook) and report success.
+			if ( $finalized_id > 0 ) {
+				Logger::error(
+					'order_import',
+					'Késői hiba a véglegesített rendelés mentése után; a rendelés megmaradt.',
+					array(
+						'external_id' => $external_id,
+						'order_id'    => $finalized_id,
+						'exception'   => $throwable->getMessage(),
+					),
+					'order',
+					$finalized_id
+				);
+
+				return $finalized_id;
+			}
+
 			// Never leave a half-built pending order behind: the retry would
 			// create a second one.
 			if ( isset( $order ) && $order instanceof \WC_Order ) {
@@ -1025,6 +1082,19 @@ final class Importer {
 
 			$this->restore_emails( $email_filters );
 		}
+	}
+
+	/**
+	 * Error of the last WooCommerce save() ('' when it persisted the order or the API is absent).
+	 */
+	private function last_save_error( \WC_Order $order ): string {
+		if ( ! method_exists( $order, 'get_last_save_error' ) ) {
+			return '';
+		}
+
+		$error = $order->get_last_save_error();
+
+		return $error instanceof \Throwable ? 'A rendelés mentése sikertelen: ' . $error->getMessage() : '';
 	}
 
 	/**
@@ -1062,6 +1132,13 @@ final class Importer {
 	 * Drop the pending status transition so that a fenced-out save fires no status hooks.
 	 */
 	private static function discard_status_transition( \WC_Order $order ): void {
+		if ( ! property_exists( \WC_Order::class, 'status_transition' ) ) {
+			// WooCommerce renamed the property: fail loudly rather than silently firing status hooks.
+			Logger::error( 'order_recovery', 'A WooCommerce státuszváltás-tulajdonság nem található; a zárolt mentés státuszhorgai nem tilthatók le.', array( 'order_id' => (int) $order->get_id() ) );
+
+			return;
+		}
+
 		try {
 			\Closure::bind(
 				static function ( $target ): void {
@@ -1322,6 +1399,23 @@ final class Importer {
 	}
 
 	/**
+	 * Why a completed claim's order cannot be acknowledged ('' when it can).
+	 */
+	private function completed_order_problem( int $order_id ): string {
+		$order = wc_get_order( $order_id );
+
+		if ( ! $order instanceof \WC_Order ) {
+			return 'hiányzik';
+		}
+
+		if ( '1' === (string) $order->get_meta( '_wps_pepita_in_progress' ) ) {
+			return 'nincs véglegesítve';
+		}
+
+		return '';
+	}
+
+	/**
 	 * Check whether an existing order was left unfinished by an interrupted import.
 	 *
 	 * The `_wps_pepita_in_progress` marker is set when the order shell is created and is removed
@@ -1335,9 +1429,11 @@ final class Importer {
 			return false;
 		}
 
+		// Marker present = never finalized, whatever status a site's filters gave the shell. Only an
+		// operator-final status (the order was handled manually) takes it out of recovery.
 		$status = str_replace( 'wc-', '', $order->get_status() );
 
-		return in_array( $status, array( 'pending', 'failed', 'draft', 'checkout-draft' ), true );
+		return ! in_array( $status, array( 'completed', 'processing', 'cancelled', 'refunded' ), true );
 	}
 
 	/**
