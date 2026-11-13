@@ -109,6 +109,31 @@ final class Catalog_Index {
 	}
 
 	/**
+	 * Compute the deterministic catalog signature from an existing catalog index JSONL file.
+	 */
+	public static function compute_signature_from_file( string $path ): string {
+		if ( ! is_file( $path ) ) {
+			return self::start_signature();
+		}
+
+		$state = self::start_signature();
+
+		foreach ( self::read( $path ) as $row ) {
+			$key = (string) ( isset( $row['eid'] ) && '' !== (string) $row['eid'] ? $row['eid'] : ( $row['pid'] ?? '' ) );
+
+			if ( ! empty( $row['vars'] ) && is_array( $row['vars'] ) ) {
+				$parts = array_map( 'strval', $row['vars'] );
+				sort( $parts, SORT_STRING );
+				$key .= '|' . implode( ',', $parts );
+			}
+
+			$state = self::add_signature( $state, $key );
+		}
+
+		return $state;
+	}
+
+	/**
 	 * @param array<string, mixed> $data
 	 * @return array<string, mixed>
 	 */

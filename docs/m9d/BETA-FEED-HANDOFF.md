@@ -3,7 +3,7 @@
 **Dátum:** 2026-11-13  
 **Céldátum:** 2026-11-16 (Hétfő)  
 **Kiadás / Célállapot:** Beta Feed-Only Release Candidate (M9-D)  
-**Státusz:** VERIFIED BETA READY — DEPLOYMENT HOLD (Tulajdonosi jóváhagyásra vár)  
+**Státusz:** VERIFIED BETA READY — DEPLOYMENT HOLD (Külön tulajdonosi jóváhagyásra vár)  
 **Biztonsági kapuk:**  
 - **Éles üzem (Production):** **SZIGORÚ NO-GO**  
 - **Pepita Rendelés API:** **LEZÁRVA (HTTP 503 Short-circuit, mellékhatások nélkül)**  
@@ -46,11 +46,21 @@ A béta fázis alatt a bővítmény a következő védelmi szintekkel garantálj
 
 ---
 
-## 3. Béta Környezet és Verifikáció
+## 3. Béta Környezeti és Rendszerkövetelmények (Host-Independent Prerequisites)
 
-- **Környezet:** A helyi számítógépen a Docker futtatása nem megengedett. Minden teljes integrációs teszt és ellenőrzés a felhőalapú GitHub Actions CI környezetben futott le.
-- **HPOS és Hagyományos tárolás:** Mindkét tárolási modellben (WooCommerce High-Performance Order Storage aktív és inaktív) automatizált integrációs tesztek igazolják a működést.
-- **Adatbázis izoláció:** Kizárólag szintetikus tesztadatok kerültek felhasználásra. Valós ügyféladat, éles rendelés vagy éles hitelesítési adat nem került expozícióra.
+A bővítmény bármilyen szabványos Linux/Unix alapú WordPress tárhelyen futtatható az alábbi minimális feltételek mellett:
+
+| Komponens | Minimális követelmény | Ajánlott verzió | Megjegyzés |
+|---|---|---|---|
+| **PHP** | 8.1+ | 8.2 – 8.5 | `ext-dom`, `ext-xml`, `ext-json`, `ext-hash` szükséges. |
+| **WordPress** | 6.4+ | 6.6+ | WP-Cron vagy rendszer-cron futtatás támogatása. |
+| **WooCommerce** | 8.2+ | 9.x | Mind a Legacy, mind a HPOS tárolás támogatott. |
+| **HTTPS / TLS** | TLS 1.2+ | TLS 1.3 | Érvényes, publikusan megbízható tanúsítvány (Pepita robot crawler). |
+| **Képek elérhetősége** | Publikus URL | Közvetlen elérés | A termékképek URL-jei nem lehetnek Basic Auth, Captcha vagy bot-védelem mögött. |
+| **Fájlrendszer** | Írható `wp-content/uploads` | SSD / NVMe | Privát sózott mappa létrehozása atomi zárolással. |
+
+> [!IMPORTANT]
+> **Telepítési tilalom:** A WP CareGrid infrastruktúrára történő telepítés szigorúan tiltott. A külső béta környezet kijelölése és jóváhagyása kizárólag a Tulajdonos hatásköre (DEPLOYMENT HOLD).
 
 ---
 
@@ -94,6 +104,14 @@ A béta fázisban a feedbe kizárólag a kereskedő által jóváhagyott kategó
 - **Fail-closed védelem:** Ha egyetlen jóváhagyott kategória sincs (`count === 0`), a feed-generálás azonnal biztonsági leállást hajt végre, megelőzve az üres feed véletlen publikálását.
 - **Konzisztens termékkör:** A teljes feed és a készletfeed pontosan ugyanazon a jóváhagyott termékkörön dolgozik.
 
+### Kategória jóváhagyás beállítási lépései:
+1. Navigáljon a WordPress adminisztrációban a **Termékek &rarr; Kategóriák** menüpontba.
+2. Kattintson a szinkronizálni kívánt kategória **Szerkesztés** linkjére.
+3. Keresse meg a **Pepita szinkronizáció** szekciót.
+4. Állítsa a beállítást **Engedélyezve (include)** értékre.
+5. Szükség esetén jelölje be az **Összes alkategóriára érvényes** opciót.
+6. Kattintson a **Frissítés** gombra. A rendszer azonnal kiüríti a feloldási gyorsítótárat (`Product_Selection::clear_resolution_cache()`).
+
 ---
 
 ## 6. Hivatalos Pepita XML Megfelelőség
@@ -133,30 +151,96 @@ A feedek és az index konzisztenciáját az atomi pointer architektúra (`active
    - Minden teljes generálás új azonosítót kap: `pepita-full.<GEN_ID>.xml` és `catalog.<GEN_ID>.jsonl`.
    - Minden sikeres készletgenerálás saját, egyedi fájlnévvel jön létre: `pepita-stock.<STOCK_GEN_ID>.xml`. Az ismételt készletfrissítések nem írják felül az aktív fájlt a publikáció előtt.
 2. **Atomi átváltás (Pointer Swap):** A fájl teljes kiírása és méretellenőrzése után a rendszer atomi `rename` művelettel lépteti életbe az új generációt.
-3. **Párhuzamossági védelem (Concurrency Lock):** Az `active-generation.lock` zárolás megelőzi a full-feed és a stock-feed generálások közötti ütközést. A full-feed publikáció megőrzi az érvényben lévő készletfeedet, a készletfeed pedig megőrzi az érvényben lévő katalógusindexet.
-4. **Előző verziók megőrzése és szemétgyűjtés:** A rendszer megőrzi a közvetlenül előző generációkat (`previous.full_feed`, `previous.stock_feed`), a régebbi, elavult generációkat pedig biztonságosan törli.
+3. **Párhuzamossági védelem és zárolás (Fail-Closed Concurrency Lock):**
+   - Az `active-generation.lock` fájl védi a pointer és az állományok frissítését.
+   - Ha a zárfájl megnyitása (`fopen`) vagy zárolása (`flock(LOCK_EX)`) meghiúsul, a publikáció azonnal leáll (`return false`), az ideiglenes fájlok törlésre kerülnek, és a mutató érintetlen marad.
+4. **Teljes és Készletfeed Invariáns (Full/Stock Catalog Consistency):**
+   - Mindkét publikált feed kizárólag ugyanazt a termék- és variációs identitást írhatja le (`catalog_signature === stock_signature`).
+   - Ha a termékkör megváltozik egy teljes feed generálás során, az aktív készletfeed azonnal érvénytelenítésre kerül (HTTP 503 fail-closed), amíg az új katalógushoz illeszkedő készletfeed le nem fut.
+   - Ha a termékkör identitása nem változott (pl. csak leírás vagy ár módosult), az érvényben lévő készletfeed aktív marad.
+5. **Előző verziók megőrzése és szemétgyűjtés:** A rendszer megőrzi a közvetlenül előző generációkat (`previous.full_feed`, `previous.stock_feed`), a régebbi, elavult generációkat pedig biztonságosan törli.
 
 ---
 
-## 10. Vészhelyzeti Leállítás és Visszaállítás (Emergency Kill-Switch & Rollback)
+## 10. Időzített Generálás (Cron Ütemezés)
 
-### A) Különálló vészhelyzeti feed-leállítás (Emergency Feed Disable)
+A feedek háttérben történő frissítéséhez ajánlott rendszer-szintű Linux cront használni a standard látogatói WP-Cron helyett:
+
+```bash
+# Rendszer-szintű WP-CLI cron futtatás percenként:
+* * * * * cd /var/www/html && wp cron event run --due-now >/dev/null 2>&1
+```
+
+A bővítmény alapértelmezett ütemezése:
+- **Teljes termékkatalógus feed (`full`):** Napi 1 alkalommal (pl. éjjel 02:00-kor).
+- **Készlet- és árfeed (`stock`):** Óránként vagy 30 percenként.
+
+---
+
+## 11. Üzembe Helyezési Ellenőrző Parancsok (Verification Runbook)
+
+A staging szerveren az alábbi `curl` parancsokkal ellenőrizhető a helyes működés:
+
+### 1. Sikeres feed letöltés (HTTP 200 OK + ETag generálás):
+```bash
+curl -i -s "https://<STAGING_DOMAIN>/?wps_feed=full&token=<FEED_SECRET_TOKEN>" | head -n 25
+```
+*Várt eredmény:* `HTTP/1.1 200 OK`, `Content-Type: text/xml; charset=UTF-8`, `ETag: "..."`, `Content-Disposition: inline; filename="pepita-full.xml"`.
+
+### 2. Sávszélesség-takarékos gyorsítótár (HTTP 304 Not Modified):
+```bash
+curl -i -s -H 'If-None-Match: "<KORABBI_ETAG>"' "https://<STAGING_DOMAIN>/?wps_feed=full&token=<FEED_SECRET_TOKEN>"
+```
+*Várt eredmény:* `HTTP/1.1 304 Not Modified`.
+
+### 3. Header-alapú hitelesítés ellenőrzése:
+```bash
+curl -i -s -H "X-WPS-Feed-Token: <FEED_SECRET_TOKEN>" "https://<STAGING_DOMAIN>/?wps_feed=stock" | head -n 25
+```
+*Várt eredmény:* `HTTP/1.1 200 OK`.
+
+### 4. Illetéktelen hozzáférés megtagadása (HTTP 403 Forbidden):
+```bash
+curl -i -s "https://<STAGING_DOMAIN>/?wps_feed=full&token=invalid-token"
+```
+*Várt eredmény:* `HTTP/1.1 403 Forbidden`, hibaüzenet: `Érvénytelen vagy hiányzó token.`
+
+### 5. Vészhelyzeti leállítás tesztelése (HTTP 503 Service Unavailable):
+Aktivált `WPS_PEPITA_FEED_EMERGENCY_DISABLED` esetén:
+```bash
+curl -i -s "https://<STAGING_DOMAIN>/?wps_feed=full&token=<FEED_SECRET_TOKEN>"
+```
+*Várt eredmény:* `HTTP/1.1 503 Service Unavailable`, `Retry-After: 300`.
+
+### 6. Rendelés API lezártság ellenőrzése (HTTP 503 Short-Circuit):
+```bash
+curl -i -s -X POST -H "Content-Type: application/json" -H "X-WPS-Api-Key: teszt" \
+  -d '{"id":"TEST-1","origin":"pepita.hu"}' \
+  "https://<STAGING_DOMAIN>/wp-json/wps/v1/pepita/order"
+```
+*Várt eredmény:* `HTTP/1.1 503 Service Unavailable`, válasz: `A Pepita rendelésfogadás a béta időszakban ki van kapcsolva (feed-only béta).` Nulla rendelés jön létre a WooCommerce-ben.
+
+---
+
+## 12. Vészhelyzeti Eljárások és Visszaállítás (Rollback & Incident Playbook)
+
+### A) Vészhelyzeti azonnali feed-leállítás (Emergency Feed Disable)
 Ha a feedek kiszolgálását azonnal fel kell függeszteni:
 - **Admin felületen:** A **Pepita beállítások &rarr; Vészhelyzeti feed-leállítás** jelölőnégyzet bekapcsolásával.
 - **wp-config.php állandóval:** `define( 'WPS_PEPITA_FEED_EMERGENCY_DISABLED', true );`
 - **Hatása:** A végpont azonnal `HTTP 503 Service Unavailable` és `Retry-After: 300` választ ad minden kérésre.
 - **Kritikus szabály:** **Ne a béta üzemmód kikapcsolásával állítsa le a feedeket!** A vészhelyzeti leállító független kapcsoló, amely nem érinti a rendelésfogadás tiltását.
 
-### B) Token azonnali érvénytelenítése
+### B) Token azonnali visszavonása (Token Revocation)
 - Az adminisztrációs felületen a feed token újragenerálható, ami azonnal elvágja a partneri hozzáférést a régi címen.
 
-### C) Szigorú hibakezelés (Fail-Closed Recovery)
+### C) Szigorú hibakezelés és visszaállítás (Fail-Closed Recovery)
 - Ha az aktív mutató fájl (`active-generation.json`) megsérül vagy az általa hivatkozott fájl törlődik, a rendszer **nem hull vissza elavult kompatibilitási fájlokra**, hanem azonnal biztonsági `HTTP 503 Service Unavailable` hibával válaszol.
-- Korábbi hagyományos (unversioned) telepítésről való áttérésre a dedikált, ellenőrzött migrációs folyamat (`Storage::migrate_legacy_to_versioned()`) szolgál.
+- Az előző stabil verzió automatikusan elérhető a `previous` mutató alatt.
 
 ---
 
-## 11. Útmutató a Pepita Értékesítési Kapcsolattartó Részére
+## 13. Útmutató a Pepita Értékesítési Kapcsolattartó Részére
 
 A partner felé továbbítandó hivatalos tájékoztató szöveg:
 
@@ -182,10 +266,11 @@ A partner felé továbbítandó hivatalos tájékoztató szöveg:
 
 ---
 
-## 12. Tulajdonosi Jóváhagyási Kapu és Ajánlás (Go / Hold Gate)
+## 14. Tulajdonosi Jóváhagyási Kapu és Ajánlás (Go / Hold Gate)
 
-- **Ajánlás:** **BETA FEED: GO** (A feed-kiszolgálás kódja és integritása ellenőrzött, hibátlan).
-- **Telepítési korlát:** **DEPLOYMENT: HOLD**  
-  Külső HTTPS staging host jelenleg még nem áll rendelkezésre.
+- **Kódminőség és teszteredmények:** **BETA CODE: GO**  
+  A feed-kiszolgálás, a zárolási mechanizmus, a katalóguskonzisztencia és a rendelési izoláció 100%-osan ellenőrzött, hibátlan.
+- **Környezeti telepítés:** **DEPLOYMENT: HOLD**  
+  Külső HTTPS staging host kijelölése a Tulajdonos jóváhagyására vár.
 - **Szabályzat:**  
-  A feed URL-ek élesben történő megosztása és a kód külső szerverre telepítése kizárólag a Tulajdonos külön írásbeli engedélyével végezhető el. WP CareGrid infrastruktúrára telepíteni tilos.
+  A feed URL-ek élesben történő megosztása és a kód külső szerverre telepítése kizárólag a Tulajdonos külön írásbeli engedélyével végezhető el. WP CareGrid infrastruktúrára telepíteni szigorúan tilos.

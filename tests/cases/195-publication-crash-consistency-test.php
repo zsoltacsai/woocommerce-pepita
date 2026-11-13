@@ -279,22 +279,187 @@ $suite->add(
 		$active_stock = $ptr_before['active']['stock_feed'];
 		WPS_Assert::true( ! empty( $active_stock ) );
 
-		// Full generation 2 runs (daily update)
+		// Full generation 2 runs (daily update) with UNCHANGED catalog identity (V1)
 		$f2 = sys_get_temp_dir() . '/pres_f2_' . uniqid() . '.xml';
 		$i2 = sys_get_temp_dir() . '/pres_i2_' . uniqid() . '.jsonl';
-		file_put_contents( $f2, '<Catalog><Product><Id>V2</Id></Product></Catalog>' );
-		file_put_contents( $i2, '{"pid":"V2"}' . "\n" );
+		file_put_contents( $f2, '<Catalog><Product><Id>V1</Id><Title>Updated Title</Title></Product></Catalog>' );
+		file_put_contents( $i2, '{"pid":"V1"}' . "\n" );
 		Storage::publish_full( $f2, $i2 );
 
 		Storage::clear_pointer_cache();
 		$ptr_after = Storage::read_pointer();
 
 		// Full feed updated to V2
-		WPS_Assert::contains( 'V2', file_get_contents( Storage::feed_path( 'full' ) ) );
-		// Stock feed was NOT cleared or wiped! It remains active and intact
+		WPS_Assert::contains( 'Updated Title', file_get_contents( Storage::feed_path( 'full' ) ) );
+		// Stock feed was NOT cleared or wiped! It remains active and intact because catalog identity signature is unchanged
 		WPS_Assert::same( $active_stock, $ptr_after['active']['stock_feed'] );
 		WPS_Assert::true( Storage::exists( 'stock' ) );
 		WPS_Assert::contains( '555', file_get_contents( Storage::feed_path( 'stock' ) ) );
+	}
+);
+
+$suite->add(
+	'catalog-consistency: full publication with changed catalog identity signature invalidates stock feed (fail closed 503)',
+	static function () use ( $reset_storage ): void {
+		$reset_storage();
+
+		// Full generation 1
+		$f1 = sys_get_temp_dir() . '/sig_f1_' . uniqid() . '.xml';
+		$i1 = sys_get_temp_dir() . '/sig_i1_' . uniqid() . '.jsonl';
+		file_put_contents( $f1, '<Catalog><Product><Id>P-A</Id></Product></Catalog>' );
+		file_put_contents( $i1, '{"pid":"P-A"}' . "\n" );
+		Storage::publish_full( $f1, $i1 );
+
+		// Stock generation 1
+		$s1 = sys_get_temp_dir() . '/sig_s1_' . uniqid() . '.xml';
+		file_put_contents( $s1, '<Catalog><Product><Id>P-A</Id><Price>100</Price></Product></Catalog>' );
+		Storage::publish( 'stock', $s1 );
+
+		WPS_Assert::true( Storage::exists( 'stock' ) );
+		$ptr1 = Storage::read_pointer();
+		WPS_Assert::true( ! empty( $ptr1['active']['stock_feed'] ) );
+		WPS_Assert::true( ! empty( $ptr1['active']['catalog_signature'] ) );
+		WPS_Assert::same( $ptr1['active']['catalog_signature'], $ptr1['active']['stock_signature'] );
+
+		// Full generation 2 has DIFFERENT products/variations (e.g. product B added)
+		$f2 = sys_get_temp_dir() . '/sig_f2_' . uniqid() . '.xml';
+		$i2 = sys_get_temp_dir() . '/sig_i2_' . uniqid() . '.jsonl';
+		file_put_contents( $f2, '<Catalog><Product><Id>P-A</Id></Product><Product><Id>P-B</Id></Product></Catalog>' );
+		file_put_contents( $i2, '{"pid":"P-A"}' . "\n" . '{"pid":"P-B"}' . "\n" );
+		Storage::publish_full( $f2, $i2 );
+
+		Storage::clear_pointer_cache();
+		$ptr2 = Storage::read_pointer();
+
+		// Catalog signature changed
+		WPS_Assert::true( $ptr1['active']['catalog_signature'] !== $ptr2['active']['catalog_signature'] );
+		// Stock feed invalidated in pointer
+		WPS_Assert::same( '', $ptr2['active']['stock_feed'] );
+		WPS_Assert::same( '', $ptr2['active']['stock_signature'] );
+		// Storage::exists('stock') fails closed (HTTP 503)
+		WPS_Assert::false( Storage::exists( 'stock' ) );
+		// Legacy pepita-stock.xml was removed to prevent serving stale stock
+		WPS_Assert::false( is_file( Storage::dir() . '/pepita-stock.xml' ) );
+
+		// Now publish stock generation matching generation 2
+		$s2 = sys_get_temp_dir() . '/sig_s2_' . uniqid() . '.xml';
+		file_put_contents( $s2, '<Catalog><Product><Id>P-A</Id><Price>100</Price></Product><Product><Id>P-B</Id><Price>200</Price></Product></Catalog>' );
+		Storage::publish( 'stock', $s2, null, $ptr2['active']['catalog_signature'] );
+
+		Storage::clear_pointer_cache();
+		$ptr3 = Storage::read_pointer();
+		WPS_Assert::true( ! empty( $ptr3['active']['stock_feed'] ) );
+		WPS_Assert::same( $ptr2['active']['catalog_signature'], $ptr3['active']['stock_signature'] );
+		WPS_Assert::true( Storage::exists( 'stock' ) );
+	}
+);
+
+$suite->add(
+	'lock-safety: lock acquisition failure strictly blocks publication and cleans up temporary files without touching pointer',
+	static function () use ( $reset_storage ): void {
+		$reset_storage();
+
+		// Initial stable publication
+		$f1 = sys_get_temp_dir() . '/lock_f1_' . uniqid() . '.xml';
+		$i1 = sys_get_temp_dir() . '/lock_i1_' . uniqid() . '.jsonl';
+		file_put_contents( $f1, '<Catalog><Product><Id>BASE</Id></Product></Catalog>' );
+		file_put_contents( $i1, '{"pid":"BASE"}' . "\n" );
+		Storage::publish_full( $f1, $i1 );
+
+		$ptr_before = Storage::read_pointer();
+		$lock_file  = Storage::lock_path();
+
+		// 1) Test acquire_lock(false) returns false when lock is held
+		$held_handle = fopen( $lock_file, 'c+' );
+		WPS_Assert::true( false !== $held_handle );
+		$locked = flock( $held_handle, LOCK_EX | LOCK_NB );
+		WPS_Assert::true( $locked );
+
+		$second_lock = Storage::acquire_lock( false );
+		WPS_Assert::false( $second_lock );
+
+		flock( $held_handle, LOCK_UN );
+		fclose( $held_handle );
+
+		// 2) Unopenable lock file (read-only file)
+		chmod( $lock_file, 0444 );
+
+		// Attempt publish_full with unwritable lock
+		$f2 = sys_get_temp_dir() . '/lock_f2_' . uniqid() . '.xml';
+		$i2 = sys_get_temp_dir() . '/lock_i2_' . uniqid() . '.jsonl';
+		file_put_contents( $f2, '<Catalog><Product><Id>BLOCKED</Id></Product></Catalog>' );
+		file_put_contents( $i2, '{"pid":"BLOCKED"}' . "\n" );
+
+		$result_full = Storage::publish_full( $f2, $i2 );
+		WPS_Assert::false( $result_full );
+		// Staged temp files must be cleaned up / unlinked
+		WPS_Assert::false( is_file( $f2 ) );
+		WPS_Assert::false( is_file( $i2 ) );
+
+		// Attempt publish_stock with unwritable lock
+		$s2 = sys_get_temp_dir() . '/lock_s2_' . uniqid() . '.xml';
+		file_put_contents( $s2, '<Catalog><Product><Id>BLOCKED-STOCK</Id></Product></Catalog>' );
+
+		$result_stock = Storage::publish_stock( $s2 );
+		WPS_Assert::false( $result_stock );
+		WPS_Assert::false( is_file( $s2 ) );
+
+		// Restore permissions
+		chmod( $lock_file, 0666 );
+
+		// Verify pointer is completely untouched
+		Storage::clear_pointer_cache();
+		$ptr_after = Storage::read_pointer();
+		WPS_Assert::same( $ptr_before['active']['full_feed'], $ptr_after['active']['full_feed'] );
+		WPS_Assert::same( $ptr_before['active']['catalog_index'], $ptr_after['active']['catalog_index'] );
+		WPS_Assert::contains( 'BASE', file_get_contents( Storage::feed_path( 'full' ) ) );
+	}
+);
+
+$suite->add(
+	'lock-safety: multi-process concurrency serializes publication without race condition',
+	static function () use ( $reset_storage ): void {
+		$reset_storage();
+		Storage::ensure_directory();
+
+		if ( ! defined( 'PHP_BINARY' ) || ! is_executable( PHP_BINARY ) || ! function_exists( 'proc_open' ) ) {
+			return;
+		}
+
+		$bootstrap = WPS_PEPITA_DIR . 'tests/bootstrap.php';
+
+		$worker_code = sprintf(
+			'require "%s"; WPS\Pepita\Storage::ensure_directory(); $l = WPS\Pepita\Storage::acquire_lock(true); usleep(300000); WPS\Pepita\Storage::release_lock($l);',
+			addslashes( $bootstrap )
+		);
+
+		$spec = array(
+			0 => array( 'pipe', 'r' ),
+			1 => array( 'pipe', 'w' ),
+			2 => array( 'pipe', 'w' ),
+		);
+
+		$proc = proc_open( array( PHP_BINARY, '-r', $worker_code ), $spec, $pipes );
+		if ( ! is_resource( $proc ) ) {
+			return;
+		}
+
+		usleep( 50000 );
+
+		// Non-blocking lock attempt from parent process MUST fail because worker holds it
+		$non_blocking_lock = Storage::acquire_lock( false );
+		WPS_Assert::false( $non_blocking_lock );
+
+		// Blocking lock attempt will wait until worker releases lock and then succeed
+		$blocking_lock = Storage::acquire_lock( true );
+		WPS_Assert::true( false !== $blocking_lock );
+
+		Storage::release_lock( $blocking_lock );
+
+		fclose( $pipes[0] );
+		fclose( $pipes[1] );
+		fclose( $pipes[2] );
+		proc_close( $proc );
 	}
 );
 

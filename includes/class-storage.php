@@ -132,6 +132,14 @@ final class Storage {
 			return false;
 		}
 
+		if ( isset( $pointer['active']['catalog_signature'] ) && ! is_string( $pointer['active']['catalog_signature'] ) ) {
+			return false;
+		}
+
+		if ( isset( $pointer['active']['stock_signature'] ) && ! is_string( $pointer['active']['stock_signature'] ) ) {
+			return false;
+		}
+
 		if ( ! empty( $pointer['previous'] ) && is_array( $pointer['previous'] ) ) {
 			$prev_full  = $pointer['previous']['full_feed'] ?? '';
 			$prev_index = $pointer['previous']['catalog_index'] ?? '';
@@ -144,6 +152,12 @@ final class Storage {
 				return false;
 			}
 			if ( '' !== $prev_stock && ( ! is_string( $prev_stock ) || ! self::is_valid_filename( $prev_stock, 'pepita-stock' ) ) ) {
+				return false;
+			}
+			if ( isset( $pointer['previous']['catalog_signature'] ) && ! is_string( $pointer['previous']['catalog_signature'] ) ) {
+				return false;
+			}
+			if ( isset( $pointer['previous']['stock_signature'] ) && ! is_string( $pointer['previous']['stock_signature'] ) ) {
 				return false;
 			}
 		}
@@ -191,13 +205,28 @@ final class Storage {
 	/**
 	 * @return resource|false
 	 */
-	public static function acquire_lock() {
-		self::ensure_directory();
+	public static function acquire_lock( bool $blocking = true ) {
+		if ( ! self::ensure_directory() ) {
+			return false;
+		}
+
 		$lock_file = self::lock_path();
 		$handle    = @fopen( $lock_file, 'c+' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
-		if ( false !== $handle ) {
-			@flock( $handle, LOCK_EX );
+
+		if ( false === $handle ) {
+			return false;
 		}
+
+		$flags = LOCK_EX;
+		if ( ! $blocking ) {
+			$flags |= LOCK_NB;
+		}
+
+		if ( ! @flock( $handle, $flags ) ) {
+			@fclose( $handle ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+			return false;
+		}
+
 		return $handle;
 	}
 
@@ -251,6 +280,11 @@ final class Storage {
 				return self::path( $pointer['active']['full_feed'] );
 			}
 			if ( 'stock' === $type && ! empty( $pointer['active']['stock_feed'] ) ) {
+				$cat_sig   = (string) ( $pointer['active']['catalog_signature'] ?? '' );
+				$stock_sig = (string) ( $pointer['active']['stock_signature'] ?? '' );
+				if ( '' !== $cat_sig && '' !== $stock_sig && $cat_sig !== $stock_sig ) {
+					return self::path( 'mismatched-stock-generation.xml' );
+				}
 				return self::path( $pointer['active']['stock_feed'] );
 			}
 			// Pointer exists, but requested feed type is missing from the active generation.
@@ -333,6 +367,24 @@ final class Storage {
 			return false;
 		}
 
+		$pointer = self::read_pointer();
+		if ( null !== $pointer ) {
+			if ( 'stock' === $type ) {
+				if ( empty( $pointer['active']['stock_feed'] ) ) {
+					return false;
+				}
+				$cat_sig   = (string) ( $pointer['active']['catalog_signature'] ?? '' );
+				$stock_sig = (string) ( $pointer['active']['stock_signature'] ?? '' );
+				if ( '' !== $cat_sig && '' !== $stock_sig && $cat_sig !== $stock_sig ) {
+					return false;
+				}
+			} elseif ( 'full' === $type ) {
+				if ( empty( $pointer['active']['full_feed'] ) ) {
+					return false;
+				}
+			}
+		}
+
 		$path = self::feed_path( $type );
 
 		return is_file( $path ) && filesize( $path ) > 0;
@@ -353,9 +405,9 @@ final class Storage {
 	/**
 	 * Atomically replace the published stock feed.
 	 */
-	public static function publish( string $type, string $temp_path ): bool {
+	public static function publish( string $type, string $temp_path, ?string $generation_id = null, ?string $signature = null ): bool {
 		if ( 'stock' === $type ) {
-			return self::publish_stock( $temp_path );
+			return self::publish_stock( $temp_path, $generation_id, $signature );
 		}
 
 		self::ensure_directory();
@@ -387,7 +439,7 @@ final class Storage {
 	 * Atomically replace the published stock feed using an immutable unique filename
 	 * and atomic active-generation pointer update.
 	 */
-	public static function publish_stock( string $temp_path, ?string $generation_id = null ): bool {
+	public static function publish_stock( string $temp_path, ?string $generation_id = null, ?string $signature = null ): bool {
 		self::ensure_directory();
 
 		if ( ! is_file( $temp_path ) || filesize( $temp_path ) <= 0 ) {
@@ -395,10 +447,17 @@ final class Storage {
 		}
 
 		$lock_handle = self::acquire_lock();
+		if ( false === $lock_handle ) {
+			@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return false;
+		}
 
 		try {
 			self::clear_pointer_cache();
 			$current_pointer = self::read_pointer();
+
+			$active_cat_sig = (string) ( $current_pointer['active']['catalog_signature'] ?? '' );
+			$stock_sig      = $signature ?? $active_cat_sig;
 
 			$stock_gen      = $generation_id ?? ( gmdate( 'Ymd_His' ) . '_' . bin2hex( random_bytes( 4 ) ) );
 			$stock_filename = sprintf( 'pepita-stock.%s.xml', $stock_gen );
@@ -424,8 +483,10 @@ final class Storage {
 				}
 				$new_pointer['previous']['stock_feed']          = $current_pointer['active']['stock_feed'] ?? '';
 				$new_pointer['previous']['stock_generation_id'] = $current_pointer['active']['stock_generation_id'] ?? '';
+				$new_pointer['previous']['stock_signature']     = $current_pointer['active']['stock_signature'] ?? '';
 				$new_pointer['active']['stock_feed']            = $stock_filename;
 				$new_pointer['active']['stock_generation_id']   = $stock_gen;
+				$new_pointer['active']['stock_signature']       = $stock_sig;
 				$new_pointer['updated_at']                      = time();
 			} else {
 				$new_pointer = array(
@@ -436,6 +497,8 @@ final class Storage {
 						'catalog_index'       => is_file( self::path( 'catalog.jsonl' ) ) ? 'catalog.jsonl' : '',
 						'stock_feed'          => $stock_filename,
 						'stock_generation_id' => $stock_gen,
+						'catalog_signature'   => $stock_sig,
+						'stock_signature'     => $stock_sig,
 					),
 					'previous'   => array(
 						'generation_id'       => '',
@@ -443,6 +506,8 @@ final class Storage {
 						'catalog_index'       => '',
 						'stock_feed'          => is_file( self::path( 'pepita-stock.xml' ) ) ? 'pepita-stock.xml' : '',
 						'stock_generation_id' => '',
+						'catalog_signature'   => '',
+						'stock_signature'     => '',
 					),
 					'updated_at' => time(),
 				);
@@ -493,7 +558,7 @@ final class Storage {
 	 * If the process terminates at any point prior to the pointer rename, the previous generation
 	 * remains 100% active and uncorrupted.
 	 */
-	public static function publish_full( string $feed_temp, string $index_temp, ?string $generation_id = null ): bool {
+	public static function publish_full( string $feed_temp, string $index_temp, ?string $generation_id = null, ?string $signature = null ): bool {
 		self::ensure_directory();
 
 		if ( ! is_file( $feed_temp ) || ! is_file( $index_temp ) ) {
@@ -505,12 +570,18 @@ final class Storage {
 		}
 
 		$lock_handle = self::acquire_lock();
+		if ( false === $lock_handle ) {
+			@unlink( $feed_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			@unlink( $index_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return false;
+		}
 
 		try {
 			self::clear_pointer_cache();
 			$current_pointer = self::read_pointer();
 			$gen             = $generation_id ?? ( gmdate( 'Ymd_His' ) . '_' . bin2hex( random_bytes( 4 ) ) );
 
+			$catalog_sig     = $signature ?? Catalog_Index::compute_signature_from_file( $index_temp );
 			$versioned_feed  = sprintf( 'pepita-full.%s.xml', $gen );
 			$versioned_index = sprintf( 'catalog.%s.jsonl', $gen );
 			$target_feed     = self::path( $versioned_feed );
@@ -532,14 +603,21 @@ final class Storage {
 				@unlink( $index_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			}
 
-			// Preserve existing active stock feed across full generation updates.
+			// Invariant: Both feeds describe the same approved product and variation identities.
+			// Preserve existing active stock feed ONLY if catalog identity signature is unchanged.
 			$active_stock     = '';
 			$active_stock_gen = '';
+			$active_stock_sig = '';
+
 			if ( null !== $current_pointer && ! empty( $current_pointer['active']['stock_feed'] ) ) {
-				$stock_path = self::path( $current_pointer['active']['stock_feed'] );
-				if ( is_file( $stock_path ) && filesize( $stock_path ) > 0 ) {
+				$prev_cat_sig = (string) ( $current_pointer['active']['catalog_signature'] ?? '' );
+				$prev_stk_sig = (string) ( $current_pointer['active']['stock_signature'] ?? '' );
+				$stock_path   = self::path( $current_pointer['active']['stock_feed'] );
+
+				if ( '' !== $catalog_sig && $prev_cat_sig === $catalog_sig && is_file( $stock_path ) && filesize( $stock_path ) > 0 ) {
 					$active_stock     = $current_pointer['active']['stock_feed'];
 					$active_stock_gen = $current_pointer['active']['stock_generation_id'] ?? '';
+					$active_stock_sig = $prev_stk_sig;
 				}
 			}
 
@@ -550,6 +628,8 @@ final class Storage {
 				'catalog_index'       => $versioned_index,
 				'stock_feed'          => $active_stock,
 				'stock_generation_id' => $active_stock_gen,
+				'catalog_signature'   => $catalog_sig,
+				'stock_signature'     => $active_stock_sig,
 			);
 
 			$previous_data = null !== $current_pointer ? ( $current_pointer['active'] ?? null ) : null;
@@ -560,6 +640,8 @@ final class Storage {
 					'catalog_index'       => is_file( self::path( 'catalog.jsonl' ) ) ? 'catalog.jsonl' : '',
 					'stock_feed'          => is_file( self::path( 'pepita-stock.xml' ) ) ? 'pepita-stock.xml' : '',
 					'stock_generation_id' => '',
+					'catalog_signature'   => '',
+					'stock_signature'     => '',
 				);
 			}
 
@@ -593,6 +675,10 @@ final class Storage {
 			// Maintain legacy compatibility copies so direct file readers/tools find valid files.
 			@copy( $target_feed, self::path( 'pepita-full.xml' ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			@copy( $target_index, self::path( 'catalog.jsonl' ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+
+			if ( '' === $active_stock ) {
+				@unlink( self::path( 'pepita-stock.xml' ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
 
 			if ( ! empty( $previous_data['full_feed'] ) ) {
 				$prev_f = self::path( $previous_data['full_feed'] );
@@ -657,6 +743,8 @@ final class Storage {
 			@copy( $legacy_stock, self::path( $versioned_stock ) );
 		}
 
+		$cat_sig = is_file( self::path( $versioned_index ) ) ? Catalog_Index::compute_signature_from_file( self::path( $versioned_index ) ) : '';
+
 		$pointer_data = array(
 			'version'    => 1,
 			'active'     => array(
@@ -665,6 +753,8 @@ final class Storage {
 				'catalog_index'       => $versioned_index,
 				'stock_feed'          => $versioned_stock,
 				'stock_generation_id' => '' !== $versioned_stock ? $gen : '',
+				'catalog_signature'   => $cat_sig,
+				'stock_signature'     => '' !== $versioned_stock ? $cat_sig : '',
 			),
 			'previous'   => array(
 				'generation_id'       => 'legacy',
@@ -672,6 +762,8 @@ final class Storage {
 				'catalog_index'       => 'catalog.jsonl',
 				'stock_feed'          => 'pepita-stock.xml',
 				'stock_generation_id' => '',
+				'catalog_signature'   => '',
+				'stock_signature'     => '',
 			),
 			'updated_at' => time(),
 		);
