@@ -29,14 +29,14 @@ and "Later" are improvements, not defects.
    parent. Requires a documented field; do not guess.
 8. **Per-feed product limit.** Optional cap for very large catalogs, with a
    clear report of what was omitted.
-9. **Feed diff report.** Show added, removed and changed products between the
-   current and previous full feed.
+9. ~~**Feed diff report.** Show added, removed and changed products between the
+   current and previous full feed.~~ (✅ Implemented in M9-C: `Catalog_Diff` and admin view)
 10. **Scheduled generation window.** Restrict automatic generation to off-peak
     hours.
 11. **Admin bulk regeneration.** Re-export selected products without a full run.
-12. **Health check for stale stock feed.** Warn when the stock feed is older than
-    twice its interval.
-13. **Log export.** CSV download of filtered logs for support.
+12. ~~**Health check for stale stock feed.** Warn when the stock feed is older than
+    twice its interval.~~ (✅ Implemented in M9-C: `Health::stock_feed_check`)
+13. ~~**Log export.** CSV download of filtered logs for support.~~ (✅ Implemented in M9-C: secure CSV streaming export)
 14. **Order list column.** Show the Pepita order ID and import status in the
     WooCommerce orders list.
 

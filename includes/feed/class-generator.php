@@ -593,6 +593,25 @@ final class Generator {
 			}
 		}
 
+		if ( self::TYPE_FULL === $type ) {
+			$catalog_diff = Catalog_Diff::compare( $index_temp, Storage::catalog_index_path() );
+
+			if ( ! empty( $catalog_diff['warnings'] ) ) {
+				foreach ( $catalog_diff['warnings'] as $warning ) {
+					$state['warnings'][] = $warning;
+					Logger::warning( 'feed_safety', $warning, array( 'drop_percent' => $catalog_diff['drop_percent'] ) );
+				}
+			}
+
+			if ( (bool) Settings::get( 'feed_safety_block_publication', false ) && 'ok' !== $catalog_diff['status'] && ! empty( $catalog_diff['warnings'] ) ) {
+				return $this->abort(
+					$type,
+					$state,
+					sprintf( 'A publikálás a feed biztonsági védelem miatt megszakítva: %s', implode( ' ', $catalog_diff['warnings'] ) )
+				);
+			}
+		}
+
 		$hash = hash_file( 'sha256', $feed_temp );
 
 		if ( ! Storage::publish( $type, $feed_temp ) ) {
@@ -602,6 +621,10 @@ final class Generator {
 		if ( self::TYPE_FULL === $type ) {
 			if ( ! Storage::publish_catalog_index( $index_temp ) ) {
 				Logger::warning( 'feed_generation', 'A katalógus index frissítése nem sikerült.', array( 'type' => $type ) );
+			}
+
+			if ( isset( $catalog_diff ) && is_array( $catalog_diff ) ) {
+				update_option( Catalog_Diff::OPTION_DIFF_FULL, $catalog_diff, false );
 			}
 		} else {
 			@unlink( $index_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged

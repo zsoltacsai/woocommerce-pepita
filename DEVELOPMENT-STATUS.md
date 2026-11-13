@@ -14,9 +14,11 @@ Overall state: **feature-complete, unit- and integration-tested locally, live Pe
 | M4 | Orders: repository, importer, API controller, payment/shipping mapper | ✅ Complete |
 | M5 | Admin: menu, eight screens, AJAX, metabox, list columns, category fields | ✅ Complete |
 | M6 | Tests: harness, 14 case files, 133 cases, defect fixes | ✅ Complete |
-| M7 | Documentation and packaging | ✅ Complete (this session) |
+| M7 | Documentation and packaging | ✅ Complete |
 | M8 | Local Compose integration suite (HPOS + legacy) | ✅ Complete — 60/60 on both stores |
 | M9 | Live Pepita staging validation | ⛔ Blocked — needs a seller staging account |
+| M9-B | RR20 order finalization fencing and recovery | ✅ Complete |
+| M9-C | Feed safety, diff reporting, stock health & secure CSV log export | ✅ Complete |
 
 ## 2. What was built
 
@@ -83,6 +85,14 @@ Overall state: **feature-complete, unit- and integration-tested locally, live Pe
 - The cases exercise real HTTP (feed endpoint, ETag/304, auth), the REST order
   route, `dbDelta` schema creation, HPOS and legacy order CRUD, duplicate
   delivery, retry after failure, labels, Action Scheduler and WP-Cron.
+
+### M9-C — Feed safety, diff reporting, stock health and secure CSV export
+
+- **Catalog Difference Reporting** (`WPS\Pepita\Feed\Catalog_Diff`): Line-by-line streaming comparison between the active catalog snapshot and the prior snapshot (`catalog.jsonl` vs `catalog.previous.jsonl`) tracking added, removed, unavailable, price modifications, variation identity modifications, and VAT/currency modifications without high memory usage.
+- **Feed Safety Protection**: Configurable drop threshold (`feed_safety_drop_threshold`, default 20%), optional publication blocking (`feed_safety_block_publication`), and variation structure shift alerts (`feed_safety_variation_change_warning`) to prevent accidental emptying of the Pepita marketplace catalog.
+- **Stock Feed Health Monitoring** (`WPS\Pepita\Health::stock_feed_check`): Read-only diagnostic check comparing stock feed age against configured interval (OK / WARN / FAIL), alerting on delayed runs or missing cron/Action Scheduler hooks without triggering side-effects during render.
+- **Secure CSV Log Export**: Streaming chunked export via `admin_post_wps_pepita_export_logs` guarded by `manage_woocommerce` capability and nonces, with formula injection neutralization (`=, +, -, @, \t, \r` escaping via `Logger::sanitize_csv_field`) and UTF-8 BOM.
+- **Declared Minimum Compatibility**: PHP >= 8.1, WordPress >= 6.4, WooCommerce >= 8.2 (HPOS compatible).
 
 ## 3. Test results (actual)
 

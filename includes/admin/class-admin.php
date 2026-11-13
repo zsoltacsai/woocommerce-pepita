@@ -7,6 +7,7 @@
 
 namespace WPS\Pepita\Admin;
 
+use WPS\Pepita\Feed\Catalog_Diff;
 use WPS\Pepita\Feed\Generator;
 use WPS\Pepita\Feed\Lock;
 use WPS\Pepita\Feed\Scheduler;
@@ -34,6 +35,7 @@ final class Admin {
 		add_action( 'admin_post_wps_pepita_download', array( $this, 'handle_download' ) );
 		add_action( 'admin_post_wps_pepita_regenerate_secret', array( $this, 'handle_regenerate_secret' ) );
 		add_action( 'admin_post_wps_pepita_clear_logs', array( $this, 'handle_clear_logs' ) );
+		add_action( 'admin_post_wps_pepita_export_logs', array( $this, 'handle_export_logs' ) );
 		add_action( 'admin_post_wps_pepita_reset_feeds', array( $this, 'handle_reset_feeds' ) );
 		add_action( 'admin_notices', array( $this, 'render_notices' ) );
 
@@ -245,6 +247,8 @@ final class Admin {
 			'order_api_save_label',
 			'record_export_meta',
 			'delete_data_on_uninstall',
+			'feed_safety_block_publication',
+			'feed_safety_variation_change_warning',
 		);
 
 		$input = array();
@@ -277,6 +281,7 @@ final class Admin {
 			'max_runtime',
 			'full_feed_interval',
 			'stock_feed_interval',
+			'feed_safety_drop_threshold',
 			'removal_policy',
 			'removal_grace_days',
 			'feed_cache_max_age',
@@ -402,6 +407,97 @@ final class Admin {
 		$this->redirect( 'wps-pepita-logs', array( 'wps_notice' => 'logs_cleared' ) );
 	}
 
+	public function handle_export_logs(): void {
+		$this->guard( false );
+
+		check_admin_referer( 'wps_pepita_export_logs' );
+
+		$level  = isset( $_GET['level'] ) ? sanitize_key( wp_unslash( (string) $_GET['level'] ) ) : '';
+		$event  = isset( $_GET['event'] ) ? sanitize_key( wp_unslash( (string) $_GET['event'] ) ) : '';
+		$search = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['s'] ) ) : '';
+		$from   = isset( $_GET['from'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['from'] ) ) : '';
+		$to     = isset( $_GET['to'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['to'] ) ) : '';
+
+		$filename = sprintf( 'pepita-logs-%s.csv', gmdate( 'Y-m-d-His' ) );
+
+		nocache_headers();
+		header( 'Content-Type: text/csv; charset=UTF-8' );
+		header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
+		header( 'X-Content-Type-Options: nosniff' );
+
+		$out = fopen( 'php://output', 'w' );
+		if ( false === $out ) {
+			wp_die( esc_html__( 'Nem sikerült megnyitni a kimeneti adatfolyamot.', 'wp-pepita-sync' ) );
+		}
+
+		// UTF-8 BOM for Microsoft Excel compatibility.
+		fwrite( $out, "\xEF\xBB\xBF" );
+
+		fputcsv(
+			$out,
+			array(
+				'id',
+				'created_at',
+				'level',
+				'event',
+				'message',
+				'context',
+				'object_type',
+				'object_id',
+			)
+		);
+
+		$page  = 1;
+		$chunk = 200;
+
+		do {
+			$result = Logger::query(
+				array(
+					'level'     => $level,
+					'event'     => $event,
+					'search'    => $search,
+					'date_from' => $from,
+					'date_to'   => $to,
+					'page'      => $page,
+					'per_page'  => $chunk,
+					'orderby'   => 'id',
+					'order'     => 'asc',
+				)
+			);
+
+			$items = $result['items'] ?? array();
+			if ( empty( $items ) ) {
+				break;
+			}
+
+			foreach ( $items as $row ) {
+				fputcsv(
+					$out,
+					array(
+						Logger::sanitize_csv_field( $row['id'] ?? '' ),
+						Logger::sanitize_csv_field( $row['created_at'] ?? '' ),
+						Logger::sanitize_csv_field( $row['level'] ?? '' ),
+						Logger::sanitize_csv_field( $row['event'] ?? '' ),
+						Logger::sanitize_csv_field( $row['message'] ?? '' ),
+						Logger::sanitize_csv_field( $row['context'] ?? '' ),
+						Logger::sanitize_csv_field( $row['object_type'] ?? '' ),
+						Logger::sanitize_csv_field( $row['object_id'] ?? '' ),
+					)
+				);
+			}
+
+			if ( function_exists( 'ob_flush' ) && ob_get_level() > 0 ) {
+				ob_flush();
+			}
+			flush();
+
+			++$page;
+		} while ( count( $items ) === $chunk );
+
+		fclose( $out );
+		exit;
+	}
+
 	public function handle_reset_feeds(): void {
 		$this->guard( true );
 
@@ -416,6 +512,7 @@ final class Admin {
 
 		delete_option( 'wps_pepita_feed_state_full' );
 		delete_option( 'wps_pepita_feed_state_stock' );
+		Catalog_Diff::clear_cache();
 
 		Logger::info( 'feed_reset', 'A generált feedek és az állapot törölve.' );
 

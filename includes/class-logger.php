@@ -255,6 +255,50 @@ final class Logger {
 		return is_int( $deleted ) ? $deleted : 0;
 	}
 
+	/**
+	 * Sanitize a field for CSV export, preventing formula injection (CSV injection).
+	 *
+	 * Prepend a single quote (') if the field starts with =, +, -, @, tab or return,
+	 * or starts with whitespace followed by any of those characters.
+	 *
+	 * @param mixed $value Field value to sanitize.
+	 * @return string
+	 */
+	public static function sanitize_csv_field( mixed $value ): string {
+		if ( null === $value ) {
+			return '';
+		}
+
+		if ( is_bool( $value ) ) {
+			return $value ? '1' : '0';
+		}
+
+		if ( is_array( $value ) || is_object( $value ) ) {
+			$value = wp_json_encode( $value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		}
+
+		$string = (string) $value;
+
+		if ( '' === $string ) {
+			return '';
+		}
+
+		$trimmed = ltrim( $string );
+		if ( '' !== $trimmed ) {
+			$first = $trimmed[0];
+			if ( in_array( $first, array( '=', '+', '-', '@', "\t", "\r" ), true ) ) {
+				return "'" . $string;
+			}
+		}
+
+		$raw_first = $string[0];
+		if ( in_array( $raw_first, array( '=', '+', '-', '@', "\t", "\r" ), true ) ) {
+			return "'" . $string;
+		}
+
+		return $string;
+	}
+
 	private static function table_exists(): bool {
 		if ( self::$table_checked ) {
 			return self::$table_exists;

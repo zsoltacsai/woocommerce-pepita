@@ -99,6 +99,8 @@ php tests/run.php validator
 | `150-retention-test.php` | 3 | Package-label retention for open, closed and custom-status orders |
 | `105-order-tax-test.php` | 9 | Deterministic zero-tax and tax-inclusive/exclusive handling, operator notes |
 | `106-recovery-and-replay-test.php` | 18 | Mid-creation crash recovery, shell purge, lease fencing, historical replay, deduplication |
+| `160-feed-diff-and-safety-test.php` | 6 | Feed comparison (added/removed/price/variation/tax changes), drop threshold warnings, empty feed critical fail, diff caching |
+| `170-health-and-csv-export-test.php` | 5 | Stock feed health diagnostics (fresh, delayed, critically stale), missing schedule detection, CSV formula injection neutralization |
 
 ### Key behaviours proven
 

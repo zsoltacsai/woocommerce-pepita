@@ -72,6 +72,9 @@ $badge = static function ( string $level ): string {
 	</form>
 
 	<p class="wps-button-row">
+		<a class="button" href="<?php echo esc_url( Admin::action_url( 'wps_pepita_export_logs', array( 'level' => $level, 'event' => $event, 'from' => $from, 'to' => $to, 's' => $search ) ) ); ?>">
+			<?php esc_html_e( 'Exportálás CSV-be', 'wp-pepita-sync' ); ?>
+		</a>
 		<a class="button wps-confirm" data-confirm="<?php echo esc_attr__( 'Biztosan törli a teljes naplót?', 'wp-pepita-sync' ); ?>" href="<?php echo esc_url( Admin::action_url( 'wps_pepita_clear_logs' ) ); ?>">
 			<?php esc_html_e( 'Napló törlése', 'wp-pepita-sync' ); ?>
 		</a>

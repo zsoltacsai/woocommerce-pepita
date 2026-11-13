@@ -107,6 +107,8 @@ final class Health {
 			'hint'   => __( 'Ha a feed a beállított gyakoriságnál régebbi, érdemes ellenőrizni a cron működését.', 'wp-pepita-sync' ),
 		);
 
+		$checks[] = self::stock_feed_check();
+
 		$checks[] = array(
 			'label'  => __( 'Zárolás', 'wp-pepita-sync' ),
 			'status' => Lock::is_locked( Generator::TYPE_FULL ) || Lock::is_locked( Generator::TYPE_STOCK ) ? self::STATUS_WARN : self::STATUS_OK,
@@ -117,6 +119,76 @@ final class Health {
 		);
 
 		return $checks;
+	}
+
+	/**
+	 * Stock feed health and freshness check.
+	 *
+	 * Strictly read-only check; does not trigger generation or alter schedules.
+	 *
+	 * @return array{label: string, status: string, value: string, hint: string}
+	 */
+	public static function stock_feed_check(): array {
+		$generator = new Generator();
+		$stock     = $generator->get_feed_state( Generator::TYPE_STOCK );
+		$interval  = Settings::stock_feed_interval();
+		$last_succ = (int) ( $stock['last_success'] ?? 0 );
+		$is_locked = Lock::is_locked( Generator::TYPE_STOCK );
+
+		$is_scheduled = false;
+		if ( function_exists( 'as_next_scheduled_action' ) ) {
+			$is_scheduled = (bool) as_next_scheduled_action( 'wps_pepita_generate_stock' );
+		}
+		if ( ! $is_scheduled && function_exists( 'wp_next_scheduled' ) ) {
+			$is_scheduled = (bool) wp_next_scheduled( 'wps_pepita_generate_stock' );
+		}
+
+		$status = self::STATUS_OK;
+		$value  = '';
+		$hint   = '';
+
+		if ( 0 === $last_succ ) {
+			if ( $is_locked ) {
+				$status = self::STATUS_WARN;
+				$value  = __( 'generálás folyamatban', 'wp-pepita-sync' );
+				$hint   = __( 'Az első készletfeed generálása jelenleg folyamatban van.', 'wp-pepita-sync' );
+			} else {
+				$status = self::STATUS_WARN;
+				$value  = __( 'még nem készült el', 'wp-pepita-sync' );
+				$hint   = __( 'Készletfeed még nem készült el. Teljes feed publikálása után a készletfeed automatikusan fut.', 'wp-pepita-sync' );
+			}
+		} else {
+			$age     = time() - $last_succ;
+			$age_str = function_exists( 'human_time_diff' ) ? human_time_diff( $last_succ, time() ) : sprintf( '%d mp', $age );
+
+			if ( $age <= (int) ( 1.5 * $interval ) ) {
+				$status = self::STATUS_OK;
+				$value  = sprintf( /* translators: %s: relative time */ __( 'friss (%s)', 'wp-pepita-sync' ), $age_str );
+				$hint   = __( 'A készlet- és árfeed a megadott ütemezésnek megfelelően frissül.', 'wp-pepita-sync' );
+			} elseif ( $age <= (int) ( 3.0 * $interval ) ) {
+				$status = self::STATUS_WARN;
+				$value  = sprintf( /* translators: %s: relative time */ __( 'késésben (%s)', 'wp-pepita-sync' ), $age_str );
+				$hint   = __( 'A készletfeed a beállított gyakoriságnál régebbi. Érdemes ellenőrizni az ütemező (cron) futását.', 'wp-pepita-sync' );
+			} else {
+				$status = self::STATUS_FAIL;
+				$value  = sprintf( /* translators: %s: relative time */ __( 'kritikusan elavult (%s)', 'wp-pepita-sync' ), $age_str );
+				$hint   = __( 'A készletfeed kritikusan elavult (> 3x ciklus). A Pepitán lévő készletek és árak nem naprakészek!', 'wp-pepita-sync' );
+			}
+		}
+
+		if ( ! $is_scheduled && ! $is_locked ) {
+			if ( self::STATUS_OK === $status ) {
+				$status = self::STATUS_WARN;
+			}
+			$hint .= ' ' . __( 'Figyelem: a készletfeed ütemezett feladata hiányzik.', 'wp-pepita-sync' );
+		}
+
+		return array(
+			'label'  => __( 'Készletfeed állapota', 'wp-pepita-sync' ),
+			'status' => $status,
+			'value'  => $value,
+			'hint'   => trim( $hint ),
+		);
 	}
 
 	/**

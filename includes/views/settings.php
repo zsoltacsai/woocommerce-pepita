@@ -353,6 +353,34 @@ $checked = static function ( string $key ) use ( $settings ): string {
 					</td>
 				</tr>
 				<tr>
+					<th scope="row"><label for="wps-drop-threshold"><?php esc_html_e( 'Termékcsökkenési biztonsági küszöb (%)', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<input type="number" min="5" max="95" id="wps-drop-threshold" name="wps[feed_safety_drop_threshold]" value="<?php echo esc_attr( (string) $field( 'feed_safety_drop_threshold' ) ); ?>" class="small-text" />
+						<span>%</span>
+						<p class="description"><?php esc_html_e( 'Figyelmeztetést generál, ha az előző sikeres katalógushoz képest a termékek száma legalább ekkora arányban csökken (alapértelmezett: 20%).', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Publikálás blokkolása jelentős csökkenéskor', 'wp-pepita-sync' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="wps[feed_safety_block_publication]" value="1" <?php echo $checked( 'feed_safety_block_publication' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
+							<?php esc_html_e( 'Feed publikálás megszakítása, ha a termékcsökkenés eléri a küszöbértéket', 'wp-pepita-sync' ); ?>
+						</label>
+						<p class="description"><?php esc_html_e( 'Védi a Pepita katalógust a véletlen tömeges terméktörléstől vagy hibás szűrés miatti kiürüléstől.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Variáció-módosulás figyelése', 'wp-pepita-sync' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="wps[feed_safety_variation_change_warning]" value="1" <?php echo $checked( 'feed_safety_variation_change_warning' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
+							<?php esc_html_e( 'Figyelmeztetés variációk vagy variációs azonosítók megváltozásakor', 'wp-pepita-sync' ); ?>
+						</label>
+						<p class="description"><?php esc_html_e( 'Jelzi a változásjelentésben, ha a meglévő termékek variációs szerkezete módosult.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
 					<th scope="row"><?php esc_html_e( 'Nyilvános feed', 'wp-pepita-sync' ); ?></th>
 					<td>
 						<label>

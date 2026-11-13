@@ -17,6 +17,7 @@
 defined( 'ABSPATH' ) || exit;
 
 use WPS\Pepita\Admin\Admin;
+use WPS\Pepita\Feed\Catalog_Diff;
 use WPS\Pepita\Feed\Generator;
 use WPS\Pepita\Settings;
 
@@ -133,6 +134,87 @@ $render_feed_card = static function ( string $type, array $state, bool $running,
 		$render_feed_card( Generator::TYPE_FULL, $full, $full_running, $full_exists, $full_url );
 		$render_feed_card( Generator::TYPE_STOCK, $stock, $stock_running, $stock_exists, $stock_url );
 		?>
+	</div>
+
+	<?php
+	$diff = Catalog_Diff::get_cached_diff();
+	?>
+	<div class="wps-card wps-card--wide">
+		<h2><?php esc_html_e( 'Katalógus változásjelentés', 'wp-pepita-sync' ); ?></h2>
+		<p>
+			<?php
+			$status_badge = match ( $diff['status'] ?? 'no_current' ) {
+				'ok'      => '<span class="wps-badge wps-badge--ok">' . esc_html__( 'Stabil', 'wp-pepita-sync' ) . '</span>',
+				'warn'    => '<span class="wps-badge wps-badge--warn">' . esc_html__( 'Figyelmeztetés', 'wp-pepita-sync' ) . '</span>',
+				'fail'    => '<span class="wps-badge wps-badge--bad">' . esc_html__( 'Kritikus eltérés', 'wp-pepita-sync' ) . '</span>',
+				'initial' => '<span class="wps-badge wps-badge--info">' . esc_html__( 'Kezdő állapot', 'wp-pepita-sync' ) . '</span>',
+				default   => '<span class="wps-badge wps-badge--muted">' . esc_html__( 'Nincs adat', 'wp-pepita-sync' ) . '</span>',
+			};
+			echo $status_badge; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			?>
+			<?php if ( ! empty( $diff['compared_at'] ) ) : ?>
+				<span class="wps-muted"><?php echo esc_html( sprintf( /* translators: %s: relative time */ __( 'Összehasonlítva: %s', 'wp-pepita-sync' ), Admin::ago( (int) $diff['compared_at'] ) ) ); ?></span>
+			<?php endif; ?>
+		</p>
+
+		<?php if ( ! empty( $diff['warnings'] ) ) : ?>
+			<div class="wps-notice wps-notice--warn">
+				<?php foreach ( (array) $diff['warnings'] as $warning ) : ?>
+					<p><strong><?php esc_html_e( 'Figyelem:', 'wp-pepita-sync' ); ?></strong> <?php echo esc_html( (string) $warning ); ?></p>
+				<?php endforeach; ?>
+			</div>
+		<?php endif; ?>
+
+		<dl class="wps-stats wps-stats--inline">
+			<dt><?php esc_html_e( 'Jelenlegi aktív termékek', 'wp-pepita-sync' ); ?></dt>
+			<dd><?php echo esc_html( (string) (int) ( $diff['current_count'] ?? 0 ) ); ?></dd>
+			<dt><?php esc_html_e( 'Előző aktív termékek', 'wp-pepita-sync' ); ?></dt>
+			<dd><?php echo esc_html( (string) (int) ( $diff['previous_count'] ?? 0 ) ); ?></dd>
+			<dt><?php esc_html_e( 'Új termékek', 'wp-pepita-sync' ); ?></dt>
+			<dd><?php echo esc_html( (string) (int) ( $diff['added_count'] ?? 0 ) ); ?></dd>
+			<dt><?php esc_html_e( 'Eltávolított termékek', 'wp-pepita-sync' ); ?></dt>
+			<dd><?php echo esc_html( (string) (int) ( $diff['removed_count'] ?? 0 ) ); ?></dd>
+			<dt><?php esc_html_e( 'Árváltozások', 'wp-pepita-sync' ); ?></dt>
+			<dd><?php echo esc_html( (string) (int) ( $diff['price_changed_count'] ?? 0 ) ); ?></dd>
+			<dt><?php esc_html_e( 'Variáció-módosulások', 'wp-pepita-sync' ); ?></dt>
+			<dd><?php echo esc_html( (string) (int) ( $diff['variation_changed_count'] ?? 0 ) ); ?></dd>
+			<dt><?php esc_html_e( 'ÁFA / Deviza változások', 'wp-pepita-sync' ); ?></dt>
+			<dd><?php echo esc_html( (string) (int) ( $diff['tax_currency_changed_count'] ?? 0 ) ); ?></dd>
+			<?php if ( (float) ( $diff['drop_percent'] ?? 0 ) > 0 ) : ?>
+				<dt><?php esc_html_e( 'Csökkenés aránya', 'wp-pepita-sync' ); ?></dt>
+				<dd><?php echo esc_html( sprintf( '%.1f%%', (float) $diff['drop_percent'] ) ); ?></dd>
+			<?php endif; ?>
+		</dl>
+
+		<?php if ( ! empty( $diff['samples']['removed'] ) || ! empty( $diff['samples']['price_changed'] ) || ! empty( $diff['samples']['variation_changed'] ) ) : ?>
+			<details class="wps-details">
+				<summary><?php esc_html_e( 'Részletes változásminták megtekintése', 'wp-pepita-sync' ); ?></summary>
+				<?php if ( ! empty( $diff['samples']['removed'] ) ) : ?>
+					<h4 style="margin: 1em 0 0.5em;"><?php esc_html_e( 'Eltávolított termékek (minta)', 'wp-pepita-sync' ); ?></h4>
+					<ul>
+						<?php foreach ( $diff['samples']['removed'] as $item ) : ?>
+							<li>#<?php echo esc_html( (string) $item['pid'] ); ?>: <?php echo esc_html( $item['name'] ); ?> (<code><?php echo esc_html( $item['eid'] ); ?></code>)</li>
+						<?php endforeach; ?>
+					</ul>
+				<?php endif; ?>
+				<?php if ( ! empty( $diff['samples']['price_changed'] ) ) : ?>
+					<h4 style="margin: 1em 0 0.5em;"><?php esc_html_e( 'Árváltozások (minta)', 'wp-pepita-sync' ); ?></h4>
+					<ul>
+						<?php foreach ( $diff['samples']['price_changed'] as $item ) : ?>
+							<li>#<?php echo esc_html( (string) $item['pid'] ); ?>: <?php echo esc_html( $item['name'] ); ?> &mdash; <?php echo esc_html( (string) $item['old_price'] ); ?> &rarr; <?php echo esc_html( (string) $item['new_price'] ); ?></li>
+						<?php endforeach; ?>
+					</ul>
+				<?php endif; ?>
+				<?php if ( ! empty( $diff['samples']['variation_changed'] ) ) : ?>
+					<h4 style="margin: 1em 0 0.5em;"><?php esc_html_e( 'Variáció változások (minta)', 'wp-pepita-sync' ); ?></h4>
+					<ul>
+						<?php foreach ( $diff['samples']['variation_changed'] as $item ) : ?>
+							<li>#<?php echo esc_html( (string) $item['pid'] ); ?>: <?php echo esc_html( $item['name'] ); ?></li>
+						<?php endforeach; ?>
+					</ul>
+				<?php endif; ?>
+			</details>
+		<?php endif; ?>
 	</div>
 
 	<div class="wps-card wps-card--wide">
