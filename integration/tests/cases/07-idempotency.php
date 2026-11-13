@@ -257,7 +257,7 @@ WPS_IT::test(
 		global $wpdb;
 		$wpdb->update(
 			Order_Repository::table(),
-			array( 'payload_hash' => null ),
+			array( 'payload_hash' => '' ),
 			array( 'external_id' => $external_id )
 		);
 
@@ -274,12 +274,22 @@ WPS_IT::test(
 		$claim = Order_Repository::get( $external_id );
 		WPS_IT::same( $backfilled_hash, (string) $claim['payload_hash'], 'Payload hash was not backfilled on claim row.' );
 
+		$notes = wc_get_order_notes( array( 'order_id' => $order_id ) );
+		$has_backfill_note = false;
+		foreach ( $notes as $n ) {
+			if ( str_contains( (string) $n->content, 'megerősítve és hash rögzítve' ) ) {
+				$has_backfill_note = true;
+				break;
+			}
+		}
+		WPS_IT::true( $has_backfill_note, 'Expected megerősítve note on historical backfill order.' );
+
 		// Now clear hash again and attempt an altered payload replay.
 		$reloaded->delete_meta_data( Importer::META_PAYLOAD_HASH );
 		$reloaded->save_meta_data();
 		$wpdb->update(
 			Order_Repository::table(),
-			array( 'payload_hash' => null ),
+			array( 'payload_hash' => '' ),
 			array( 'external_id' => $external_id )
 		);
 

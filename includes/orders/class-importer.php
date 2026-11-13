@@ -57,6 +57,22 @@ final class Importer {
 			$order_id    = (int) ( $claim['row']['wc_order_id'] ?? 0 );
 			$stored_hash = (string) ( $claim['row']['payload_hash'] ?? '' );
 
+			if ( 0 === $order_id ) {
+				$order_id = $this->find_order_by_external_id( $external_id );
+			}
+
+			if ( 0 === $order_id ) {
+				Logger::error(
+					'order_import',
+					'A Pepita rendelés lezártként szerepel a nyilvántartásban, de a WooCommerce rendelés nem található.',
+					array( 'external_id' => $external_id ),
+					'claim',
+					0
+				);
+
+				return $this->result( 'error', 500, 'A rendelés nem található a WooCommerce rendszerében.' );
+			}
+
 			return $this->handle_existing_order( $external_id, $order_id, $stored_hash, $payload_hash, $payload );
 		}
 
@@ -131,7 +147,7 @@ final class Importer {
 				return $this->result( 'error', 500, 'A WooCommerce rendelés létrehozása sikertelen.' );
 			}
 
-			Order_Repository::complete( $external_id, (int) $order_id );
+			Order_Repository::complete( $external_id, (int) $order_id, $payload_hash );
 
 			return $this->result( 'created', 200, '', (int) $order_id );
 		} catch ( \Throwable $throwable ) {
@@ -478,31 +494,24 @@ final class Importer {
 	private function create_order( array $payload, array $validated, string $external_id ) {
 		$customer = is_array( $payload['customer'] ?? null ) ? $payload['customer'] : array();
 
-		$order = wc_create_order(
-			array(
-				'created_via' => 'wps-pepita',
-				'currency'    => (string) $validated['currency'],
-			)
-		);
+		$order = new \WC_Order();
+		$order->set_created_via( 'wps-pepita' );
+		$order->set_currency( (string) $validated['currency'] );
+		$order->update_meta_data( self::META_ORDER_ID, $external_id );
+		$order->update_meta_data( self::META_PAYLOAD_HASH, (string) ( $payload['__hash'] ?? '' ) );
+		$order->update_meta_data( '_wps_pepita_in_progress', '1' );
 
-		if ( is_wp_error( $order ) ) {
-			return $order;
+		try {
+			$order_id = $order->save();
+		} catch ( \Throwable $e ) {
+			return new \WP_Error( 'wps_order_failed', 'A kezdő rendelés mentése meghiúsult: ' . $e->getMessage() );
 		}
 
-		if ( ! $order instanceof \WC_Order ) {
-			return new \WP_Error( 'wps_order_failed', 'A WooCommerce nem adott vissza rendelést.' );
+		if ( ! $order_id ) {
+			return new \WP_Error( 'wps_order_failed', 'A WooCommerce nem adott vissza rendelés azonosítót.' );
 		}
 
-		$order_id = $order->get_id();
-		if ( $order_id > 0 ) {
-			Order_Repository::associate( $external_id, $order_id );
-			$order->update_meta_data( self::META_ORDER_ID, $external_id );
-			$order->update_meta_data( self::META_PAYLOAD_HASH, (string) ( $payload['__hash'] ?? '' ) );
-			$order->update_meta_data( '_wps_pepita_in_progress', '1' );
-			if ( method_exists( $order, 'save_meta_data' ) ) {
-				$order->save_meta_data();
-			}
-		}
+		Order_Repository::associate( $external_id, (int) $order_id );
 
 		try {
 			$prices_include_tax = function_exists( 'wc_prices_include_tax' ) ? wc_prices_include_tax() : false;
@@ -1227,10 +1236,6 @@ final class Importer {
 	 * @return array<string, mixed>
 	 */
 	private function handle_existing_order( string $external_id, int $order_id, string $stored_hash, string $payload_hash, array $payload, bool $reclaimed = false ): array {
-		if ( $reclaimed && $order_id > 0 ) {
-			Order_Repository::complete( $external_id, $order_id );
-		}
-
 		$existing_order = $order_id > 0 ? wc_get_order( $order_id ) : false;
 
 		if ( '' === $stored_hash && $existing_order instanceof \WC_Order ) {
@@ -1238,30 +1243,82 @@ final class Importer {
 		}
 
 		// Replay handling for historical orders without a stored payload hash (e.g. pre-1.1.0).
-		// We verify structural and financial invariants to refuse altered data.
+		// We verify structural and financial invariants to refuse altered data fail-closed.
 		if ( '' === $stored_hash && $existing_order instanceof \WC_Order ) {
 			$conflict = false;
 			$reasons  = array();
 
-			$order_currency   = (string) $existing_order->get_currency();
-			$payload_currency = (string) ( $payload['products'][0]['currency'] ?? $order_currency );
-			if ( '' !== $order_currency && '' !== $payload_currency && 0 !== strcasecmp( $order_currency, $payload_currency ) ) {
+			// 1. Validate payload structure first: must be syntactically and semantically valid.
+			$validation = $this->validate( $payload );
+			if ( isset( $validation['error'] ) ) {
 				$conflict  = true;
-				$reasons[] = sprintf( 'eltérő pénznem (tárolt: %s, új: %s)', $order_currency, $payload_currency );
-			}
+				$reasons[] = 'érvénytelen payload struktúra: ' . $validation['error'];
+			} else {
+				// 2. Strict currency match
+				$order_currency   = (string) $existing_order->get_currency();
+				$payload_currency = (string) ( $validation['currency'] ?? '' );
+				if ( '' === $order_currency || '' === $payload_currency || 0 !== strcasecmp( $order_currency, $payload_currency ) ) {
+					$conflict  = true;
+					$reasons[] = sprintf( 'eltérő pénznem (tárolt: %s, új: %s)', $order_currency, $payload_currency );
+				}
 
-			$order_total   = round( (float) $existing_order->get_total(), 2 );
-			$payload_total = $this->calculate_payload_total( $payload );
-			if ( null !== $payload_total && abs( $order_total - $payload_total ) > 0.05 ) {
-				$conflict  = true;
-				$reasons[] = sprintf( 'eltérő végösszeg (tárolt: %s, új: %s)', $order_total, $payload_total );
-			}
+				// 3. Strict grand total match (zero tolerance for integer currencies like HUF, 0.001 for decimals)
+				$order_total   = (float) $existing_order->get_total();
+				$payload_total = (float) ( $validation['total'] ?? 0 );
+				if ( abs( $order_total - $payload_total ) > 0.001 ) {
+					$conflict  = true;
+					$reasons[] = sprintf( 'eltérő végösszeg (tárolt: %s, új: %s)', $order_total, $payload_total );
+				}
 
-			$order_item_count   = count( $existing_order->get_items( 'line_item' ) );
-			$payload_item_count = isset( $payload['products'] ) && is_array( $payload['products'] ) ? count( $payload['products'] ) : 0;
-			if ( $order_item_count > 0 && $payload_item_count > 0 && $order_item_count !== $payload_item_count ) {
-				$conflict  = true;
-				$reasons[] = sprintf( 'eltérő tételszám (tárolt: %d, új: %d)', $order_item_count, $payload_item_count );
+				// 4. Strict customer email match (if order has billing email)
+				$order_email   = strtolower( trim( (string) $existing_order->get_billing_email() ) );
+				$payload_email = strtolower( trim( (string) ( $validation['customer']['email'] ?? '' ) ) );
+				if ( '' !== $order_email && '' !== $payload_email && $order_email !== $payload_email ) {
+					$conflict  = true;
+					$reasons[] = sprintf( 'eltérő vásárlói email (tárolt: %s, új: %s)', $order_email, $payload_email );
+				}
+
+				// 5. Strict line items count & contents match
+				$existing_items     = $existing_order->get_items( 'line_item' );
+				$order_item_count   = count( $existing_items );
+				$payload_products   = isset( $validation['products'] ) && is_array( $validation['products'] ) ? $validation['products'] : array();
+				$payload_item_count = count( $payload_products );
+
+				if ( 0 === $payload_item_count || $order_item_count !== $payload_item_count ) {
+					$conflict  = true;
+					$reasons[] = sprintf( 'eltérő tételszám (tárolt: %d, új: %d)', $order_item_count, $payload_item_count );
+				} else {
+					$order_skus = array();
+					foreach ( $existing_items as $item ) {
+						if ( $item instanceof \WC_Order_Item_Product ) {
+							$product = $item->get_product();
+							$sku     = $product instanceof \WC_Product ? (string) $product->get_sku() : '';
+							$order_skus[] = array(
+								'sku' => $sku,
+								'qty' => (int) $item->get_quantity(),
+							);
+						}
+					}
+
+					foreach ( $payload_products as $p ) {
+						$p_sku   = (string) ( $p['sku'] ?? '' );
+						$p_qty   = (int) ( $p['quantity'] ?? 0 );
+						$matched = false;
+						foreach ( $order_skus as $idx => $os ) {
+							if ( '' !== $p_sku && 0 === strcasecmp( $os['sku'], $p_sku ) && $os['qty'] === $p_qty ) {
+								$matched = true;
+								unset( $order_skus[ $idx ] );
+								break;
+							}
+						}
+
+						if ( ! $matched ) {
+							$conflict  = true;
+							$reasons[] = sprintf( 'tétel nem egyezik (SKU: %s, db: %d)', $p_sku, $p_qty );
+							break;
+						}
+					}
+				}
 			}
 
 			if ( $conflict ) {
@@ -1299,8 +1356,11 @@ final class Importer {
 			$existing_order->update_meta_data( self::META_PAYLOAD_HASH, $payload_hash );
 			if ( method_exists( $existing_order, 'save_meta_data' ) ) {
 				$existing_order->save_meta_data();
+			} else {
+				$existing_order->save();
 			}
 			Order_Repository::backfill_hash( $external_id, $payload_hash );
+			$stored_hash = $payload_hash;
 
 			$existing_order->add_order_note(
 				sprintf(
@@ -1342,18 +1402,17 @@ final class Importer {
 			return $this->result( 'conflict', 409, 'A rendelés már korábban importálásra került, de az új értesítés tartalma eltér. Kérjük, ellenőrizze a rendelést a WooCommerce-ben.' );
 		}
 
-		Logger::info(
-			'order_duplicate',
-			'Ismételt Pepita rendelésértesítés: a rendelés már importálva van, nem hoztunk létre újat.',
-			array(
-				'external_id' => $external_id,
-				'order_id'    => $order_id,
-			),
-			'order',
+		// Replay is valid: complete claim if reclaimed, and sync claim hash
+		if ( $order_id > 0 ) {
+			Order_Repository::complete( $external_id, $order_id, $payload_hash );
+		}
+
+		return $this->result(
+			'duplicate',
+			200,
+			'A rendelés (Pepita azonosító: ' . $external_id . ') már korábban importálásra került WooCommerce rendelésként (azonosító: #' . $order_id . '). Újabb rendelés nem jött létre.',
 			$order_id
 		);
-
-		return $this->result( 'duplicate', 200, 'A rendelés már korábban importálásra került.', $order_id );
 	}
 
 	/**

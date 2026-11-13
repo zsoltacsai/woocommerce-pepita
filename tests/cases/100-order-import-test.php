@@ -177,11 +177,13 @@ $suite->add(
 	static function () use ( $payload, $seed ): void {
 		$seed();
 
+		$p     = $payload();
 		$order = new WC_Order();
 		$order->update_meta_data( '_wps_pepita_order_id', 'PEP-1001' );
+		$order->update_meta_data( '_wps_pepita_payload_hash', Importer::hash_payload( $p ) );
 		WPS_Test_State::add_order( $order );
 
-		$result = ( new Importer() )->import( $payload() );
+		$result = ( new Importer() )->import( $p );
 
 		WPS_Assert::same( 'duplicate', $result['status'] );
 		WPS_Assert::same( $order->get_id(), $result['order_id'] );

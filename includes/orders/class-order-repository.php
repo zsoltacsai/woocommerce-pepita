@@ -198,21 +198,41 @@ final class Order_Repository {
 		);
 	}
 
-	public static function complete( string $external_id, int $order_id ): void {
+	public static function complete( string $external_id, int $order_id, string $payload_hash = '' ): void {
 		global $wpdb;
 
-		$wpdb->update(
-			self::table(),
-			array(
-				'status'      => self::STATUS_COMPLETED,
-				'wc_order_id' => max( 0, $order_id ),
-				'last_error'  => null,
-				'updated_at'  => current_time( 'mysql', true ),
-			),
-			array( 'external_id' => $external_id ),
-			array( '%s', '%d', '%s', '%s' ),
-			array( '%s' )
-		);
+		$table = self::table();
+
+		if ( '' !== $payload_hash ) {
+			$wpdb->query(
+				$wpdb->prepare(
+					"UPDATE {$table}
+					 SET status = %s, wc_order_id = %d, payload_hash = %s, last_error = NULL, updated_at = %s
+					 WHERE external_id = %s AND (status = %s OR status = %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					self::STATUS_COMPLETED,
+					max( 0, $order_id ),
+					$payload_hash,
+					current_time( 'mysql', true ),
+					$external_id,
+					self::STATUS_PROCESSING,
+					self::STATUS_COMPLETED
+				)
+			);
+		} else {
+			$wpdb->query(
+				$wpdb->prepare(
+					"UPDATE {$table}
+					 SET status = %s, wc_order_id = %d, last_error = NULL, updated_at = %s
+					 WHERE external_id = %s AND (status = %s OR status = %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					self::STATUS_COMPLETED,
+					max( 0, $order_id ),
+					current_time( 'mysql', true ),
+					$external_id,
+					self::STATUS_PROCESSING,
+					self::STATUS_COMPLETED
+				)
+			);
+		}
 
 		Logger::info(
 			'order_import',
@@ -273,16 +293,20 @@ final class Order_Repository {
 	public static function fail( string $external_id, string $error ): void {
 		global $wpdb;
 
-		$wpdb->update(
-			self::table(),
-			array(
-				'status'     => self::STATUS_FAILED,
-				'last_error' => substr( $error, 0, 4000 ),
-				'updated_at' => current_time( 'mysql', true ),
-			),
-			array( 'external_id' => $external_id ),
-			array( '%s', '%s', '%s' ),
-			array( '%s' )
+		$table = self::table();
+
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table}
+				 SET status = %s, last_error = %s, updated_at = %s
+				 WHERE external_id = %s AND (status = %s OR status = %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				self::STATUS_FAILED,
+				substr( $error, 0, 4000 ),
+				current_time( 'mysql', true ),
+				$external_id,
+				self::STATUS_PROCESSING,
+				self::STATUS_CLAIMED
+			)
 		);
 	}
 

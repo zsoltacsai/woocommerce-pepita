@@ -907,16 +907,52 @@ class WC_Order {
 		$this->total = round( $total, 2 );
 	}
 
+	/** @var array<int, array{content: string, customer_note: bool}> */
+	public array $order_notes = array();
+	private array $notes = array();
+
 	public function add_order_note( string $note, int $is_customer_note = 0, bool $added_by_user = false ): int {
+		$this->order_notes[] = array(
+			'content'       => $note,
+			'customer_note' => 1 === $is_customer_note,
+		);
 		$this->notes[] = $note;
 
-		return count( $this->notes );
+		return count( $this->order_notes );
 	}
 
 	/**
 	 * @return string[]
 	 */
 	public function get_customer_notes(): array {
+		$customer = array();
+		foreach ( $this->order_notes as $n ) {
+			if ( $n['customer_note'] ) {
+				$customer[] = $n['content'];
+			}
+		}
+
+		return $customer;
+	}
+
+	/**
+	 * @return string[]
+	 */
+	public function get_internal_notes(): array {
+		$internal = array();
+		foreach ( $this->order_notes as $n ) {
+			if ( ! $n['customer_note'] ) {
+				$internal[] = $n['content'];
+			}
+		}
+
+		return $internal;
+	}
+
+	/**
+	 * @return string[]
+	 */
+	public function get_all_notes(): array {
 		return $this->notes;
 	}
 
@@ -1318,4 +1354,29 @@ function wc_get_cart_url(): string {
 
 function wc_get_checkout_url(): string {
 	return home_url( '/checkout/' );
+}
+
+function wc_get_order_notes( array $args = array() ): array {
+	$order_id = (int) ( $args['order_id'] ?? 0 );
+	$type     = (string) ( $args['type'] ?? '' );
+	if ( $order_id <= 0 || ! isset( WPS_Test_State::$orders[ $order_id ] ) ) {
+		return array();
+	}
+
+	$order = WPS_Test_State::$orders[ $order_id ];
+	$notes = array();
+	foreach ( $order->order_notes ?? array() as $n ) {
+		if ( 'customer' === $type && ! $n['customer_note'] ) {
+			continue;
+		}
+		if ( 'internal' === $type && $n['customer_note'] ) {
+			continue;
+		}
+		$obj                = new \stdClass();
+		$obj->content       = $n['content'];
+		$obj->customer_note = $n['customer_note'];
+		$notes[]            = $obj;
+	}
+
+	return $notes;
 }
