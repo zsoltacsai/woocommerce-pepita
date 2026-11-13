@@ -17,6 +17,7 @@ final class Installer {
 
 	public static function activate(): void {
 		self::create_tables();
+		self::migrate_external_id_collation();
 		Settings::install_defaults();
 		Settings::ensure_tokens();
 		Storage::ensure_directory();
@@ -117,8 +118,10 @@ final class Installer {
 	 * UNIQUE index and the second would be reported as a duplicate. dbDelta
 	 * does not reliably change an existing column collation, so the upgrade
 	 * path issues an explicit ALTER once.
+	 *
+	 * @return bool True when the column is binary (already or after the ALTER).
 	 */
-	private static function migrate_external_id_collation(): void {
+	private static function migrate_external_id_collation(): bool {
 		global $wpdb;
 
 		$table = Order_Repository::table();
@@ -129,15 +132,27 @@ final class Installer {
 		);
 
 		if ( ! is_array( $column ) || ! isset( $column['Collation'] ) ) {
-			return;
+			return true;
 		}
 
 		if ( 'utf8mb4_bin' === (string) $column['Collation'] ) {
-			return;
+			return true;
 		}
 
-		$wpdb->query(
+		$result = $wpdb->query(
 			"ALTER TABLE {$table} MODIFY external_id varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL" // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		);
+
+		if ( false === $result ) {
+			Logger::warning(
+				'plugin',
+				'Az external_id oszlop bináris collationra állítása sikertelen; a rendelésazonosítók továbbra is kis-nagybetűtől függetlenül egyezhetnek.',
+				array( 'error' => (string) $wpdb->last_error )
+			);
+
+			return false;
+		}
+
+		return true;
 	}
 }

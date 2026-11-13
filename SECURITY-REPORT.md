@@ -208,6 +208,23 @@ not a substitute for the live M9 staging validation.
 13. **nginx private storage (PV-04).** `.htaccess` is not read by nginx. The
     required `location` deny rule is documented in `INSTALLATION.md`; a
     deployment that omits it relies on the random storage directory name.
+14. **Tax representation (independent re-review NEW-1).** Imported orders set
+    `prices_include_tax` and store the exact Pepita gross total, but cart and
+    shipping tax are zeroed to avoid adding a second VAT layer. VAT therefore
+    survives in the total and in per-item `_wps_pepita_vat` meta, not in
+    WooCommerce tax lines. Stores whose invoicing reads WooCommerce tax lines
+    must confirm this representation before go-live; recording the gross-VAT
+    split from the payload is the alternative.
+15. **Changed-content duplicates (independent re-review NEW-2).** A re-send of
+    the same external id with a different payload hash returns 409 and is never
+    applied (the audit-recommended behaviour for CF-10). If Pepita sends
+    post-creation status changes (for example `unpaid` → `paid`) under the same
+    id, those updates will be refused. Confirm Pepita's contract before go-live;
+    narrowing the hash to immutable fields is the alternative.
+16. **Custom order statuses and label retention (independent re-review NEW-7).**
+    Labels are deleted only for the known-closed statuses `completed`,
+    `cancelled`, `refunded`, `failed` and `trash`. Custom statuses are treated as
+    open and retained, which is the safe default.
 
 ## 10. Recommendations
 

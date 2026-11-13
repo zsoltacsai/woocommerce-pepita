@@ -4,7 +4,7 @@
 
 ```
 $ php tests/run.php
-156 passed, 0 failed, 0 skipped in 5.92s
+157 passed, 0 failed, 0 skipped in 6.41s
 ```
 
 PHP 8.5 CLI, no WordPress installation required.
@@ -100,7 +100,7 @@ php tests/run.php validator
 | `80-feed-generation-test.php` | 13 | Publish, resume, stock consistency, failure preservation, removal policies, lock reclaim |
 | `90-order-repository-test.php` | 11 | Claim, dedupe, retry, stale claims, queries, purge, payload opt-in, missing table |
 | `100-order-import-test.php` | 20 | Totals, status, payment, metadata, vouchers, labels, e-mail suppression, idempotency, money, SKU mismatch, conflict, orphan cleanup, payload retention |
-| `110-api-controller-test.php` | 15 | Route, auth, headers, duplicates, disabled endpoint, HTTPS, spoofed headers, trusted proxy, failed-auth throttle, IP, rate limit, body limits |
+| `110-api-controller-test.php` | 16 | Route, auth, headers, duplicates, disabled endpoint, HTTPS, spoofed headers, trusted proxy, unparseable hop, failed-auth throttle, IP, rate limit, body limits |
 | `115-money-test.php` | 4 | Strict amount/VAT/quantity parsing, ambiguity rejection, bounds |
 | `116-redactor-test.php` | 2 | Secret and PII masking in nested log payloads |
 | `120-prefix-test.php` | 8 | No Allegro symbols, namespaces, constants, hooks, options, meta, tables, text domain |

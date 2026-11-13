@@ -370,7 +370,8 @@ final class Api_Controller {
 
 		$max = str_contains( $ip, ':' ) ? 128 : 32;
 
-		return (int) $prefix >= 0 && (int) $prefix <= $max;
+		// A zero-length prefix would trust every address; never allow it.
+		return (int) $prefix >= 1 && (int) $prefix <= $max;
 	}
 
 	private function is_trusted_proxy( string $ip ): bool {
@@ -464,10 +465,14 @@ final class Api_Controller {
 		$chain[] = $remote;
 
 		foreach ( array_reverse( $chain ) as $candidate ) {
-			$candidate = trim( $candidate );
+			$candidate = self::normalize_ip( (string) $candidate );
 
-			if ( '' === $candidate || false === filter_var( $candidate, FILTER_VALIDATE_IP ) ) {
-				continue;
+			// An unparseable hop means the chain cannot be trusted. Fail
+			// closed with a sentinel that never matches an allowlist and gets
+			// its own rate-limit bucket, instead of silently falling back to
+			// the proxy address (which an allowlist may contain).
+			if ( null === $candidate ) {
+				return '0.0.0.0';
 			}
 
 			if ( $this->is_trusted_proxy( $candidate ) ) {
@@ -478,6 +483,33 @@ final class Api_Controller {
 		}
 
 		return $remote;
+	}
+
+	/**
+	 * Normalise a forwarding-hop value: accept a bare IP or the common
+	 * `ip:port` / `[ipv6]:port` forms. Returns null when the value is not an
+	 * address, so the caller can fail closed.
+	 */
+	private static function normalize_ip( string $value ): ?string {
+		$value = trim( $value );
+
+		if ( '' === $value ) {
+			return null;
+		}
+
+		if ( false !== filter_var( $value, FILTER_VALIDATE_IP ) ) {
+			return $value;
+		}
+
+		if ( preg_match( '/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/', $value, $match ) ) {
+			return false !== filter_var( $match[1], FILTER_VALIDATE_IP ) ? $match[1] : null;
+		}
+
+		if ( preg_match( '/^\[([0-9a-fA-F:]+)\]:\d+$/', $value, $match ) ) {
+			return false !== filter_var( $match[1], FILTER_VALIDATE_IP ) ? $match[1] : null;
+		}
+
+		return null;
 	}
 
 	/**

@@ -363,12 +363,45 @@ $suite->add(
 		WPS_Assert::contains( 'sikertelen', $response->get_data()['message'] );
 
 		// Logging stays bounded: one row per client/reason/minute plus the
-		// per-minute global budget, never one row per failed request.
+		// per-minute global budget, never one row per failed request. 36
+		// failed attempts from one address must not produce 36 rows.
 		$logged = Logger::query( array( 'event' => 'order_api' ) );
 
 		WPS_Assert::true( $logged['total'] > 0 );
-		WPS_Assert::true( $logged['total'] <= 120 );
+		WPS_Assert::true( $logged['total'] <= 5, 'Failed-auth logging is not bounded: ' . (int) $logged['total'] . ' rows.' );
 
+		$_SERVER['REMOTE_ADDR'] = '127.0.0.1';
+	}
+);
+
+$suite->add(
+	'api: an unparseable forwarding hop fails closed instead of trusting the proxy address',
+	static function () use ( $call, $payload, $seed ): void {
+		$seed();
+		Settings::update(
+			array(
+				'order_api_key'             => 'secret-key',
+				// The allowlist contains the proxy, so a fallback to the proxy
+				// address would wrongly admit the request.
+				'order_api_allowed_ips'     => '10.0.0.5',
+				'order_api_trusted_proxies' => '10.0.0.5',
+			)
+		);
+
+		$_SERVER['REMOTE_ADDR']          = '10.0.0.5';
+		$_SERVER['HTTP_X_FORWARDED_FOR'] = 'not-an-ip';
+
+		$response = $call( $payload(), array( 'apikey' => 'secret-key' ) );
+
+		WPS_Assert::same( 401, $response->get_status() );
+		WPS_Assert::contains( 'IP', $response->get_data()['message'] );
+
+		// A well-formed ip:port hop is normalised and evaluated normally.
+		$_SERVER['HTTP_X_FORWARDED_FOR'] = '203.0.113.9:4321';
+
+		WPS_Assert::same( 401, $call( $payload( array( 'id' => 'PEP-API-PORT' ) ), array( 'apikey' => 'secret-key' ) )->get_status() );
+
+		unset( $_SERVER['HTTP_X_FORWARDED_FOR'] );
 		$_SERVER['REMOTE_ADDR'] = '127.0.0.1';
 	}
 );

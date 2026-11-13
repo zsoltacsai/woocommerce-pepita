@@ -77,7 +77,32 @@ pending) and PV-01 (fixed).
 | No private vulnerability channel | Single maintainer; owner decision | Before public distribution |
 | Live staging validation pending | Environment lacks Docker/MySQL | Mandatory M9 gate |
 
-## 6. What this document deliberately does not contain
+## 6. Independent re-review at remediation HEAD
+
+An independent Claude re-review (`opencode-go/claude-haiku-5-5`, isolated
+subagent) reviewed commit `0520704` and then the follow-up fixes. It verified
+the core controls (CF-01, CF-02, CF-04, CF-05, CF-07, CF-10, CF-13, PV-05,
+PV-07, PV-10) and raised ten follow-ups:
+
+| New ID | Severity | Finding | Disposition |
+|---|---|---|---|
+| NEW-1 | MEDIUM (accounting) | Zeroed cart/shipping tax means WooCommerce tax lines show no VAT | **Documented residual** — exact gross total is preserved; VAT remains in total + item meta. Owner must confirm invoicing representation before go-live |
+| NEW-2 | MEDIUM (functional) | Changed-content duplicate returns 409 forever, so later status updates are refused | **Documented residual** — this is the audit-recommended CF-10 behaviour; confirm Pepita's contract |
+| NEW-3 | MEDIUM (CF-11 gap) | `billing_street_address` / `shipping_street_address` were not redacted | **Fixed** — added to `PII_KEYS`; regression test extended |
+| NEW-4 | LOW (migration) | `activate()` skipped the collation migration; ALTER result unchecked | **Fixed** — migration runs on activation; result checked and logged |
+| NEW-5 | LOW (client IP) | An unparseable forwarding hop fell back to the proxy address | **Fixed** — chain now fails closed (`0.0.0.0`); `ip:port` normalised; `/0` rejected |
+| NEW-6 | LOW (money) | Float sums could leak binary artefacts | **Fixed** — line and grand totals rounded to cents |
+| NEW-7 | LOW (retention) | Custom open statuses were treated as closed | **Fixed** — only known-closed statuses release a label |
+| NEW-8 | LOW (logging) | Masked `ip` reduces rejection-log forensics | **Accepted** — access logs carry the source; log rows stay PII-free |
+| NEW-9 | LOW (tests) | Some tests were sequential/weak (lock, log bound) | **Partially fixed** — log-bound assertion tightened; concurrency remains runtime-only |
+| NEW-10 | INFO | IPv4-mapped IPv6, `/0`, query-string key, empty optional amounts | **Partially fixed** — `/0` rejected; others documented as residual |
+
+Re-review verdict: **CONDITIONAL PASS**. No CRITICAL/HIGH. After the fixes above,
+the remaining MEDIUM items (NEW-1, NEW-2) are explicit business/contract
+decisions, not control failures, and production stays NO-GO pending the live
+integration suite and M9 staging validation.
+
+## 7. What this document deliberately does not contain
 
 - Real API keys, feed tokens, admin passwords or `wp-config.php` secrets.
 - Customer names, e-mail addresses, phone numbers, addresses or order contents.

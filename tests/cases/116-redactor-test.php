@@ -23,6 +23,8 @@ $suite->add(
 					'phone'                 => '+36301234567',
 					'billing_city'          => 'Budapest',
 					'billing_street'        => 'Fő utca 1.',
+					'billing_street_address' => 'Fő utca 1.',
+					'shipping_street_address' => 'Fő utca 1.',
 					'billing_postal_code'   => '1011',
 					'tax_number'            => '12345678-1-41',
 					'shipping_house_number' => '1',

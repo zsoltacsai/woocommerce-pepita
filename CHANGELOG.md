@@ -80,8 +80,24 @@ and the M9 Pepita staging validation pass.
   `116-redactor-test.php`, `150-retention-test.php`; adversarial cases added to
   the API, import, repository, XML and feed-generation suites.
 
+#### Fixed (independent re-review follow-ups)
+
+- Redact `billing_street_address` / `shipping_street_address` in logs.
+- Run the `utf8mb4_bin` migration on activation and check the ALTER result.
+- Fail closed when a forwarding hop is unparseable; normalise `ip:port`;
+  reject `/0` trusted-proxy entries.
+- Round line and grand totals to cents.
+- Only release package labels for known-closed order statuses.
+
 #### Deferred / accepted residual risk
 
+- **NEW-1** (tax representation) — the exact Pepita gross total is preserved and
+  VAT remains in the total and `_wps_pepita_vat` item meta, but WooCommerce tax
+  lines are zero to avoid double VAT. Confirm invoicing representation before
+  go-live.
+- **NEW-2** (changed-content duplicates) — a changed re-send returns 409 and is
+  not applied (audit-recommended CF-10 behaviour). Confirm Pepita never sends
+  post-creation status changes under the same id.
 - **PV-06** (`manage_woocommerce` includes Shop Manager) — accepted as a
   deliberate store-operator role.
 - **PV-08** (stale-claim overlap for imports longer than the 15-minute window) —

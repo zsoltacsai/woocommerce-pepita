@@ -423,7 +423,10 @@ final class Order_Repository {
 			return true;
 		}
 
-		return ! in_array( $order->get_status(), array( 'pending', 'processing', 'on-hold' ), true );
+		// Only delete a label when the order is in a known-closed state. Any
+		// custom status (for example "shipped" or "packed") is treated as open
+		// so a fulfilment workflow never loses its document.
+		return in_array( $order->get_status(), array( 'completed', 'cancelled', 'refunded', 'failed', 'trash' ), true );
 	}
 
 	private static function clear_label_meta( string $file ): void {

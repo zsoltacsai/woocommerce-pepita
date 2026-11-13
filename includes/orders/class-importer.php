@@ -232,14 +232,16 @@ final class Importer {
 		$items_total = 0.0;
 
 		foreach ( $lines as $line ) {
-			$items_total += $line['price'] * $line['quantity'];
+			// Work in cents-equivalent precision: binary float sums such as
+			// 0.1 * 3 otherwise leak 0.30000000000000004 into order totals.
+			$items_total = round( $items_total + round( $line['price'] * $line['quantity'], 2 ), 2 );
 
 			if ( $items_total > Money::MAX_AMOUNT ) {
 				return array( 'error' => 'A rendelés tételeinek összege meghaladja a feldolgozható felső határt.' );
 			}
 		}
 
-		$total = $items_total + $shipping - $voucher;
+		$total = round( $items_total + $shipping - $voucher, 2 );
 
 		if ( $total < 0 ) {
 			return array( 'error' => 'A rendelés számított végösszege negatív.' );
@@ -437,7 +439,7 @@ final class Importer {
 
 			foreach ( $validated['products'] as $line ) {
 				$product = $line['product'];
-				$total   = (float) $line['price'] * (int) $line['quantity'];
+				$total   = round( (float) $line['price'] * (int) $line['quantity'], 2 );
 
 				$item_id = $order->add_product(
 					$product,
