@@ -421,12 +421,20 @@ $checked = static function ( string $key ) use ( $settings ): string {
 					</td>
 				</tr>
 				<tr>
+					<th scope="row"><label for="wps-trusted-proxies"><?php esc_html_e( 'Megbízható proxyk', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<textarea id="wps-trusted-proxies" name="wps[order_api_trusted_proxies]" class="regular-text" rows="3"><?php echo esc_textarea( (string) $field( 'order_api_trusted_proxies' ) ); ?></textarea>
+						<p class="description"><?php esc_html_e( 'Csak akkor töltse ki, ha a WordPress előtt reverse proxy vagy terheléselosztó áll. IP címek vagy CIDR tartományok (pl. 10.0.0.0/8). A rendszer csak ezekről a címekről fogadja el az X-Forwarded-For és X-Forwarded-Proto fejléceket; minden más kliens IP-jét a közvetlen kapcsolat adja.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
 					<th scope="row"><?php esc_html_e( 'HTTPS kényszer', 'wp-pepita-sync' ); ?></th>
 					<td>
 						<label>
 							<input type="checkbox" name="wps[order_api_require_https]" value="1" <?php echo $checked( 'order_api_require_https' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
 							<?php esc_html_e( 'Csak HTTPS kapcsolaton fogadjon rendelést', 'wp-pepita-sync' ); ?>
 						</label>
+						<p class="description"><?php esc_html_e( 'A TLS lezárása történhet a reverse proxyn is, de csak a fenti megbízható proxy listán szereplő címről elfogadott X-Forwarded-Proto: https fejléc számít. A kulcs csak titkosított kapcsolaton kerül összehasonlításra. Éles környezetben a TLS-t a proxy vagy a webszerver bejáratánál kell kikényszeríteni.', 'wp-pepita-sync' ); ?></p>
 					</td>
 				</tr>
 				<tr>
@@ -504,13 +512,20 @@ $checked = static function ( string $key ) use ( $settings ): string {
 					</td>
 				</tr>
 				<tr>
+					<th scope="row"><label for="wps-label-retention"><?php esc_html_e( 'Csomagcímke megőrzése (nap)', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<input type="number" min="1" max="3650" id="wps-label-retention" name="wps[order_api_label_retention_days]" value="<?php echo esc_attr( (string) $field( 'order_api_label_retention_days' ) ); ?>" class="small-text" />
+						<p class="description"><?php esc_html_e( 'A megőrzési idő letelte után a csomagcímke PDF törlődik. A még nyitott (függőben lévő, feldolgozás alatt álló vagy várakozó) rendelések címkéi megmaradnak, amíg a rendelés le nem zárul.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
 					<th scope="row"><?php esc_html_e( 'Nyers adatcsomag megőrzése', 'wp-pepita-sync' ); ?></th>
 					<td>
 						<label>
 							<input type="checkbox" name="wps[order_api_keep_payloads]" value="1" <?php echo $checked( 'order_api_keep_payloads' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
 							<?php esc_html_e( 'A beérkezett JSON megőrzése a naplózási időtartamig (hibakereséshez)', 'wp-pepita-sync' ); ?>
 						</label>
-						<p class="description"><?php esc_html_e( 'A tárolt adat személyes adatokat tartalmaz, ezért a megőrzési idő letelte után automatikusan törlődik.', 'wp-pepita-sync' ); ?></p>
+						<p class="description"><?php esc_html_e( 'Alapértelmezésben kikapcsolva: a plugin csak a rendelésazonosítóhoz tartozó SHA-256 lenyomatot tárolja, a nyers, személyes adatokat tartalmazó csomagot nem. Bekapcsolva a tárolt adat a megőrzési idő letelte után automatikusan törlődik.', 'wp-pepita-sync' ); ?></p>
 					</td>
 				</tr>
 			</table>

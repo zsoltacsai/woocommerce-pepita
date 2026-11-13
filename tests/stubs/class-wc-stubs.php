@@ -421,6 +421,9 @@ class WC_Order {
 	private string $payment_method_title = '';
 	private int $customer_id = 0;
 	private float $total = 0.0;
+	private float $cart_tax = 0.0;
+	private float $shipping_tax = 0.0;
+	private bool $prices_include_tax = false;
 	private int $date_created = 0;
 	private int $date_paid = 0;
 
@@ -517,6 +520,30 @@ class WC_Order {
 		$this->total = $total;
 	}
 
+	public function set_cart_tax( float $tax ): void {
+		$this->cart_tax = $tax;
+	}
+
+	public function get_cart_tax(): float {
+		return $this->cart_tax;
+	}
+
+	public function set_shipping_tax( float $tax ): void {
+		$this->shipping_tax = $tax;
+	}
+
+	public function get_shipping_tax(): float {
+		return $this->shipping_tax;
+	}
+
+	public function set_prices_include_tax( bool $include ): void {
+		$this->prices_include_tax = $include;
+	}
+
+	public function get_prices_include_tax(): bool {
+		return $this->prices_include_tax;
+	}
+
 	public function get_date_created() {
 		return $this->date_created > 0 ? new \DateTimeImmutable( '@' . $this->date_created ) : null;
 	}
@@ -535,6 +562,10 @@ class WC_Order {
 
 	public function update_meta_data( string $key, $value, bool $unique = false ): void {
 		$this->meta[ $key ] = $value;
+	}
+
+	public function delete_meta_data( string $key ): void {
+		unset( $this->meta[ $key ] );
 	}
 
 	/**
@@ -746,6 +777,10 @@ class WC_Order {
 	public function save(): int {
 		WPS_Test_State::$last_save_email_enabled = (bool) apply_filters( 'woocommerce_email_enabled_new_order', true );
 
+		if ( WPS_Test_State::$fail_order_save ) {
+			return 0;
+		}
+
 		$saved = WPS_Test_State::add_order( $this );
 
 		return $saved->get_id();
@@ -924,6 +959,12 @@ function wc_create_order( array $args = array() ) {
  * @param array<string, mixed> $args
  * @return array<int, int|WC_Order>
  */
+function wc_get_order( $order = 0 ) {
+	$id = $order instanceof WC_Order ? $order->get_id() : (int) $order;
+
+	return WPS_Test_State::$orders[ $id ] ?? false;
+}
+
 function wc_get_orders( array $args = array() ) {
 	$limit = isset( $args['limit'] ) ? (int) $args['limit'] : -1;
 	$ids   = array_keys( WPS_Test_State::$orders );

@@ -11,6 +11,7 @@ use WPS\Pepita\Feed\Generator;
 use WPS\Pepita\Feed\Lock;
 use WPS\Pepita\Feed\Scheduler;
 use WPS\Pepita\Logger;
+use WPS\Pepita\Orders\Order_Repository;
 use WPS\Pepita\Settings;
 use WPS\Pepita\Storage;
 
@@ -212,6 +213,10 @@ final class Admin {
 
 		Settings::update( $input );
 
+		if ( ! (bool) Settings::get( 'order_api_keep_payloads', false ) ) {
+			Order_Repository::purge_payloads( 0, true );
+		}
+
 		Scheduler::schedule_all();
 		Settings::reset_cache();
 
@@ -278,9 +283,11 @@ final class Admin {
 			'feed_full_slug',
 			'feed_stock_slug',
 			'order_api_allowed_ips',
+			'order_api_trusted_proxies',
 			'order_api_status_paid',
 			'order_api_status_unpaid',
 			'order_api_max_body_kb',
+			'order_api_label_retention_days',
 			'log_retention_days',
 			'log_level',
 		);

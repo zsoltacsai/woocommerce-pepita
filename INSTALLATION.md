@@ -105,11 +105,13 @@ Open **Pepita Sync → Beállítások**.
 | Nincs fizetve → státusz | Default `on-hold`. |
 | Fizetési mód megfeleltetés | Pepita `cod`/`transfer`/`creditcard` → WooCommerce gateway ID. `creditcard` is intentionally empty until you choose one. |
 | Szállítási mód megfeleltetés | Pepita delivery mode → WooCommerce shipping method ID. |
-| Engedélyezett IP-címek | Optional allowlist, comma or space separated. |
-| HTTPS megkövetelése | Rejects plain HTTP requests (honours `X-Forwarded-Proto`). |
+| Engedélyezett IP-címek | Optional allowlist, comma or space separated. Forwarding headers are ignored unless the peer is a trusted proxy. |
+| Megbízható proxyk | IPs/CIDR ranges of reverse proxies whose `X-Forwarded-For` / `X-Forwarded-Proto` may be trusted. Leave empty on a direct connection. |
+| HTTPS megkövetelése | On by default. Rejects plain HTTP **before** the key is compared. `X-Forwarded-Proto: https` is honoured only from a trusted proxy. |
 | Max. kérés méret (KB) | Body limit, minimum 16, default 512. |
 | Csomagcímke mentése | Stores the base64 PDF under the private directory. |
-| Nyers payload megőrzése | Keeps the original JSON for auditing; purge after 14 days. |
+| Nyers payload megőrzése | Off by default: only the SHA-256 hash is stored. When on, the raw JSON is kept and purged on the log-retention schedule. |
+| Csomagcímke megőrzés (nap) | Days a label PDF is kept after its order closes (default 30). Open orders are always protected. |
 
 ### 3.7 Naplózás és életciklus (logging and lifecycle)
 
@@ -122,6 +124,38 @@ Open **Pepita Sync → Beállítások**.
 
 Save with **Beállítások mentése**. Every field is sanitised server-side; invalid
 values fall back to defaults.
+
+### 3.8 Reverse proxy, TLS and private storage
+
+**TLS.** Production order intake must run over HTTPS. The plugin checks
+`is_ssl()` **before** comparing the API key, so a plaintext request never exposes
+its credential. If TLS terminates at a reverse proxy (nginx, a load balancer, a
+CDN), the backend request looks like plain HTTP; add the proxy's address or CIDR
+to **Megbízható proxyk** (`order_api_trusted_proxies`). Only then is
+`X-Forwarded-Proto: https` from that peer accepted. Never add a range that
+contains untrusted clients.
+
+The same trusted-proxy list governs how the client IP for the allowlist and the
+rate limiter is derived: the forwarding chain is walked from the right and the
+first untrusted hop is used. A client cannot spoof `X-Forwarded-For` to satisfy
+the allowlist or to reset its rate limit.
+
+**Private storage on nginx.** Feeds, the catalog index and package labels live in
+`wp-content/uploads/wps-pepita-<random-key>/`. The plugin writes `.htaccess` and
+`web.config`, which Apache and IIS honour. **nginx ignores `.htaccess`**, so add
+an explicit deny rule and reload nginx:
+
+```nginx
+# Block direct access to the plugin's private directory.
+location ~* ^/wp-content/uploads/wps-pepita-[^/]+/ {
+    deny all;
+    return 404;
+}
+```
+
+On Apache, confirm `AllowOverride` permits `.htaccess`, or add the equivalent
+`<Directory>` deny. The canonical feed is served by WordPress through
+`?wps_feed=…`; the files themselves never need to be web-readable.
 
 ## 4. Selecting products
 
@@ -241,8 +275,9 @@ order afterwards. A repeated request returns 200 and the same `orderId`.
 
 ```php
 // Recommended: keep secrets out of the database.
-define( 'WPS_PEPITA_FEED_TOKEN', 'a-long-random-token' );
-define( 'WPS_PEPITA_ORDER_API_KEY', 'another-long-random-key' );
+// Each constant must be at least 32 random characters.
+define( 'WPS_PEPITA_FEED_TOKEN', 'a-long-random-token-of-at-least-32-chars' );
+define( 'WPS_PEPITA_ORDER_API_KEY', 'another-long-random-key-at-least-32-chars' );
 
 // Optional tuning.
 define( 'WP_DEBUG', true );
@@ -259,10 +294,18 @@ admin field becomes read-only.
 - [ ] `curl` on the full feed returns 200 and well-formed XML.
 - [ ] Stock feed generated and its product count equals the full feed's.
 - [ ] Pepita accepts both feed URLs.
+- [ ] A direct request to the private `wps-pepita-*` directory returns 403/404
+      (nginx deny rule present if not Apache).
 - [ ] A test order from Pepita appears under **WooCommerce → Orders** with the
       Pepita order ID in the order notes.
 - [ ] No customer e-mail was sent for the imported order.
 - [ ] The same order notification sent twice creates one order.
+- [ ] A changed duplicate returns 409 and leaves the original order unchanged.
+- [ ] With taxes enabled, the imported total equals the Pepita gross total and
+      `get_total_tax()` is 0.
+- [ ] Plain-HTTP order requests are refused; a TLS-terminating proxy is listed in
+      **Megbízható proxyk**.
+- [ ] With `order_api_keep_payloads` off, the claim row's `payload` is NULL.
 
 ## 9. Troubleshooting
 
@@ -274,11 +317,12 @@ admin field becomes read-only.
 | `A készletfeed kínálata eltér…` | Catalog changed since the last full feed | Run a full generation |
 | Products missing from the feed | Excluded, draft, no image, no category, zero price, invalid GTIN | Check the dashboard error list and the product metabox |
 | Stock feed never updates | Cron not running | Check **Áttekintés → Ütemező**, run `wp cron event run --due-now` |
-| Order API returns 401 | Missing/invalid key, or IP not allowlisted | Re-copy the key; check the allowlist |
-| Order API returns 403 | HTTPS enforced but request is plain HTTP | Use HTTPS or disable the requirement |
-| Order API returns 422 | Unknown SKU/export ID, unpublished or variable parent | Send the variation, publish the product, or use the export ID |
-| Order API returns 409 | Same order is being processed right now | Retry after a minute |
-| Order API returns 429 | More than 120 requests/minute from one IP | Raise `wps_pepita_order_rate_limit` |
+| Order API returns 401 | Missing/invalid key, or IP not allowlisted | Re-copy the key; check the allowlist and that the real client address (not a spoofed header) is the one being tested |
+| Order API returns 403 | HTTPS enforced but request is plain HTTP, or a proxy sends `X-Forwarded-Proto` but is not in **Megbízható proxyk** | Use HTTPS; add the TLS-terminating proxy to the trusted-proxy list |
+| Order API returns 409 | The same order is being processed, or the same external id was resent with different content | Retry after a minute; for a content change, use a new external id — a stored order is never rewritten |
+| Order API returns 422 | Unknown SKU/export ID, unpublished or variable parent, a SKU/id mismatch, or an invalid amount | Send the variation, publish the product, use the export ID, or send a canonical amount |
+| Order API returns 429 | Authenticated limit (120/min) or failed-auth limit (30/min) exceeded from one client | Raise `wps_pepita_order_rate_limit`; for repeated 401s, fix the key — failures are throttled |
+| A locale amount is rejected with 422 | Thousands separators or comma decimals are ambiguous | Send a JSON number or a canonical decimal string (`4990`, `"4990.00"`) |
 | Labels are missing | `order_api_save_label` off, or invalid base64 | Enable it; check the log |
 | Lock never clears | A generation died without cleanup | Locks expire automatically; **Feedek → Zárolás feloldása** if needed |
 

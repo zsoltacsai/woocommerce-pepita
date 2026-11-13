@@ -43,6 +43,7 @@ final class Installer {
 		}
 
 		self::create_tables();
+		self::migrate_external_id_collation();
 		Settings::install_defaults();
 		Settings::ensure_tokens();
 		Storage::ensure_directory();
@@ -84,7 +85,7 @@ final class Installer {
 
 		$sql_orders = "CREATE TABLE {$orders} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-			external_id varchar(191) NOT NULL,
+			external_id varchar(191) COLLATE utf8mb4_bin NOT NULL,
 			origin varchar(64) NOT NULL DEFAULT '',
 			status varchar(20) NOT NULL DEFAULT 'processing',
 			wc_order_id bigint(20) unsigned NOT NULL DEFAULT 0,
@@ -106,5 +107,37 @@ final class Installer {
 
 		Logger::reset_table_cache();
 		Order_Repository::reset_table_cache();
+	}
+
+	/**
+	 * Make external_id comparisons case- and accent-sensitive.
+	 *
+	 * The default utf8mb4_unicode_ci collation makes `PEP-1` and `pep-1` the
+	 * same key, so two genuinely different Pepita orders would collide on the
+	 * UNIQUE index and the second would be reported as a duplicate. dbDelta
+	 * does not reliably change an existing column collation, so the upgrade
+	 * path issues an explicit ALTER once.
+	 */
+	private static function migrate_external_id_collation(): void {
+		global $wpdb;
+
+		$table = Order_Repository::table();
+
+		$column = $wpdb->get_row(
+			$wpdb->prepare( "SHOW FULL COLUMNS FROM {$table} LIKE %s", 'external_id' ), // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			ARRAY_A
+		);
+
+		if ( ! is_array( $column ) || ! isset( $column['Collation'] ) ) {
+			return;
+		}
+
+		if ( 'utf8mb4_bin' === (string) $column['Collation'] ) {
+			return;
+		}
+
+		$wpdb->query(
+			"ALTER TABLE {$table} MODIFY external_id varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL" // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		);
 	}
 }

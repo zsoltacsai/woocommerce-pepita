@@ -53,7 +53,25 @@ final class Importer {
 		$claim = Order_Repository::claim( $external_id, (string) ( $payload['origin'] ?? '' ), $payload_json, $payload_hash );
 
 		if ( 'completed' === $claim['state'] ) {
-			$order_id = (int) ( $claim['row']['wc_order_id'] ?? 0 );
+			$order_id    = (int) ( $claim['row']['wc_order_id'] ?? 0 );
+			$stored_hash = (string) ( $claim['row']['payload_hash'] ?? '' );
+
+			if ( '' !== $stored_hash && ! hash_equals( $stored_hash, $payload_hash ) ) {
+				Logger::warning(
+					'order_duplicate',
+					'Ismételt Pepita rendelésértesítés eltérő tartalommal: a meglévő rendelést nem módosítottuk.',
+					array(
+						'external_id' => $external_id,
+						'order_id'    => $order_id,
+						'stored_hash' => substr( $stored_hash, 0, 16 ),
+						'new_hash'    => substr( $payload_hash, 0, 16 ),
+					),
+					'order',
+					$order_id
+				);
+
+				return $this->result( 'conflict', 409, 'A rendelés már korábban importálásra került, de az új értesítés tartalma eltér. Kérjük, ellenőrizze a rendelést a WooCommerce-ben.' );
+			}
 
 			Logger::info(
 				'order_duplicate',
@@ -155,22 +173,23 @@ final class Importer {
 		}
 
 		$currency = '';
+		$lines    = array();
 
 		foreach ( $payload['products'] as $index => $item ) {
 			if ( ! is_array( $item ) ) {
 				return array( 'error' => sprintf( 'A(z) %d. terméktétel formátuma érvénytelen.', $index + 1 ) );
 			}
 
-			$quantity = isset( $item['quantity'] ) ? (int) $item['quantity'] : 0;
+			$quantity = Money::parse_quantity( $item['quantity'] ?? null );
 
-			if ( $quantity <= 0 ) {
+			if ( null === $quantity ) {
 				return array( 'error' => sprintf( 'A(z) %d. terméktétel mennyisége érvénytelen.', $index + 1 ) );
 			}
 
-			$price = isset( $item['price'] ) ? (float) $item['price'] : 0.0;
+			$price = Money::parse( $item['price'] ?? null );
 
-			if ( ! is_finite( $price ) || $price <= 0 ) {
-				return array( 'error' => sprintf( 'A(z) %d. terméktétel ára érvénytelen.', $index + 1 ) );
+			if ( null === $price ) {
+				return array( 'error' => sprintf( 'A(z) %d. terméktétel ára érvénytelen vagy nem egyértelmű. Használjon pontot tizedesjelként, ezres elválasztó nélkül.', $index + 1 ) );
 			}
 
 			$item_currency = strtoupper( (string) ( $item['currency'] ?? '' ) );
@@ -185,35 +204,49 @@ final class Importer {
 				return array( 'error' => 'A rendelés tételei eltérő pénznemben szerepelnek.' );
 			}
 
-			$vat = isset( $item['vat'] ) ? (float) $item['vat'] : 0.0;
+			$vat = Money::parse_vat( $item['vat'] ?? null );
 
-			if ( ! is_finite( $vat ) || $vat < 0 || $vat > 100 ) {
+			if ( null === $vat ) {
 				return array( 'error' => sprintf( 'A(z) %d. terméktétel áfája érvénytelen.', $index + 1 ) );
 			}
+
+			$lines[] = array(
+				'quantity' => $quantity,
+				'price'    => $price,
+				'vat'      => $vat,
+			);
 		}
 
-		$shipping = $this->to_amount( $payload['total_shipping_price'] ?? 0 );
+		$shipping = Money::parse_optional( $payload['total_shipping_price'] ?? null );
 
-		if ( $shipping < 0 ) {
-			return array( 'error' => 'A szállítási díj érvénytelen.' );
+		if ( null === $shipping ) {
+			return array( 'error' => 'A szállítási díj érvénytelen vagy nem egyértelmű. Használjon pontot tizedesjelként, ezres elválasztó nélkül.' );
 		}
 
-		$voucher = $this->to_amount( $payload['voucher'] ?? 0 );
+		$voucher = Money::parse_optional( $payload['voucher'] ?? null );
 
-		if ( $voucher < 0 ) {
-			return array( 'error' => 'Az utalvány összege érvénytelen.' );
+		if ( null === $voucher ) {
+			return array( 'error' => 'Az utalvány összege érvénytelen vagy nem egyértelmű. Használjon pontot tizedesjelként, ezres elválasztó nélkül.' );
 		}
 
 		$items_total = 0.0;
 
-		foreach ( $payload['products'] as $item ) {
-			$items_total += (float) $item['price'] * (int) $item['quantity'];
+		foreach ( $lines as $line ) {
+			$items_total += $line['price'] * $line['quantity'];
+
+			if ( $items_total > Money::MAX_AMOUNT ) {
+				return array( 'error' => 'A rendelés tételeinek összege meghaladja a feldolgozható felső határt.' );
+			}
 		}
 
 		$total = $items_total + $shipping - $voucher;
 
 		if ( $total < 0 ) {
 			return array( 'error' => 'A rendelés számított végösszege negatív.' );
+		}
+
+		if ( $total > Money::MAX_AMOUNT ) {
+			return array( 'error' => 'A rendelés számított végösszege meghaladja a feldolgozható felső határt.' );
 		}
 
 		$payment_mode = sanitize_key( (string) ( $payload['payment_mode'] ?? '' ) );
@@ -228,6 +261,16 @@ final class Importer {
 			return array( 'error' => sprintf( 'Ismeretlen szállítási mód: %s', $delivery_mode ) );
 		}
 
+		$payment_status = sanitize_key( (string) ( $payload['payment_status'] ?? '' ) );
+
+		if ( '' === $payment_status ) {
+			$payment_status = 'unpaid';
+		}
+
+		if ( ! in_array( $payment_status, array( 'paid', 'unpaid' ), true ) ) {
+			return array( 'error' => sprintf( 'Ismeretlen fizetési státusz: %s', $payment_status ) );
+		}
+
 		$resolved = $this->resolve_products( $payload['products'] );
 
 		if ( isset( $resolved['error'] ) ) {
@@ -235,15 +278,15 @@ final class Importer {
 		}
 
 		return array(
-			'items_total'   => $items_total,
-			'shipping'      => $shipping,
-			'voucher'       => $voucher,
-			'total'         => $total,
-			'currency'      => '' !== $currency ? $currency : Settings::currency(),
-			'payment_mode'  => $payment_mode,
-			'delivery_mode' => $delivery_mode,
-			'payment_status'=> sanitize_key( (string) ( $payload['payment_status'] ?? 'unpaid' ) ),
-			'products'      => $resolved,
+			'items_total'    => $items_total,
+			'shipping'       => $shipping,
+			'voucher'        => $voucher,
+			'total'          => $total,
+			'currency'       => '' !== $currency ? $currency : Settings::currency(),
+			'payment_mode'   => $payment_mode,
+			'delivery_mode'  => $delivery_mode,
+			'payment_status' => $payment_status,
+			'products'       => $resolved,
 		);
 	}
 
@@ -257,16 +300,49 @@ final class Importer {
 		$resolved = array();
 
 		foreach ( $items as $index => $item ) {
-			$sku       = trim( (string) ( $item['sku'] ?? '' ) );
-			$export_id = trim( (string) ( $item['id'] ?? '' ) );
-			$product_id = 0;
+			$sku        = trim( (string) ( $item['sku'] ?? '' ) );
+			$export_id  = trim( (string) ( $item['id'] ?? '' ) );
+			$by_sku     = 0;
+			$by_export  = 0;
 
 			if ( '' !== $sku ) {
-				$product_id = (int) wc_get_product_id_by_sku( $sku );
+				$by_sku = (int) wc_get_product_id_by_sku( $sku );
 			}
 
-			if ( $product_id <= 0 && '' !== $export_id ) {
-				$product_id = $this->find_product_by_export_id( $export_id );
+			if ( '' !== $export_id ) {
+				$by_export = $this->find_product_by_export_id( $export_id );
+			}
+
+			// Both identifiers are present but point at different products:
+			// refuse rather than silently pick one.
+			if ( $by_sku > 0 && $by_export > 0 && $by_sku !== $by_export ) {
+				return array(
+					'error' => sprintf(
+						'A(z) %d. tétel SKU-ja és Pepita azonosítója eltérő termékre mutat (SKU: %s, Pepita azonosító: %s). A rendelés nem került létrehozásra.',
+						$index + 1,
+						$sku,
+						$export_id
+					),
+				);
+			}
+
+			$product_id = $by_sku > 0 ? $by_sku : $by_export;
+
+			// If the SKU won but the product records a different export id,
+			// the Pepita line refers to another product.
+			if ( $product_id > 0 && $by_sku > 0 && '' !== $export_id ) {
+				$mapped = (string) get_post_meta( $product_id, '_wps_export_id', true );
+
+				if ( '' !== $mapped && $mapped !== $export_id ) {
+					return array(
+						'error' => sprintf(
+							'A(z) %d. tétel Pepita azonosítója (%s) nem egyezik a SKU-hoz tartozó termék export azonosítójával (%s). A rendelés nem került létrehozásra.',
+							$index + 1,
+							$export_id,
+							$mapped
+						),
+					);
+				}
 			}
 
 			if ( $product_id <= 0 ) {
@@ -302,9 +378,9 @@ final class Importer {
 
 			$resolved[] = array(
 				'product'    => $product,
-				'quantity'   => (int) $item['quantity'],
-				'price'      => (float) $item['price'],
-				'vat'        => (float) ( $item['vat'] ?? 0 ),
+				'quantity'   => (int) Money::parse_quantity( $item['quantity'] ?? null ),
+				'price'      => (float) Money::parse( $item['price'] ?? null ),
+				'vat'        => (float) ( Money::parse_vat( $item['vat'] ?? null ) ?? 0.0 ),
 				'currency'   => strtoupper( (string) ( $item['currency'] ?? '' ) ),
 				'pepita_id'  => $export_id,
 				'sku'        => $sku,
@@ -337,162 +413,196 @@ final class Importer {
 			return new \WP_Error( 'wps_order_failed', 'A WooCommerce nem adott vissza rendelést.' );
 		}
 
-		$order->set_created_via( 'wps-pepita' );
-		$order->set_currency( (string) $validated['currency'] );
-
-		$this->apply_customer( $order, $customer );
-
-		$email = (string) ( $customer['email'] ?? '' );
-		$user  = '' !== $email ? get_user_by( 'email', $email ) : false;
-
-		if ( $user instanceof \WP_User ) {
-			$order->set_customer_id( (int) $user->ID );
-		}
-
-		foreach ( $validated['products'] as $line ) {
-			$product = $line['product'];
-			$total   = (float) $line['price'] * (int) $line['quantity'];
-
-			$item_id = $order->add_product(
-				$product,
-				(int) $line['quantity'],
-				array(
-					'subtotal' => $total,
-					'total'    => $total,
-					'name'     => $product->get_name(),
-				)
-			);
-
-			if ( ! $item_id ) {
-				return new \WP_Error( 'wps_order_item_failed', 'A rendeléstétel hozzáadása sikertelen.' );
-			}
-
-			$item = $order->get_item( $item_id );
-
-			if ( $item instanceof \WC_Order_Item_Product ) {
-				$item->add_meta_data( '_wps_pepita_product_id', (string) $line['pepita_id'], true );
-				$item->add_meta_data( '_wps_pepita_sku', (string) $line['sku'], true );
-				$item->add_meta_data( '_wps_pepita_vat', (string) $line['vat'], true );
-				$item->save();
-			}
-		}
-
-		$shipping = Mapper::shipping( (string) $validated['delivery_mode'] );
-
-		if ( (float) $validated['shipping'] > 0 ) {
-			$shipping_item = new \WC_Order_Item_Shipping();
-			$shipping_item->set_method_title( $shipping['title'] );
-			$shipping_item->set_method_id( $shipping['id'] );
-			$shipping_item->set_total( (float) $validated['shipping'] );
-			$order->add_item( $shipping_item );
-		}
-
-		if ( (float) $validated['voucher'] > 0 ) {
-			$fee = new \WC_Order_Item_Fee();
-			$fee->set_name( 'Pepita utalvány' );
-			$fee->set_amount( -(float) $validated['voucher'] );
-			$fee->set_total( -(float) $validated['voucher'] );
-			$order->add_item( $fee );
-		}
-
-		$payment = Mapper::payment( (string) $validated['payment_mode'] );
-
-		if ( '' !== $payment['id'] ) {
-			$order->set_payment_method( $payment['id'] );
-		}
-
-		$order->set_payment_method_title( $payment['title'] );
-
-		$order->update_meta_data( self::META_ORDER_ID, $external_id );
-		$order->update_meta_data( self::META_ORIGIN, (string) ( $payload['origin'] ?? 'pepita.hu' ) );
-		$order->update_meta_data( self::META_PAYMENT_STATUS, (string) $validated['payment_status'] );
-		$order->update_meta_data( self::META_DELIVERY_MODE, (string) $validated['delivery_mode'] );
-		$order->update_meta_data( self::META_IMPORTED_AT, current_time( 'mysql', true ) );
-		$order->update_meta_data( self::META_PAYLOAD_HASH, (string) ( $payload['__hash'] ?? '' ) );
-		$order->update_meta_data( self::META_RAW_TOTAL, (string) $validated['total'] );
-
-		if ( (float) $validated['voucher'] > 0 ) {
-			$order->update_meta_data( self::META_VOUCHER, (string) $validated['voucher'] );
-		}
-
-		if ( '' !== (string) ( $payload['customer_message'] ?? '' ) ) {
-			$order->update_meta_data( self::META_CUSTOMER_MSG, (string) $payload['customer_message'] );
-		}
-
-		if ( '' !== (string) ( $payload['courier_message'] ?? '' ) ) {
-			$order->update_meta_data( self::META_COURIER_MSG, (string) $payload['courier_message'] );
-		}
-
-		$created = $this->parse_date( (string) ( $payload['date'] ?? '' ) );
-
-		if ( $created > 0 ) {
-			$order->set_date_created( $created );
-		}
-
-		$order->calculate_totals();
-
-		$paid = 'paid' === (string) $validated['payment_status'];
-		$status = $paid
-			? (string) Settings::get( 'order_api_status_paid', 'processing' )
-			: (string) Settings::get( 'order_api_status_unpaid', 'on-hold' );
-
-		$status = $this->safe_status( $status );
-
-		if ( $paid ) {
-			$order->set_date_paid( $created > 0 ? $created : time() );
-		}
-
-		$this->apply_package_label( $order, $payload, $external_id );
-
-		$order->set_status( $status, 'Pepita import' );
-
-		$email_filters = $this->suppress_emails();
-
 		try {
-			$order_id = $order->save();
+			// Pepita prices are gross. Tell WooCommerce so a tax-enabled store
+			// does not add VAT on top of an already gross line total.
+			if ( method_exists( $order, 'set_prices_include_tax' ) ) {
+				$order->set_prices_include_tax( true );
+			}
 
-			if ( $order_id ) {
-				$order->add_order_note(
-					sprintf(
-						'Pepita rendelés importálva. Pepita rendelésazonosító: %s. Fizetési mód: %s. Szállítási mód: %s. Fizetési státusz: %s.',
-						$external_id,
-						$payment['title'],
-						$shipping['title'],
-						$paid ? 'fizetve' : 'nincs fizetve'
+			$order->set_created_via( 'wps-pepita' );
+			$order->set_currency( (string) $validated['currency'] );
+
+			$this->apply_customer( $order, $customer );
+
+			$email = (string) ( $customer['email'] ?? '' );
+			$user  = '' !== $email ? get_user_by( 'email', $email ) : false;
+
+			// Never attach a marketplace order to an account that can manage
+			// the store: a leaked API key must not be able to plant order
+			// data in an administrator's or shop manager's account.
+			if ( $user instanceof \WP_User && ! $this->is_privileged_user( $user ) ) {
+				$order->set_customer_id( (int) $user->ID );
+			}
+
+			foreach ( $validated['products'] as $line ) {
+				$product = $line['product'];
+				$total   = (float) $line['price'] * (int) $line['quantity'];
+
+				$item_id = $order->add_product(
+					$product,
+					(int) $line['quantity'],
+					array(
+						'subtotal' => $total,
+						'total'    => $total,
+						'name'     => $product->get_name(),
 					)
 				);
 
-				if ( '' !== (string) ( $payload['customer_message'] ?? '' ) ) {
-					$order->add_order_note( 'Vásárlói megjegyzés: ' . (string) $payload['customer_message'] );
+				if ( ! $item_id ) {
+					return $this->discard_order( $order, 'wps_order_item_failed', 'A rendeléstétel hozzáadása sikertelen.' );
 				}
 
-				if ( '' !== (string) ( $payload['courier_message'] ?? '' ) ) {
-					$order->add_order_note( 'Futár megjegyzés: ' . (string) $payload['courier_message'] );
+				$item = $order->get_item( $item_id );
+
+				if ( $item instanceof \WC_Order_Item_Product ) {
+					$item->add_meta_data( '_wps_pepita_product_id', (string) $line['pepita_id'], true );
+					$item->add_meta_data( '_wps_pepita_sku', (string) $line['sku'], true );
+					$item->add_meta_data( '_wps_pepita_vat', (string) $line['vat'], true );
+					$item->save();
 				}
 			}
-		} finally {
-			$this->restore_emails( $email_filters );
+
+			$shipping = Mapper::shipping( (string) $validated['delivery_mode'] );
+
+			if ( (float) $validated['shipping'] > 0 ) {
+				$shipping_item = new \WC_Order_Item_Shipping();
+				$shipping_item->set_method_title( $shipping['title'] );
+				$shipping_item->set_method_id( $shipping['id'] );
+				$shipping_item->set_total( (float) $validated['shipping'] );
+				$order->add_item( $shipping_item );
+			}
+
+			if ( (float) $validated['voucher'] > 0 ) {
+				$fee = new \WC_Order_Item_Fee();
+				$fee->set_name( 'Pepita utalvány' );
+				$fee->set_amount( -(float) $validated['voucher'] );
+				$fee->set_total( -(float) $validated['voucher'] );
+				$order->add_item( $fee );
+			}
+
+			$payment = Mapper::payment( (string) $validated['payment_mode'] );
+
+			if ( '' !== $payment['id'] ) {
+				$order->set_payment_method( $payment['id'] );
+			}
+
+			$order->set_payment_method_title( $payment['title'] );
+
+			$order->update_meta_data( self::META_ORDER_ID, $external_id );
+			$order->update_meta_data( self::META_ORIGIN, (string) ( $payload['origin'] ?? 'pepita.hu' ) );
+			$order->update_meta_data( self::META_PAYMENT_STATUS, (string) $validated['payment_status'] );
+			$order->update_meta_data( self::META_DELIVERY_MODE, (string) $validated['delivery_mode'] );
+			$order->update_meta_data( self::META_IMPORTED_AT, current_time( 'mysql', true ) );
+			$order->update_meta_data( self::META_PAYLOAD_HASH, (string) ( $payload['__hash'] ?? '' ) );
+			$order->update_meta_data( self::META_RAW_TOTAL, (string) $validated['total'] );
+
+			if ( (float) $validated['voucher'] > 0 ) {
+				$order->update_meta_data( self::META_VOUCHER, (string) $validated['voucher'] );
+			}
+
+			if ( '' !== (string) ( $payload['customer_message'] ?? '' ) ) {
+				$order->update_meta_data( self::META_CUSTOMER_MSG, (string) $payload['customer_message'] );
+			}
+
+			if ( '' !== (string) ( $payload['courier_message'] ?? '' ) ) {
+				$order->update_meta_data( self::META_COURIER_MSG, (string) $payload['courier_message'] );
+			}
+
+			$created = $this->parse_date( (string) ( $payload['date'] ?? '' ) );
+
+			if ( $created > 0 ) {
+				$order->set_date_created( $created );
+			}
+
+			// Totals are derived from the validated Pepita amounts. Taxes are
+			// not recalculated: a gross Pepita price must not gain a second VAT
+			// layer in a tax-enabled store.
+			$order->calculate_totals( false );
+			$order->set_cart_tax( 0.0 );
+			$order->set_shipping_tax( 0.0 );
+			$order->set_total( (float) $validated['total'] );
+
+			$paid   = 'paid' === (string) $validated['payment_status'];
+			$status = $paid
+				? (string) Settings::get( 'order_api_status_paid', 'processing' )
+				: (string) Settings::get( 'order_api_status_unpaid', 'on-hold' );
+
+			$status = $this->safe_status( $status );
+
+			if ( $paid ) {
+				$order->set_date_paid( $created > 0 ? $created : time() );
+			}
+
+			$this->apply_package_label( $order, $payload, $external_id );
+
+			$order->set_status( $status, 'Pepita import' );
+
+			$email_filters = $this->suppress_emails();
+
+			try {
+				$order_id = $order->save();
+
+				if ( $order_id ) {
+					$order->add_order_note(
+						sprintf(
+							'Pepita rendelés importálva. Pepita rendelésazonosító: %s. Fizetési mód: %s. Szállítási mód: %s. Fizetési státusz: %s.',
+							$external_id,
+							$payment['title'],
+							$shipping['title'],
+							$paid ? 'fizetve' : 'nincs fizetve'
+						)
+					);
+
+					if ( '' !== (string) ( $payload['customer_message'] ?? '' ) ) {
+						$order->add_order_note( 'Vásárlói megjegyzés: ' . (string) $payload['customer_message'] );
+					}
+
+					if ( '' !== (string) ( $payload['courier_message'] ?? '' ) ) {
+						$order->add_order_note( 'Futár megjegyzés: ' . (string) $payload['courier_message'] );
+					}
+				}
+			} finally {
+				$this->restore_emails( $email_filters );
+			}
+
+			if ( ! $order_id ) {
+				return $this->discard_order( $order, 'wps_order_save_failed', 'A rendelés mentése sikertelen.' );
+			}
+
+			Logger::info(
+				'order_import',
+				'Pepita rendelés importálva.',
+				array(
+					'external_id' => $external_id,
+					'order_id'    => (int) $order_id,
+					'items'       => count( $validated['products'] ),
+					'total'       => (float) $order->get_total(),
+					'paid'        => $paid,
+				),
+				'order',
+				(int) $order_id
+			);
+
+			return (int) $order_id;
+		} catch ( \Throwable $throwable ) {
+			// Never leave a half-built pending order behind: the retry would
+			// create a second one.
+			$this->discard_order( $order );
+
+			throw $throwable;
+		}
+	}
+
+	/**
+	 * Delete a partially built order and return the error for the caller.
+	 */
+	private function discard_order( \WC_Order $order, string $code = '', string $message = '' ): \WP_Error {
+		if ( $order->get_id() > 0 ) {
+			$order->delete( true );
 		}
 
-		if ( ! $order_id ) {
-			return new \WP_Error( 'wps_order_save_failed', 'A rendelés mentése sikertelen.' );
-		}
-
-		Logger::info(
-			'order_import',
-			'Pepita rendelés importálva.',
-			array(
-				'external_id' => $external_id,
-				'order_id'    => (int) $order_id,
-				'items'       => count( $validated['products'] ),
-				'total'       => (float) $order->get_total(),
-				'paid'        => $paid,
-			),
-			'order',
-			(int) $order_id
-		);
-
-		return (int) $order_id;
+		return new \WP_Error( '' !== $code ? $code : 'wps_order_discarded', $message );
 	}
 
 	/**
@@ -576,6 +686,17 @@ final class Importer {
 			return;
 		}
 
+		// Only accept a real PDF: the extension alone is not a format check.
+		if ( ! str_starts_with( $binary, '%PDF-' ) ) {
+			Logger::warning(
+				'order_import',
+				'A csomagcímke nem PDF formátumú, a fájl nem került mentésre.',
+				array( 'external_id' => $external_id )
+			);
+
+			return;
+		}
+
 		$dir = Storage::label_dir();
 		$file = $dir . '/pepita-' . preg_replace( '/[^a-zA-Z0-9_-]/', '', $external_id ) . '-' . wp_generate_password( 8, false, false ) . '.pdf';
 
@@ -649,21 +770,6 @@ final class Importer {
 		return $id;
 	}
 
-	/**
-	 * @param mixed $value
-	 */
-	private function to_amount( $value ): float {
-		if ( is_string( $value ) ) {
-			$value = trim( str_replace( array( ' ', ',' ), array( '', '.' ), $value ) );
-		}
-
-		if ( ! is_numeric( $value ) ) {
-			return 0.0;
-		}
-
-		return (float) $value;
-	}
-
 	private function find_product_by_export_id( string $export_id ): int {
 		if ( '' === $export_id ) {
 			return 0;
@@ -701,7 +807,35 @@ final class Importer {
 			)
 		);
 
-		return is_array( $orders ) && isset( $orders[0] ) ? (int) $orders[0] : 0;
+		if ( ! is_array( $orders ) || ! isset( $orders[0] ) ) {
+			return 0;
+		}
+
+		// The meta_value column collation may be case-insensitive, so verify
+		// the identifier exactly before treating the order as the same one.
+		$order = wc_get_order( (int) $orders[0] );
+
+		if ( $order instanceof \WC_Order ) {
+			$stored = (string) $order->get_meta( self::META_ORDER_ID );
+
+			if ( '' !== $stored && ! hash_equals( $stored, $external_id ) ) {
+				return 0;
+			}
+		}
+
+		return (int) $orders[0];
+	}
+
+	/**
+	 * Whether an account can administer the store. Such accounts are never
+	 * linked as the customer of an imported marketplace order.
+	 */
+	private function is_privileged_user( \WP_User $user ): bool {
+		if ( function_exists( 'user_can' ) ) {
+			return user_can( $user, 'manage_woocommerce' ) || user_can( $user, 'edit_users' );
+		}
+
+		return (bool) array_intersect( (array) $user->roles, array( 'administrator', 'shop_manager' ) );
 	}
 
 	/**

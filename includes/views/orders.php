@@ -129,9 +129,10 @@ $pages = max( 1, (int) ceil( $result['total'] / 25 ) );
 		<p>
 			<?php
 			printf(
-				/* translators: %d: number of days */
-				esc_html__( 'A rendelésekhez tartozó nyers Pepita adatcsomag %d nap után automatikusan törlődik. A rendelés és annak összes adata a WooCommerce-ben marad.', 'wp-pepita-sync' ),
-				(int) Settings::get( 'log_retention_days', 30 )
+				/* translators: 1: payload retention days, 2: label retention days */
+				esc_html__( 'A rendelésekhez tartozó nyers Pepita adatcsomag alapértelmezésben nem kerül tárolásra (csak a SHA-256 lenyomat). Ha a megőrzés be van kapcsolva, legfeljebb %1$d napig marad meg. A csomagcímke PDF-ek %2$d nap után törlődnek, kivéve a még nyitott rendelésekét. A rendelés és annak adatai a WooCommerce-ben maradnak.', 'wp-pepita-sync' ),
+				(int) Settings::get( 'log_retention_days', 30 ),
+				(int) Settings::get( 'order_api_label_retention_days', 30 )
 			);
 			?>
 		</p>

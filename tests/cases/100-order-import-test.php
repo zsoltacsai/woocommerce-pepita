@@ -423,3 +423,223 @@ $suite->add(
 		WPS_Assert::same( 'created', $result['status'] );
 	}
 );
+
+$suite->add(
+	'import: canonical monetary values are accepted without changing the amount',
+	static function () use ( $payload, $seed ): void {
+		$seed();
+
+		$values = array( 4990, 4990.00, '4990', '4990.00' );
+
+		foreach ( $values as $index => $value ) {
+			$result = ( new Importer() )->import(
+				$payload(
+					array(
+						'id'       => 'PEP-MONEY-OK-' . $index,
+						'voucher'  => 0,
+						'total_shipping_price' => 0,
+						'products' => array(
+							array(
+								'sku'      => 'SKU-1',
+								'currency' => 'HUF',
+								'quantity' => 1,
+								'price'    => $value,
+								'vat'      => 27,
+							),
+						),
+					)
+				)
+			);
+
+			WPS_Assert::same( 'created', $result['status'], 'Canonical amount rejected: ' . var_export( $value, true ) );
+
+			$order = WPS_Test_State::$orders[ $result['order_id'] ];
+
+			WPS_Assert::equals( 4990.0, $order->get_total() );
+		}
+	}
+);
+
+$suite->add(
+	'import: ambiguous or malformed monetary values are rejected and create no order',
+	static function () use ( $payload, $seed ): void {
+		$seed();
+
+		$values = array(
+			'comma thousands'   => '4,990',
+			'space thousands'   => '1 490',
+			'comma decimal'     => '12,5',
+			'empty string'      => '',
+			'non numeric'       => 'abc',
+			'currency suffix'   => '4990 HUF',
+			'excess precision'  => 4990.123,
+			'negative'          => -1,
+			'infinite'          => INF,
+			'null'              => null,
+		);
+
+		foreach ( $values as $label => $value ) {
+			$result = ( new Importer() )->import(
+				$payload(
+					array(
+						'id'       => 'PEP-MONEY-BAD-' . md5( $label ),
+						'products' => array(
+							array(
+								'sku'      => 'SKU-1',
+								'currency' => 'HUF',
+								'quantity' => 1,
+								'price'    => $value,
+								'vat'      => 27,
+							),
+						),
+					)
+				)
+			);
+
+			WPS_Assert::same( 'error', $result['status'], 'Amount should be rejected: ' . $label );
+			WPS_Assert::same( 422, $result['http'], 'Amount should be a validation error: ' . $label );
+		}
+
+		foreach ( array( 'total_shipping_price' => '1 490', 'voucher' => '4,990' ) as $field => $value ) {
+			$result = ( new Importer() )->import(
+				$payload(
+					array(
+						'id'   => 'PEP-MONEY-BAD-' . $field,
+						$field => $value,
+					)
+				)
+			);
+
+			WPS_Assert::same( 'error', $result['status'], 'Field should be rejected: ' . $field );
+		}
+
+		WPS_Assert::same( 0, count( WPS_Test_State::$orders ) );
+	}
+);
+
+$suite->add(
+	'import: a SKU and Pepita product id that point at different products are rejected',
+	static function () use ( $payload ): void {
+		WPS_Test_State::add_product( array( 'id' => 801, 'name' => 'A', 'sku' => 'SKU-A', 'price' => '1000' ) );
+		WPS_Test_State::add_product( array( 'id' => 802, 'name' => 'B', 'sku' => 'SKU-B', 'price' => '1000' ) );
+		update_post_meta( 801, '_wps_export_id', 'wps-801' );
+		update_post_meta( 802, '_wps_export_id', 'wps-802' );
+
+		$result = ( new Importer() )->import(
+			$payload(
+				array(
+					'id'       => 'PEP-SKU-MISMATCH',
+					'products' => array(
+						array(
+							'id'       => 'wps-802',
+							'sku'      => 'SKU-A',
+							'currency' => 'HUF',
+							'quantity' => 1,
+							'price'    => 1000,
+						),
+					),
+				)
+			)
+		);
+
+		WPS_Assert::same( 'error', $result['status'] );
+		WPS_Assert::same( 422, $result['http'] );
+		WPS_Assert::same( 0, count( WPS_Test_State::$orders ) );
+	}
+);
+
+$suite->add(
+	'import: a duplicate with a changed payload is a conflict and does not modify the order',
+	static function () use ( $payload, $seed ): void {
+		$seed();
+
+		$first = ( new Importer() )->import( $payload( array( 'id' => 'PEP-CONFLICT' ) ) );
+
+		WPS_Assert::same( 'created', $first['status'] );
+
+		$order = WPS_Test_State::$orders[ $first['order_id'] ];
+		$total = $order->get_total();
+
+		$changed = $payload(
+			array(
+				'id'       => 'PEP-CONFLICT',
+				'products' => array(
+					array(
+						'sku'      => 'SKU-1',
+						'currency' => 'HUF',
+						'quantity' => 1,
+						'price'    => 2000,
+						'vat'      => 27,
+					),
+				),
+			)
+		);
+
+		$second = ( new Importer() )->import( $changed );
+
+		WPS_Assert::same( 'conflict', $second['status'] );
+		WPS_Assert::same( 409, $second['http'] );
+		WPS_Assert::same( 1, count( WPS_Test_State::$orders ) );
+		WPS_Assert::equals( $total, WPS_Test_State::$orders[ $first['order_id'] ]->get_total() );
+	}
+);
+
+$suite->add(
+	'import: a failed save leaves no orphan pending order behind',
+	static function () use ( $payload, $seed ): void {
+		$seed();
+
+		WPS_Test_State::$fail_order_save = true;
+
+		$result = ( new Importer() )->import( $payload( array( 'id' => 'PEP-ORPHAN' ) ) );
+
+		WPS_Assert::same( 'error', $result['status'] );
+		WPS_Assert::same( 500, $result['http'] );
+		WPS_Assert::same( 0, count( WPS_Test_State::$orders ) );
+		WPS_Assert::same( 'failed', Order_Repository::get( 'PEP-ORPHAN' )['status'] );
+
+		WPS_Test_State::$fail_order_save = false;
+	}
+);
+
+$suite->add(
+	'import: raw payloads are not persisted unless retention is enabled',
+	static function () use ( $payload, $seed ): void {
+		$seed();
+
+		Settings::update( array( 'order_api_keep_payloads' => false ) );
+
+		$result = ( new Importer() )->import( $payload( array( 'id' => 'PEP-PII-OFF' ) ) );
+
+		WPS_Assert::same( 'created', $result['status'] );
+		WPS_Assert::same( null, Order_Repository::get( 'PEP-PII-OFF' )['payload'] );
+
+		Settings::update( array( 'order_api_keep_payloads' => true ) );
+
+		$result = ( new Importer() )->import( $payload( array( 'id' => 'PEP-PII-ON' ) ) );
+
+		WPS_Assert::same( 'created', $result['status'] );
+		WPS_Assert::true( null !== Order_Repository::get( 'PEP-PII-ON' )['payload'] );
+	}
+);
+
+$suite->add(
+	'import: a non-PDF package label is rejected',
+	static function () use ( $payload, $seed ): void {
+		$seed();
+
+		$result = ( new Importer() )->import(
+			$payload(
+				array(
+					'id'            => 'PEP-LABEL-FAKE',
+					'package_label' => base64_encode( '<?php echo "not a pdf";' ),
+				)
+			)
+		);
+
+		$order = WPS_Test_State::$orders[ $result['order_id'] ];
+
+		WPS_Assert::same( 'created', $result['status'] );
+		WPS_Assert::same( '', $order->get_meta( '_wps_pepita_package_label' ) );
+	}
+);

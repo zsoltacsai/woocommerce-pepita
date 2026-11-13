@@ -49,17 +49,33 @@ WPS_IT::test(
 		WPS_IT::same( 'completed', (string) $row['status'], 'The claim was not completed.' );
 		WPS_IT::same( 1, (int) $row['attempts'], 'A completed duplicate must not increment attempts.' );
 
-		// A different payload with the same external id is still a duplicate.
+		// A different payload with the same external id is a conflict: the
+		// stored order must not be silently rewritten or reported as success.
 		$changed = WPS_IT::order_payload( 'order-cod-paid.json', $external_id );
 		$third   = WPS_IT::post_order( $changed );
 
-		WPS_IT::same( 200, $third['code'], 'A changed duplicate must still return 200.' );
-		WPS_IT::same( $order_id, (int) $third['json']['orderId'], 'A changed duplicate returned a different order.' );
+		WPS_IT::same( 409, $third['code'], 'A changed duplicate must return 409.' );
+		WPS_IT::same( true, (bool) $third['json']['isError'], 'A changed duplicate must be an error.' );
 
 		$reloaded = wc_get_order( $order_id );
 
 		WPS_IT::same( 'on-hold', $reloaded->get_status(), 'A changed duplicate modified the existing order.' );
 		WPS_IT::close( $total_before, (float) $reloaded->get_total(), 0.01, 'A changed duplicate modified the total.' );
+	}
+);
+
+WPS_IT::test(
+	'External ids that differ only by case are distinct orders',
+	static function () use ( $run ): void {
+		$upper = 'IT-CASE-' . $run;
+		$lower = strtolower( $upper );
+
+		$first  = WPS_IT::post_order( WPS_IT::order_payload( 'order-transfer-unpaid.json', $upper ) );
+		$second = WPS_IT::post_order( WPS_IT::order_payload( 'order-transfer-unpaid.json', $lower ) );
+
+		WPS_IT::same( 200, $first['code'], 'The upper-case id failed: ' . $first['body'] );
+		WPS_IT::same( 200, $second['code'], 'The lower-case id failed: ' . $second['body'] );
+		WPS_IT::not_same( (int) $first['json']['orderId'], (int) $second['json']['orderId'], 'Case-different external ids collapsed into one order.' );
 	}
 );
 

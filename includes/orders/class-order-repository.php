@@ -12,6 +12,8 @@
 namespace WPS\Pepita\Orders;
 
 use WPS\Pepita\Logger;
+use WPS\Pepita\Settings;
+use WPS\Pepita\Storage;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -54,19 +56,7 @@ final class Order_Repository {
 			);
 		}
 
-		$inserted = $wpdb->query(
-			$wpdb->prepare(
-				"INSERT IGNORE INTO {$table} (external_id, origin, status, wc_order_id, payload, payload_hash, attempts, created_at, updated_at)
-				 VALUES (%s, %s, %s, 0, %s, %s, 1, %s, %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-				$external_id,
-				$origin,
-				self::STATUS_PROCESSING,
-				$payload,
-				$payload_hash,
-				$now,
-				$now
-			)
-		);
+		$inserted = self::insert_claim( $external_id, $origin, $payload, $payload_hash, $now );
 
 		if ( 1 === (int) $inserted ) {
 			return array(
@@ -102,20 +92,7 @@ final class Order_Repository {
 		}
 
 		// Conditional re-claim: only one concurrent retry can win.
-		$updated = $wpdb->query(
-			$wpdb->prepare(
-				"UPDATE {$table}
-				 SET status = %s, payload = %s, payload_hash = %s, attempts = attempts + 1, last_error = NULL, updated_at = %s
-				 WHERE external_id = %s AND (status = %s OR updated_at < %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-				self::STATUS_PROCESSING,
-				$payload,
-				$payload_hash,
-				$now,
-				$external_id,
-				self::STATUS_FAILED,
-				$stale_before
-			)
-		);
+		$updated = self::update_claim( $external_id, $payload, $payload_hash, $now, $stale_before );
 
 		if ( 1 === (int) $updated ) {
 			return array(
@@ -127,6 +104,90 @@ final class Order_Repository {
 		return array(
 			'state' => 'busy',
 			'row'   => self::get( $external_id ),
+		);
+	}
+
+	/**
+	 * Insert a new claim, storing the raw payload only when the operator asked
+	 * for it. `order_api_keep_payloads` defaults to off: the hash alone is
+	 * enough for idempotency and reconciliation.
+	 *
+	 * @return int|false
+	 */
+	private static function insert_claim( string $external_id, string $origin, string $payload, string $payload_hash, string $now ) {
+		global $wpdb;
+
+		$table = self::table();
+		$keep  = (bool) Settings::get( 'order_api_keep_payloads', false );
+
+		if ( $keep ) {
+			return $wpdb->query(
+				$wpdb->prepare(
+					"INSERT IGNORE INTO {$table} (external_id, origin, status, wc_order_id, payload, payload_hash, attempts, created_at, updated_at)
+					 VALUES (%s, %s, %s, 0, %s, %s, 1, %s, %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					$external_id,
+					$origin,
+					self::STATUS_PROCESSING,
+					$payload,
+					$payload_hash,
+					$now,
+					$now
+				)
+			);
+		}
+
+		return $wpdb->query(
+			$wpdb->prepare(
+				"INSERT IGNORE INTO {$table} (external_id, origin, status, wc_order_id, payload, payload_hash, attempts, created_at, updated_at)
+				 VALUES (%s, %s, %s, 0, NULL, %s, 1, %s, %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$external_id,
+				$origin,
+				self::STATUS_PROCESSING,
+				$payload_hash,
+				$now,
+				$now
+			)
+		);
+	}
+
+	/**
+	 * @return int|false
+	 */
+	private static function update_claim( string $external_id, string $payload, string $payload_hash, string $now, string $stale_before ) {
+		global $wpdb;
+
+		$table = self::table();
+		$keep  = (bool) Settings::get( 'order_api_keep_payloads', false );
+
+		if ( $keep ) {
+			return $wpdb->query(
+				$wpdb->prepare(
+					"UPDATE {$table}
+					 SET status = %s, payload = %s, payload_hash = %s, attempts = attempts + 1, last_error = NULL, updated_at = %s
+					 WHERE external_id = %s AND (status = %s OR updated_at < %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					self::STATUS_PROCESSING,
+					$payload,
+					$payload_hash,
+					$now,
+					$external_id,
+					self::STATUS_FAILED,
+					$stale_before
+				)
+			);
+		}
+
+		return $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table}
+				 SET status = %s, payload = NULL, payload_hash = %s, attempts = attempts + 1, last_error = NULL, updated_at = %s
+				 WHERE external_id = %s AND (status = %s OR updated_at < %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				self::STATUS_PROCESSING,
+				$payload_hash,
+				$now,
+				$external_id,
+				self::STATUS_FAILED,
+				$stale_before
+			)
 		);
 	}
 
@@ -259,15 +320,28 @@ final class Order_Repository {
 
 	/**
 	 * Remove payloads older than the retention window (GDPR friendly).
+	 *
+	 * When $force is true (the operator disabled payload retention), every
+	 * stored payload is cleared immediately. The dedupe row and its hash are
+	 * always kept, so idempotency is unaffected.
 	 */
-	public static function purge_payloads( int $days ): int {
+	public static function purge_payloads( int $days, bool $force = false ): int {
 		if ( ! self::table_exists() ) {
 			return 0;
 		}
 
 		global $wpdb;
 
-		$table  = self::table();
+		$table = self::table();
+
+		if ( $force ) {
+			$updated = $wpdb->query(
+				"UPDATE {$table} SET payload = NULL WHERE payload IS NOT NULL" // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			);
+
+			return is_int( $updated ) ? $updated : 0;
+		}
+
 		$cutoff = gmdate( 'Y-m-d H:i:s', time() - ( max( 1, $days ) * DAY_IN_SECONDS ) );
 
 		$updated = $wpdb->query(
@@ -278,6 +352,107 @@ final class Order_Repository {
 		);
 
 		return is_int( $updated ) ? $updated : 0;
+	}
+
+	/**
+	 * Delete package-label PDFs past their retention window.
+	 *
+	 * A label attached to an order that is still operationally open
+	 * (pending / processing / on-hold) is kept, so a late shipment never loses
+	 * its document. Labels of completed, cancelled, refunded or failed orders,
+	 * and labels with no linked order, are removed after the configured window.
+	 *
+	 * @return int Number of deleted files.
+	 */
+	public static function purge_labels( int $days ): int {
+		$dir = Storage::label_dir();
+
+		if ( ! is_dir( $dir ) ) {
+			return 0;
+		}
+
+		$files = glob( $dir . '/pepita-*.pdf' );
+
+		if ( ! is_array( $files ) ) {
+			return 0;
+		}
+
+		$cutoff  = time() - ( max( 1, $days ) * DAY_IN_SECONDS );
+		$deleted = 0;
+
+		foreach ( $files as $file ) {
+			if ( ! is_file( $file ) || filemtime( $file ) >= $cutoff ) {
+				continue;
+			}
+
+			if ( ! self::label_is_releasable( $file ) ) {
+				continue;
+			}
+
+			if ( @unlink( $file ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				self::clear_label_meta( $file );
+				$deleted++;
+			}
+		}
+
+		return $deleted;
+	}
+
+	private static function label_is_releasable( string $file ): bool {
+		if ( ! function_exists( 'wc_get_orders' ) ) {
+			return true;
+		}
+
+		$orders = wc_get_orders(
+			array(
+				'limit'      => 1,
+				'return'     => 'ids',
+				'meta_key'   => Importer::META_PACKAGE_LABEL, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_value' => $file, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+				'status'     => 'any',
+			)
+		);
+
+		if ( ! is_array( $orders ) || ! isset( $orders[0] ) ) {
+			return true;
+		}
+
+		$order = wc_get_order( (int) $orders[0] );
+
+		if ( ! $order instanceof \WC_Order ) {
+			return true;
+		}
+
+		return ! in_array( $order->get_status(), array( 'pending', 'processing', 'on-hold' ), true );
+	}
+
+	private static function clear_label_meta( string $file ): void {
+		if ( ! function_exists( 'wc_get_orders' ) ) {
+			return;
+		}
+
+		$orders = wc_get_orders(
+			array(
+				'limit'      => -1,
+				'return'     => 'ids',
+				'meta_key'   => Importer::META_PACKAGE_LABEL, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_value' => $file, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+				'status'     => 'any',
+			)
+		);
+
+		if ( ! is_array( $orders ) ) {
+			return;
+		}
+
+		foreach ( $orders as $order_id ) {
+			$order = wc_get_order( (int) $order_id );
+
+			if ( $order instanceof \WC_Order ) {
+				$order->delete_meta_data( Importer::META_PACKAGE_LABEL );
+				$order->save();
+			}
+		}
 	}
 
 	/**

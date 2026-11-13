@@ -135,10 +135,22 @@ final class Endpoint {
 	}
 
 	private function send_common_headers( string $type, string $etag, int $mtime, int $max_age ): void {
+		$public = (bool) Settings::get( 'feed_public', false );
+
 		header( 'ETag: ' . $etag );
 		header( 'Last-Modified: ' . gmdate( 'D, d M Y H:i:s', $mtime ) . ' GMT' );
-		header( 'Cache-Control: public, max-age=' . $max_age . ', must-revalidate' );
-		header( 'Expires: ' . gmdate( 'D, d M Y H:i:s', time() + $max_age ) . ' GMT' );
+
+		if ( $public ) {
+			header( 'Cache-Control: public, max-age=' . $max_age . ', must-revalidate' );
+			header( 'Expires: ' . gmdate( 'D, d M Y H:i:s', time() + $max_age ) . ' GMT' );
+		} else {
+			// A token-protected feed must never be stored by a shared cache:
+			// the token is part of the URL and the body is private catalog
+			// data. Every request is revalidated against WordPress.
+			header( 'Cache-Control: private, no-store, max-age=0' );
+			header( 'Pragma: no-cache' );
+		}
+
 		header( 'X-Robots-Tag: noindex, nofollow' );
 		header( 'X-Content-Type-Options: nosniff' );
 		header( 'X-WPS-Feed-Type: ' . $type );
@@ -149,6 +161,7 @@ final class Endpoint {
 
 		status_header( $status );
 		header( 'Content-Type: text/plain; charset=UTF-8' );
+		header( 'Cache-Control: no-store' );
 		header( 'X-Robots-Tag: noindex, nofollow' );
 		echo 'A kért feed nem érhető el.';
 		exit;
@@ -160,6 +173,7 @@ final class Endpoint {
 		status_header( $status );
 		header( 'Content-Type: text/plain; charset=UTF-8' );
 		header( 'Retry-After: 300' );
+		header( 'Cache-Control: no-store' );
 		header( 'X-Robots-Tag: noindex, nofollow' );
 		echo esc_html( $message );
 		exit;

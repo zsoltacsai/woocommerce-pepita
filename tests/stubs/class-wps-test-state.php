@@ -93,6 +93,9 @@ final class WPS_Test_State {
 	/** @var bool|null value of the new order e-mail gate observed during WC_Order::save() */
 	public static ?bool $last_save_email_enabled = null;
 
+	/** @var bool force WC_Order::save() to fail, for orphan-cleanup tests */
+	public static bool $fail_order_save = false;
+
 	public static function reset(): void {
 		self::$options           = array();
 		self::$post_meta         = array();
@@ -127,6 +130,7 @@ final class WPS_Test_State {
 		self::$site_url       = 'https://example.test';
 		self::$rest_routes    = array();
 		self::$last_save_email_enabled = null;
+		self::$fail_order_save = false;
 	}
 
 	public static function add_term( int $id, string $name, int $parent = 0, string $taxonomy = 'product_cat' ): WP_Term {

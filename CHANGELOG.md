@@ -6,14 +6,100 @@ All notable changes are recorded here. The format follows
 
 ## [Unreleased]
 
-### Added
+### Security — audit remediation (1.1.0)
+
+Remediation of the independent security audit (CF-01–CF-13, PV-01–PV-12). No
+CRITICAL or HIGH findings were confirmed; the highest confirmed severity was
+MEDIUM. Production order intake remains blocked until the live integration suite
+and the M9 Pepita staging validation pass.
+
+#### Fixed (confirmed MEDIUM)
+
+- **CF-01** — IP allowlist and rate limiter no longer trust client-supplied
+  `X-Forwarded-For` / `CF-Connecting-IP` / `X-Real-IP`. Forwarding headers are
+  honoured only when the direct peer is in the new `order_api_trusted_proxies`
+  list; the chain is walked from the right and the first untrusted hop is used.
+- **CF-02** — the HTTPS requirement is checked **before** the key comparison, and
+  `X-Forwarded-Proto: https` is accepted only from a trusted proxy. Plaintext
+  requests never reach the credential comparison.
+- **CF-03** — failed authentication is throttled (30/min/client) before the key
+  comparison, and rejection logging is bounded to one row per client/reason/minute
+  with a global 120 rows/minute budget.
+- **CF-04** — price, shipping, voucher, VAT and quantity are parsed by a new
+  strict `Money` parser. Locale-formatted strings (`"4,990"`, `"1 490"`,
+  `"12,5"`) are rejected with 422 instead of being truncated to a near-zero
+  amount; they never create an order.
+- **CF-05** — `order_api_keep_payloads` is now honoured. Raw payloads (customer
+  PII, base64 labels) are stored only when explicitly enabled; by default only
+  the SHA-256 hash is kept. Disabling the setting purges stored payloads
+  immediately and on the maintenance schedule.
+- **CF-06** — package-label PDFs are expired by the maintenance job after
+  `order_api_label_retention_days` (default 30). Labels of pending, processing
+  and on-hold orders are always retained.
+
+#### Fixed (additional)
+
+- **CF-07** — a SKU and Pepita product id that resolve to different products are
+  rejected instead of silently preferring one.
+- **CF-08** — a failed order save cleans up the half-built pending order, so a
+  retry cannot create a duplicate.
+- **CF-09** — reclaiming an expired feed lock is serialised with an atomic option
+  mutex; `is_locked()` is now read-only and never deletes a fresh lock.
+- **CF-10** — a duplicate delivery whose payload hash differs now returns 409 and
+  never rewrites the stored order. (Behaviour change: was 200.)
+- **CF-11** — an imported order is never linked to an account that can manage the
+  store (`manage_woocommerce` / `edit_users`); such orders stay guest orders.
+- **CF-12** — documentation (`SECURITY-REPORT.md`, `PEPITA-API-INTEGRATION.md`,
+  `TESTING.md`, `INSTALLATION.md`) corrected to match the implemented controls.
+- **CF-13** — package labels must decode to a real PDF (`%PDF-` magic);
+  integration Compose ports are bound to `127.0.0.1`.
+- **PV-02** — Pepita prices are treated as gross. The order sets
+  `prices_include_tax`, recalculates with `calculate_totals( false )`, clears
+  cart/shipping tax and stores the validated gross total, so a tax-enabled store
+  does not add a second VAT layer. New integration case `08-tax.php` covers
+  `prices_include_tax` `yes` and `no`.
+- **PV-03** — `external_id` now uses the `utf8mb4_bin` collation, so `PEP-1` and
+  `pep-1` are distinct. An upgrade migration alters the existing column; the DB
+  version is bumped to `1.1.0`.
+- **PV-04** — nginx deny rule for the private storage directory documented in
+  `INSTALLATION.md`.
+- **PV-05** — `Xml_Writer::clean()` also strips Unicode noncharacters
+  (U+FDD0–FDEF and the last two code points of every plane).
+- **PV-07** — token-authenticated feed responses send `Cache-Control: private,
+  no-store, max-age=0`; only an explicitly public feed is cacheable.
+- **PV-09** — `Redactor` masks customer name, e-mail, phone, address, city,
+  postcode, tax number and customer/courier messages before a payload reaches the
+  log table.
+
+#### Changed
+
+- New defaults: `order_api_keep_payloads=false`, `order_api_require_https=true`,
+  `order_api_trusted_proxies=''`, `order_api_label_retention_days=30`.
+- `process_claim` stale window raised from 10 to 15 minutes.
+- Unit suite: 133 → 156 cases. New files `115-money-test.php`,
+  `116-redactor-test.php`, `150-retention-test.php`; adversarial cases added to
+  the API, import, repository, XML and feed-generation suites.
+
+#### Deferred / accepted residual risk
+
+- **PV-06** (`manage_woocommerce` includes Shop Manager) — accepted as a
+  deliberate store-operator role.
+- **PV-08** (stale-claim overlap for imports longer than the 15-minute window) —
+  accepted; a heartbeat is a possible future hardening.
+- **PV-10** (partially mitigated by CF-03/CF-07), **PV-11** (key holder can
+  backdate; accepted under the Pepita trust model), **PV-12** (public feed mode
+  remains opt-in), and image-digest pinning for CF-13 — documented as residual.
+
+### Added (M8)
 
 - Local Docker Compose integration suite: two WordPress 7.1.4 / PHP 8.5 /
   MySQL 8.4 / WooCommerce 11.3.0 stores, one with HPOS and one with legacy order
   storage. `integration/scripts/run.sh` re-seeds both and runs 60 cases per store.
-  Both stores pass: 60 passed, 0 failed.
+  Both stores passed on the M8 revision (60/60 each); this remediation revision
+  adds `08-tax.php` and extends `07-idempotency.php` and `02-schema.php`, and has
+  **not** been re-run (Docker unavailable in the remediation environment).
 
-### Fixed
+### Fixed (M8)
 
 - Order notes are now added after the order is saved, so they are not lost on a
   freshly created order.
@@ -120,3 +206,4 @@ WordPress/WooCommerce staging validation is still required before production use
 - Live WordPress/WooCommerce staging validation is pending.
 
 [1.0.0]: https://github.com/zsoltacsai/woocommerce-pepita/releases/tag/v1.0.0
+[Unreleased]: https://github.com/zsoltacsai/woocommerce-pepita/compare/v1.0.0...HEAD
