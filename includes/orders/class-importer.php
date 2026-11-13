@@ -20,6 +20,8 @@ defined( 'ABSPATH' ) || exit;
 
 final class Importer {
 
+	private const FENCED_OUT = 'wps_fenced_out';
+
 	public const META_ORDER_ID       = '_wps_pepita_order_id';
 	public const META_ORIGIN         = '_wps_pepita_origin';
 	public const META_PAYMENT_STATUS = '_wps_pepita_payment_status';
@@ -572,6 +574,7 @@ final class Importer {
 		$customer = is_array( $payload['customer'] ?? null ) ? $payload['customer'] : array();
 
 		$email_filters = $this->suppress_emails();
+		$save_fence    = null;
 
 		try {
 			$order = new \WC_Order();
@@ -595,6 +598,17 @@ final class Importer {
 			if ( ! $associated ) {
 				return $this->discard_order( $order, 'wps_fenced_out', 'A rendelés zárolása lejárt, a feldolgozást más folyamat vette át.' );
 			}
+
+			// Save fence: WooCommerce fires this action inside save(), immediately before the data
+			// store write. A worker whose lease was taken over while it was stalled must not write
+			// to an order a newer attempt has already discarded (it would leave orphan rows and fire
+			// order hooks for a non-existent order). The window left is the single DB write.
+			$save_fence = static function ( $saving ) use ( $order, $external_id, $attempt ): void {
+				if ( $saving === $order && ! Order_Repository::is_attempt_current( $external_id, $attempt ) ) {
+					throw new \RuntimeException( self::FENCED_OUT );
+				}
+			};
+			add_action( 'woocommerce_before_order_object_save', $save_fence, PHP_INT_MAX );
 
 			$prices_include_tax = function_exists( 'wc_prices_include_tax' ) ? wc_prices_include_tax() : false;
 			if ( method_exists( $order, 'set_prices_include_tax' ) ) {
@@ -968,6 +982,12 @@ final class Importer {
 
 			return (int) $order_id;
 		} catch ( \Throwable $throwable ) {
+			// Fenced out inside save(): a newer attempt owns the claim and discards/rebuilds the
+			// order. Touch nothing here (the order may already be gone).
+			if ( $throwable instanceof \RuntimeException && self::FENCED_OUT === $throwable->getMessage() ) {
+				return new \WP_Error( 'wps_fenced_out', 'A rendelés zárolása lejárt a mentés előtt, a feldolgozást más folyamat vette át.' );
+			}
+
 			// Never leave a half-built pending order behind: the retry would
 			// create a second one.
 			if ( isset( $order ) && $order instanceof \WC_Order ) {
@@ -976,6 +996,10 @@ final class Importer {
 
 			throw $throwable;
 		} finally {
+			if ( null !== $save_fence ) {
+				remove_action( 'woocommerce_before_order_object_save', $save_fence, PHP_INT_MAX );
+			}
+
 			$this->restore_emails( $email_filters );
 		}
 	}

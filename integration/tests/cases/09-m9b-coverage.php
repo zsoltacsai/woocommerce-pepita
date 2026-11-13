@@ -167,6 +167,7 @@ WPS_IT::test(
 			$saves[] = array(
 				'in_progress' => (string) $order->get_meta( '_wps_pepita_in_progress' ),
 				'imported_at' => (string) $order->get_meta( Importer::META_IMPORTED_AT ),
+				'status'      => (string) $order->get_status(),
 			);
 		};
 
@@ -181,14 +182,24 @@ WPS_IT::test(
 		WPS_IT::same( 200, $result['http'], 'In-process import failed: ' . (string) $result['message'] );
 		WPS_IT::greater( 1, count( $saves ), 'Expected several saves of the order during the import.' );
 
-		$last = array_pop( $saves );
-
-		WPS_IT::same( '', $last['in_progress'], 'The final save must clear the marker.' );
-		WPS_IT::not_same( '', $last['imported_at'], 'The final save must set imported_at.' );
+		$cleared_seen = false;
 
 		foreach ( $saves as $index => $save ) {
-			WPS_IT::same( '1', $save['in_progress'], 'Save #' . ( $index + 1 ) . ' before the final one cleared the marker early (RR20).' );
-			WPS_IT::same( '', $save['imported_at'], 'Save #' . ( $index + 1 ) . ' before the final one set imported_at early (RR20).' );
+			$label = 'Save #' . ( $index + 1 );
+
+			if ( '1' === $save['in_progress'] ) {
+				WPS_IT::false( $cleared_seen, $label . ': the marker reappeared after it was cleared.' );
+				WPS_IT::same( '', $save['imported_at'], $label . ' set imported_at while the import was unfinished.' );
+				continue;
+			}
+
+			// Marker cleared: this must be the finalizing save (final status + imported_at). An early
+			// clear (status still pending) is the RR20 defect: a competing worker would adopt it.
+			$cleared_seen = true;
+			WPS_IT::not_same( '', $save['imported_at'], $label . ' cleared the marker without imported_at.' );
+			WPS_IT::not_same( 'pending', $save['status'], $label . ' cleared the marker while the order was still pending (RR20).' );
 		}
+
+		WPS_IT::true( $cleared_seen, 'No save cleared the marker.' );
 	}
 );
