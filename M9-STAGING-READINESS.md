@@ -29,7 +29,7 @@ The staging distribution archive has been generated in a strictly reproducible, 
 | **Plugin Version** | `1.1.0` (`WPS_PEPITA_VERSION`) |
 | **Database Schema Version** | `1.1.0` (`WPS_PEPITA_DB_VERSION`) |
 | **Commit SHA** | `security/m9-staging-readiness` HEAD |
-| **Package SHA-256** | `dbd68ff4c67ceb15d9ca96f37f231ccbab5b5c9987e8f52ce67e5a3f52acbb57` |
+| **Package SHA-256** | `60403ac0e05ae9b1e33e0738a7653ec9e2429b1b798c45e7cae7075f59309385` |
 | **Archive Entry Count** | 55 entries (47 files + 8 directories) |
 | **Archive Uncompressed Size** | 445,466 bytes (~435 KB) |
 | **Archive Compressed Size** | 134,845 bytes (~132 KB) |
@@ -280,7 +280,7 @@ If any critical defect or operational instability occurs during staging validati
 
 * **Staging Gate**: **GO (CONDITIONAL APPROVAL)**
   - All four security and financial integrity risks are closed and verified with automated regression and integration suites (185 unit tests, 71 integration scenarios).
-  - Reproducible, secret-free distribution package `dist/wp-pepita-sync.zip` (SHA-256: `dbd68ff4c67ceb15d9ca96f37f231ccbab5b5c9987e8f52ce67e5a3f52acbb57`, 55 entries: 47 files + 8 directories) is prepared and verified.
+  - Reproducible, secret-free distribution package `dist/wp-pepita-sync.zip` (SHA-256: `60403ac0e05ae9b1e33e0738a7653ec9e2429b1b798c45e7cae7075f59309385`, 55 entries: 47 files + 8 directories) is prepared and verified.
   - CI verification runs across all supported PHP versions and HPOS modes with 100% pass rate.
   - Independent review by Mad-Eye Moody confirms conditional readiness for isolated staging deployment following lease fencing and order preservation fixes.
 

@@ -864,8 +864,7 @@ final class Importer {
 			$order->set_status( $status, 'Pepita import' );
 
 			// Re-verify lease before finalizing completion to prevent orphan rows if worker stalled
-			$reassociated = Order_Repository::associate( $external_id, (int) $order_id, $attempt );
-			if ( ! $reassociated ) {
+			if ( ! Order_Repository::is_attempt_current( $external_id, $attempt ) ) {
 				return $this->discard_order( $order, 'wps_fenced_out', 'A rendelés zárolása lejárt a véglegesítés előtt, a feldolgozást más folyamat vette át.' );
 			}
 

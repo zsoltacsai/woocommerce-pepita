@@ -809,6 +809,18 @@ $suite->add(
 $suite->add(
 	'importer: fenced out on create_order initial associate returns 409 retry and discards incomplete shell',
 	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
 		$importer    = new Importer();
 		$external_id = 'PEP-FENCE-IMP-1';
 		$payload     = $recovery_payload( array( 'id' => $external_id ) );
@@ -844,6 +856,18 @@ $suite->add(
 $suite->add(
 	'importer: fenced out on complete() returns 409 retry and preserves completed order for adoption',
 	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
 		$importer    = new Importer();
 		$external_id = 'PEP-FENCE-IMP-2';
 		$payload     = $recovery_payload( array( 'id' => $external_id ) );
@@ -888,6 +912,18 @@ $suite->add(
 $suite->add(
 	'importer: reclaimed replay fenced out on complete() returns 409 retry',
 	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
 		$importer    = new Importer();
 		$external_id = 'PEP-FENCE-REPLAY-1';
 		$payload     = $recovery_payload( array( 'id' => $external_id ) );
@@ -939,6 +975,18 @@ $suite->add(
 $suite->add(
 	'importer: recovery shell purge aborts with 409 retry if fenced out',
 	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
 		$importer    = new Importer();
 		$external_id = 'PEP-FENCE-PURGE-1';
 		$payload     = $recovery_payload( array( 'id' => $external_id ) );
@@ -986,22 +1034,29 @@ $suite->add(
 		$external_id = 'PEP-CLAIM-FAIL-1';
 		$payload     = $recovery_payload( array( 'id' => $external_id ) );
 
-		// Seed a claim with invalid status so claim() returns failed
-		global $wpdb;
-		$wpdb->insert(
-			Order_Repository::table(),
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
 			array(
-				'external_id' => $external_id,
-				'origin'      => 'pepita.hu',
-				'status'      => 'corrupted_state',
-				'wc_order_id' => 0,
-				'attempts'    => 0,
-				'created_at'  => gmdate( 'Y-m-d H:i:s', time() - 1000 ),
-				'updated_at'  => gmdate( 'Y-m-d H:i:s', time() ),
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
 			)
 		);
 
+		// Drop table so claim() read returns null and returns state = 'failed'
+		global $wpdb;
+		$wpdb->drop_table( 'wp_wps_pepita_orders' );
+		Order_Repository::reset_table_cache();
+
 		$result = $importer->import( $payload );
+
+		// Restore table
+		Order_Repository::install();
+		Order_Repository::reset_table_cache();
+
 		WPS_Assert::same( 500, $result['http'] );
 		WPS_Assert::same( 'error', $result['status'] );
 		WPS_Assert::same( 'A rendelés rögzítése átmenetileg nem lehetséges.', $result['message'] );

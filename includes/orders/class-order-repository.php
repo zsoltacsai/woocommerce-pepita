@@ -237,8 +237,15 @@ final class Order_Repository {
 				);
 			}
 
-			if ( false === $res || 0 === (int) $res ) {
+			if ( false === $res ) {
 				return false;
+			}
+
+			if ( 0 === (int) $res ) {
+				$row = self::get( $external_id );
+				return null !== $row
+					&& (int) ( $row['attempts'] ?? 0 ) === $expected_attempt
+					&& self::STATUS_COMPLETED === ( $row['status'] ?? '' );
 			}
 		} else {
 			if ( '' !== $payload_hash ) {
@@ -314,7 +321,15 @@ final class Order_Repository {
 				)
 			);
 
-			return false !== $res && (int) $res > 0;
+			if ( false === $res ) {
+				return false;
+			}
+
+			if ( 0 === (int) $res ) {
+				return self::is_attempt_current( $external_id, $expected_attempt );
+			}
+
+			return true;
 		}
 
 		$res = $wpdb->query(
@@ -331,6 +346,23 @@ final class Order_Repository {
 		);
 
 		return false !== $res;
+	}
+
+	/**
+	 * Verify whether an attempt counter is still the active holder of the claim lease.
+	 */
+	public static function is_attempt_current( string $external_id, int $expected_attempt ): bool {
+		if ( $expected_attempt <= 0 ) {
+			return true;
+		}
+
+		$row = self::get( $external_id );
+		if ( null === $row ) {
+			return false;
+		}
+
+		return (int) ( $row['attempts'] ?? 0 ) === $expected_attempt
+			&& ( self::STATUS_PROCESSING === ( $row['status'] ?? '' ) || self::STATUS_COMPLETED === ( $row['status'] ?? '' ) );
 	}
 
 	/**
