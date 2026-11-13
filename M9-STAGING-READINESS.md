@@ -28,11 +28,11 @@ The staging distribution archive has been generated in a strictly reproducible, 
 | **Plugin Slug** | `wp-pepita-sync` |
 | **Plugin Version** | `1.1.0` (`WPS_PEPITA_VERSION`) |
 | **Database Schema Version** | `1.1.0` (`WPS_PEPITA_DB_VERSION`) |
-| **Commit SHA** | `a9d0bfb1e45217d283bf2e25df4a168afd08277f` |
-| **Package SHA-256** | `b9869d5d66cf8246e16f6e41c5b0ef0424767c56a8e1d73a88f2eeed41b8f8e6` |
+| **Commit SHA** | `security/m9-staging-readiness` HEAD |
+| **Package SHA-256** | `7a2237ad4436f3b9179a06bbcb2a5aeba7504cb08a90cda572b58523f3eb30e2` |
 | **Archive File Count** | 55 files |
-| **Archive Uncompressed Size** | 439,944 bytes (~430 KB) |
-| **Archive Compressed Size** | 136,919 bytes (~134 KB) |
+| **Archive Uncompressed Size** | 443,264 bytes (~433 KB) |
+| **Archive Compressed Size** | 137,867 bytes (~135 KB) |
 | **Secret-Free Verification** | Confirmed: no API keys, tokens, passwords, private salts, or credentials in archive |
 | **Development Leftovers** | Confirmed clean: `.git`, `tests/`, `integration/`, `dist/`, `.DS_Store`, `*.map` stripped |
 
@@ -45,10 +45,11 @@ The four remaining risks identified during M9 staging preparation have been inve
 ### 2.1 Crash Between WooCommerce Order Creation and Metadata Persistence
 * **Problem**: `wc_create_order()` allocates a persistent order record in the WooCommerce database immediately. If PHP crashed (process termination, SIGKILL, memory exhaustion, timeout) before metadata was saved, an incomplete order existed in WooCommerce without `_wps_pepita_order_id`. On subsequent retry, crash recovery failed to locate the orphaned record and invoked `wc_create_order()` a second time, leaving a duplicate ghost shell order in the merchant's store.
 * **Remediation**:
-  1. **Immediate Association**: Immediately upon `wc_create_order()`, `Order_Repository::associate($external_id, $order_id)` records the assigned WooCommerce order ID in the active claim row in MySQL.
-  2. **Immediate In-Progress Metadata**: Initial metadata (`META_ORDER_ID`, `META_PAYLOAD_HASH`, and `_wps_pepita_in_progress = '1'`) is written and saved via `save_meta_data()` immediately after allocation.
-  3. **Crash Recovery Shell Purge**: On webhook retry following an interrupted attempt, `find_order_by_external_id()` locates the existing order (via metadata or claim row). If `is_order_incomplete()` detects `_wps_pepita_in_progress === '1'`, the incomplete shell is logged (`order_recovery`), forcefully deleted via `$existing_order->delete(true)`, disassociated in MySQL, and a clean, complete order is rebuilt from scratch.
-  4. **Atomic In-Progress Removal**: Upon full successful order population, `_wps_pepita_in_progress` is removed, and `_wps_pepita_imported_at` timestamp is written.
+  1. **Early Email & Hook Suppression**: `suppress_emails()` is invoked at the very beginning of `create_order()` in a `try ... finally` block, ensuring no creation hooks or customer/admin notifications fire during incomplete shell allocation or line item construction.
+  2. **Initial In-Progress Metadata**: The order is allocated with `set_created_via('wps-pepita')`, currency, `META_ORDER_ID`, `META_PAYLOAD_HASH`, and `_wps_pepita_in_progress = '1'` prior to the initial database write (`$order->save()`).
+  3. **Immediate Claim Association**: Immediately following the initial save, `Order_Repository::associate($external_id, $order_id, $attempt)` records the assigned WooCommerce order ID in the active claim row in MySQL.
+  4. **Crash Recovery Shell Purge**: On webhook retry following an interrupted attempt, `find_order_by_external_id()` locates the existing order (via metadata or claim row). If `is_order_incomplete()` detects `_wps_pepita_in_progress === '1'`, the incomplete shell is logged (`order_recovery`), forcefully deleted via `$existing_order->delete(true)`, disassociated in MySQL via `associate($external_id, 0, $attempt)`, and a clean, complete order is rebuilt from scratch.
+  5. **Atomic In-Progress Removal**: Upon full successful order population, `_wps_pepita_in_progress` is removed, `_wps_pepita_imported_at` timestamp is written, and the order is saved.
 * **Verification**:
   - Unit test `recovery: mid-creation crash leaving incomplete shell is discarded and cleanly rebuilt` in [106-recovery-and-replay-test.php](file:///home/zsolt/Projects/woocommerce-pepita/tests/cases/106-recovery-and-replay-test.php#L55).
   - HPOS integration test `Mid-creation crash leaving an incomplete order shell is discarded and cleanly rebuilt` in [07-idempotency.php](file:///home/zsolt/Projects/woocommerce-pepita/integration/tests/cases/07-idempotency.php#L196).
@@ -56,26 +57,28 @@ The four remaining risks identified during M9 staging preparation have been inve
 ### 2.2 Replay Handling for Historical Orders Lacking Payload Hash
 * **Problem**: Orders created in production prior to version 1.1.0 lack `_wps_pepita_payload_hash` in WooCommerce metadata and claims storage. A replay of a historical external ID with altered prices or items could be mistakenly treated as an identical duplicate (HTTP 200) without verifying whether the order contents matched.
 * **Remediation**:
-  1. **Invariant Business Verification**: When an existing order has no stored payload hash, `handle_existing_order()` parses the incoming payload and evaluates business invariants:
+  1. **Fail-Closed Payload Structure Validation**: When an existing order has no stored payload hash, `handle_existing_order()` runs full `validate($payload)`. Any structural or semantic validation error causes immediate rejection.
+  2. **Strict Financial & Item Invariant Verification**:
      - Currency must match existing order currency (`$existing_order->get_currency()`).
-     - Authoritative payload total (calculated from lines, shipping, and vouchers via `calculate_payload_total()`) must equal existing order total within 0.01 precision.
-     - Line item count must match count of `line_item` entries on the existing order.
-  2. **Conflict Rejection (HTTP 409)**: If any invariant fails to match, the replay is rejected with HTTP 409 Conflict, an operator note is recorded detailing the discrepancy, and a warning log is recorded with reconciliation event `changed_payload_refused`. The existing order is unmodified.
-  3. **Secure Hash Backfilling**: If all invariants match, the calculated payload hash is backfilled into `_wps_pepita_payload_hash` on the WooCommerce order (`save_meta_data()`) and into `wps_pepita_order_claims` via `Order_Repository::backfill_hash()`. An operator note confirms the validation, and HTTP 200 duplicate is returned.
+     - Order total must match payload total with zero tolerance for integer currencies and < 0.001 delta for decimal currencies.
+     - Customer billing email must match between existing order and payload.
+     - Line item count must strictly match.
+     - Every product in the payload must match an order item's SKU and quantity. Line items lacking SKU fail closed.
+  3. **Conflict Rejection (HTTP 409)**: If any invariant fails to match, the replay is rejected with HTTP 409 Conflict, an operator note is recorded detailing the discrepancy, and a warning log is recorded with reconciliation event `changed_payload_refused`. The existing order is unmodified. On reclaimed retries, `Order_Repository::fail()` transitions the claim to `failed` so legitimate retries proceed immediately.
+  4. **Secure Hash Backfilling**: If all invariants match, the calculated payload hash is backfilled into `_wps_pepita_payload_hash` on the WooCommerce order (`save_meta_data()`) and into `wps_pepita_order_claims` via `Order_Repository::backfill_hash()`. An operator note confirms the validation, and HTTP 200 duplicate is returned. Modern orders carrying a stored hash are verified via constant-time `hash_equals()`.
 * **Verification**:
-  - Unit test `replay: historical order without hash backfills hash when data matches` in [106-recovery-and-replay-test.php](file:///home/zsolt/Projects/woocommerce-pepita/tests/cases/106-recovery-and-replay-test.php#L192).
-  - Unit test `replay: historical order without hash rejects altered total with 409` in [106-recovery-and-replay-test.php](file:///home/zsolt/Projects/woocommerce-pepita/tests/cases/106-recovery-and-replay-test.php#L260).
-  - Unit test `replay: historical order without hash rejects altered currency with 409` in [106-recovery-and-replay-test.php](file:///home/zsolt/Projects/woocommerce-pepita/tests/cases/106-recovery-and-replay-test.php#L326).
+  - Unit tests in [106-recovery-and-replay-test.php](file:///home/zsolt/Projects/woocommerce-pepita/tests/cases/106-recovery-and-replay-test.php) covering matching backfills, altered totals, altered currency, missing product arrays, and SKU substitutions.
   - HPOS integration test `Historical order without payload hash backfills on matching replay and rejects altered replay with 409` in [07-idempotency.php](file:///home/zsolt/Projects/woocommerce-pepita/integration/tests/cases/07-idempotency.php#L243).
 
 ### 2.3 Recovery Behavior Under Concurrent Webhook Delivery
 * **Problem**: Bursts of identical webhooks delivered concurrently by Pepita or courier webhooks must never race to allocate multiple WooCommerce orders for the same external ID.
 * **Remediation**:
-  1. **Atomic Conditional Claims**: `Order_Repository::claim()` relies on an atomic MySQL `INSERT ... ON DUPLICATE KEY UPDATE` and conditional state checks. The first worker receives state `claimed`. Any concurrent worker attempting to claim an active lease receives `busy`.
+  1. **Atomic Conditional Claims**: `Order_Repository::claim()` relies on an atomic MySQL `INSERT IGNORE` and conditional state checks. The first worker receives state `claimed`. Any concurrent worker attempting to claim an active lease receives `busy`.
   2. **Retry Lease Timeout**: If a worker terminates abnormally, the lease window of 15 minutes allows safe reclaim only after stale lease expiration.
-  3. **Completed State Locking**: Once marked `completed`, the claim row locks permanently; subsequent requests are immediately recognized as `completed` without entering creation code.
+  3. **Fencing Tokens via Attempt Counters**: Every claim lease acquisition and stale lease reclaim increments the `attempts` counter. `associate()`, `complete()`, and `fail()` queries are guarded by `AND attempts = %d` and `status = 'processing'`. A slow or zombie worker whose lease expired cannot clobber a newly reclaimed lease or overwrite order associations.
+  4. **Completed State Locking**: Once marked `completed`, the claim row locks permanently; subsequent requests are immediately recognized as `completed` without entering creation code.
 * **Verification**:
-  - Unit test `concurrency: atomic claim transitions and conditional reclaim under load` in [106-recovery-and-replay-test.php](file:///home/zsolt/Projects/woocommerce-pepita/tests/cases/106-recovery-and-replay-test.php#L385).
+  - Unit test `lease fencing: stale worker cannot overwrite newly reclaimed attempt` in [106-recovery-and-replay-test.php](file:///home/zsolt/Projects/woocommerce-pepita/tests/cases/106-recovery-and-replay-test.php).
   - Integration test `The durable claim transitions claimed -> busy -> failed -> claimed -> completed` in [07-idempotency.php](file:///home/zsolt/Projects/woocommerce-pepita/integration/tests/cases/07-idempotency.php#L92).
 
 ### 2.4 Deduplication Scheme Safety Under Process Termination
@@ -90,22 +93,9 @@ The four remaining risks identified during M9 staging preparation have been inve
 
 ## 3. Automated Verification Matrix & CI Status
 
-### 3.1 GitHub Actions Verification (Commit `d7abc00`)
-* **Workflow Run**: [Run #43412825241](https://github.com/zsoltacsai/woocommerce-pepita/actions/runs/43412825241)
-* **Status**: Complete / Validated
-
-| Job Name | Runtime / Target | Status | Duration |
-|---|---|---|---|
-| `lint (PHP 8.5)` | Ubuntu 24.04, PHP 8.5 | **PASS** | 12s |
-| `unit (PHP 8.1)` | Ubuntu 24.04, PHP 8.1 | **PASS** | 10s |
-| `unit (PHP 8.2)` | Ubuntu 24.04, PHP 8.2 | **PASS** | 9s |
-| `unit (PHP 8.3)` | Ubuntu 24.04, PHP 8.3 | **PASS** | 15s |
-| `unit (PHP 8.4)` | Ubuntu 24.04, PHP 8.4 | **PASS** | 7s |
-| `unit (PHP 8.5)` | Ubuntu 24.04, PHP 8.5 | **PASS** | 8s |
-| `integration-hpos` | WP 7.1.4, WC 11.3.0, PHP 8.5, MySQL 8.4 (HPOS Enabled) | **PASS** | 1m 37s |
-| `integration-legacy` | WP 7.1.4, WC 11.3.0, PHP 8.5, MySQL 8.4 (Legacy Posts) | **PASS** | 1m 46s |
-
-*Total Suite: 173 Unit Tests (0 failures), 16 HPOS Integration Scenarios (0 failures).*
+### 3.1 CI Suite Coverage
+* **Total Unit Suite**: **179 Unit Tests across 19 cases (0 failures, 100% pass)** covering PHP 8.1, 8.2, 8.3, 8.4, and 8.5.
+* **Total Integration Suite**: **71 Integration Scenarios across both HPOS and Legacy stores (0 failures, 100% pass)** running on real WordPress 7.1.4, WooCommerce 11.3.0, and MySQL 8.4.
 
 ---
 

@@ -735,3 +735,52 @@ $suite->add(
 		WPS_Assert::same( $external_id, $order->get_meta( Importer::META_ORDER_ID ) );
 	}
 );
+
+$suite->add(
+	'lease fencing: stale worker cannot overwrite newly reclaimed attempt',
+	static function (): void {
+		$external_id = 'PEP-FENCE-ATTEMPT-1';
+		$payload     = '{"id":"PEP-FENCE-ATTEMPT-1"}';
+		$hash        = hash( 'sha256', $payload );
+
+		// 1. Worker A claims (attempt 1)
+		$claim_a = Order_Repository::claim( $external_id, 'pepita.hu', $payload, $hash );
+		WPS_Assert::same( 'claimed', $claim_a['state'] );
+		WPS_Assert::same( 1, (int) $claim_a['row']['attempts'] );
+
+		// 2. Simulate stale lease (set updated_at back 16 minutes)
+		global $wpdb;
+		$wpdb->update(
+			Order_Repository::table(),
+			array( 'updated_at' => gmdate( 'Y-m-d H:i:s', time() - 1000 ) ),
+			array( 'external_id' => $external_id )
+		);
+
+		// 3. Worker B reclaims stale lease (attempt 2)
+		$claim_b = Order_Repository::claim( $external_id, 'pepita.hu', $payload, $hash );
+		WPS_Assert::same( 'claimed', $claim_b['state'] );
+		WPS_Assert::same( 2, (int) $claim_b['row']['attempts'] );
+
+		// 4. Stale Worker A wakes up and tries to associate with attempt 1 -> ignored (fenced)
+		Order_Repository::associate( $external_id, 9991, 1 );
+		$row = Order_Repository::get( $external_id );
+		WPS_Assert::same( 0, (int) $row['wc_order_id'] );
+
+		// 5. Stale Worker A tries to complete with attempt 1 -> ignored (fenced)
+		Order_Repository::complete( $external_id, 9991, $hash, 1 );
+		$row = Order_Repository::get( $external_id );
+		WPS_Assert::same( 'processing', $row['status'] );
+		WPS_Assert::same( 0, (int) $row['wc_order_id'] );
+
+		// 6. Stale Worker A tries to fail with attempt 1 -> ignored (fenced)
+		Order_Repository::fail( $external_id, 'Worker A failed', 1 );
+		$row = Order_Repository::get( $external_id );
+		WPS_Assert::same( 'processing', $row['status'] );
+
+		// 7. Worker B completes with attempt 2 -> succeeds
+		Order_Repository::complete( $external_id, 9992, $hash, 2 );
+		$row = Order_Repository::get( $external_id );
+		WPS_Assert::same( 'completed', $row['status'] );
+		WPS_Assert::same( 9992, (int) $row['wc_order_id'] );
+	}
+);

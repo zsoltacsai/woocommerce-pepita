@@ -51,7 +51,8 @@ final class Importer {
 		$payload_hash      = hash( 'sha256', $payload_json );
 		$payload['__hash'] = $payload_hash;
 
-		$claim = Order_Repository::claim( $external_id, (string) ( $payload['origin'] ?? '' ), $payload_json, $payload_hash );
+		$claim   = Order_Repository::claim( $external_id, (string) ( $payload['origin'] ?? '' ), $payload_json, $payload_hash );
+		$attempt = (int) ( $claim['row']['attempts'] ?? 0 );
 
 		if ( 'completed' === $claim['state'] ) {
 			$order_id    = (int) ( $claim['row']['wc_order_id'] ?? 0 );
@@ -73,7 +74,7 @@ final class Importer {
 				return $this->result( 'error', 500, 'A rendelés nem található a WooCommerce rendszerében.' );
 			}
 
-			return $this->handle_existing_order( $external_id, $order_id, $stored_hash, $payload_hash, $payload );
+			return $this->handle_existing_order( $external_id, $order_id, $stored_hash, $payload_hash, $payload, false, $attempt );
 		}
 
 		if ( 'busy' === $claim['state'] ) {
@@ -107,7 +108,7 @@ final class Importer {
 					);
 
 					$existing_order->delete( true );
-					Order_Repository::associate( $external_id, 0 );
+					Order_Repository::associate( $external_id, 0, $attempt );
 					$existing = 0;
 				} else {
 					$stored_hash = (string) $existing_order->get_meta( self::META_PAYLOAD_HASH );
@@ -115,7 +116,7 @@ final class Importer {
 						$stored_hash = (string) ( $claim['row']['payload_hash'] ?? '' );
 					}
 
-					return $this->handle_existing_order( $external_id, $existing, $stored_hash, $payload_hash, $payload, true );
+					return $this->handle_existing_order( $external_id, $existing, $stored_hash, $payload_hash, $payload, true, $attempt );
 				}
 			}
 		}
@@ -124,7 +125,7 @@ final class Importer {
 			$validation = $this->validate( $payload );
 
 			if ( isset( $validation['error'] ) ) {
-				Order_Repository::fail( $external_id, $validation['error'] );
+				Order_Repository::fail( $external_id, $validation['error'], $attempt );
 
 				Logger::warning(
 					'order_import',
@@ -140,18 +141,18 @@ final class Importer {
 				return $this->result( 'error', 422, $validation['error'] );
 			}
 
-			$order_id = $this->create_order( $payload, $validation, $external_id );
+			$order_id = $this->create_order( $payload, $validation, $external_id, $attempt );
 			if ( is_wp_error( $order_id ) ) {
-				Order_Repository::fail( $external_id, $order_id->get_error_message() );
+				Order_Repository::fail( $external_id, $order_id->get_error_message(), $attempt );
 
 				return $this->result( 'error', 500, 'A WooCommerce rendelés létrehozása sikertelen.' );
 			}
 
-			Order_Repository::complete( $external_id, (int) $order_id, $payload_hash );
+			Order_Repository::complete( $external_id, (int) $order_id, $payload_hash, $attempt );
 
 			return $this->result( 'created', 200, '', (int) $order_id );
 		} catch ( \Throwable $throwable ) {
-			Order_Repository::fail( $external_id, $throwable->getMessage() );
+			Order_Repository::fail( $external_id, $throwable->getMessage(), $attempt );
 
 			Logger::error(
 				'order_import',
@@ -491,27 +492,30 @@ final class Importer {
 	 * @param array<string, mixed> $validated
 	 * @return int|\WP_Error
 	 */
-	private function create_order( array $payload, array $validated, string $external_id ) {
+	private function create_order( array $payload, array $validated, string $external_id, int $attempt = 0 ) {
 		$customer = is_array( $payload['customer'] ?? null ) ? $payload['customer'] : array();
 
-		$order = new \WC_Order();
-		$order->set_created_via( 'wps-pepita' );
-		$order->set_currency( (string) $validated['currency'] );
-		$order->update_meta_data( self::META_ORDER_ID, $external_id );
-		$order->update_meta_data( self::META_PAYLOAD_HASH, (string) ( $payload['__hash'] ?? '' ) );
-		$order->update_meta_data( '_wps_pepita_in_progress', '1' );
+		$email_filters = $this->suppress_emails();
 
 		try {
-			$order_id = $order->save();
-		} catch ( \Throwable $e ) {
-			return new \WP_Error( 'wps_order_failed', 'A kezdő rendelés mentése meghiúsult: ' . $e->getMessage() );
-		}
+			$order = new \WC_Order();
+			$order->set_created_via( 'wps-pepita' );
+			$order->set_currency( (string) $validated['currency'] );
+			$order->update_meta_data( self::META_ORDER_ID, $external_id );
+			$order->update_meta_data( self::META_PAYLOAD_HASH, (string) ( $payload['__hash'] ?? '' ) );
+			$order->update_meta_data( '_wps_pepita_in_progress', '1' );
 
-		if ( ! $order_id ) {
-			return new \WP_Error( 'wps_order_failed', 'A WooCommerce nem adott vissza rendelés azonosítót.' );
-		}
+			try {
+				$order_id = $order->save();
+			} catch ( \Throwable $e ) {
+				return new \WP_Error( 'wps_order_failed', 'A kezdő rendelés mentése meghiúsult: ' . $e->getMessage() );
+			}
 
-		Order_Repository::associate( $external_id, (int) $order_id );
+			if ( ! $order_id ) {
+				return new \WP_Error( 'wps_order_failed', 'A WooCommerce nem adott vissza rendelés azonosítót.' );
+			}
+
+			Order_Repository::associate( $external_id, (int) $order_id, $attempt );
 
 		try {
 			$prices_include_tax = function_exists( 'wc_prices_include_tax' ) ? wc_prices_include_tax() : false;
@@ -833,32 +837,30 @@ final class Importer {
 
 			$order->set_status( $status, 'Pepita import' );
 
-			$email_filters = $this->suppress_emails();
+			// Remove in-progress marker and record completion timestamp
+			$order->delete_meta_data( '_wps_pepita_in_progress' );
+			$order->update_meta_data( self::META_IMPORTED_AT, current_time( 'mysql', true ) );
 
-			try {
-				$order_id = $order->save();
+			$order_id = $order->save();
 
-				if ( $order_id ) {
-					$order->add_order_note(
-						sprintf(
-							'Pepita rendelés importálva. Pepita rendelésazonosító: %s. Fizetési mód: %s. Szállítási mód: %s. Fizetési státusz: %s.',
-							$external_id,
-							$payment['title'],
-							$shipping['title'],
-							$paid ? 'fizetve' : 'nincs fizetve'
-						)
-					);
+			if ( $order_id ) {
+				$order->add_order_note(
+					sprintf(
+						'Pepita rendelés importálva. Pepita rendelésazonosító: %s. Fizetési mód: %s. Szállítási mód: %s. Fizetési státusz: %s.',
+						$external_id,
+						$payment['title'],
+						$shipping['title'],
+						$paid ? 'fizetve' : 'nincs fizetve'
+					)
+				);
 
-					if ( '' !== (string) ( $payload['customer_message'] ?? '' ) ) {
-						$order->add_order_note( 'Vásárlói megjegyzés: ' . (string) $payload['customer_message'] );
-					}
-
-					if ( '' !== (string) ( $payload['courier_message'] ?? '' ) ) {
-						$order->add_order_note( 'Futár megjegyzés: ' . (string) $payload['courier_message'] );
-					}
+				if ( '' !== (string) ( $payload['customer_message'] ?? '' ) ) {
+					$order->add_order_note( 'Vásárlói megjegyzés: ' . (string) $payload['customer_message'] );
 				}
-			} finally {
-				$this->restore_emails( $email_filters );
+
+				if ( '' !== (string) ( $payload['courier_message'] ?? '' ) ) {
+					$order->add_order_note( 'Futár megjegyzés: ' . (string) $payload['courier_message'] );
+				}
 			}
 
 			if ( ! $order_id ) {
@@ -883,9 +885,13 @@ final class Importer {
 		} catch ( \Throwable $throwable ) {
 			// Never leave a half-built pending order behind: the retry would
 			// create a second one.
-			$this->discard_order( $order );
+			if ( isset( $order ) && $order instanceof \WC_Order ) {
+				$this->discard_order( $order );
+			}
 
 			throw $throwable;
+		} finally {
+			$this->restore_emails( $email_filters );
 		}
 	}
 
@@ -1235,7 +1241,7 @@ final class Importer {
 	 * @param bool                 $reclaimed Whether this came from the crash-recovery fallback.
 	 * @return array<string, mixed>
 	 */
-	private function handle_existing_order( string $external_id, int $order_id, string $stored_hash, string $payload_hash, array $payload, bool $reclaimed = false ): array {
+	private function handle_existing_order( string $external_id, int $order_id, string $stored_hash, string $payload_hash, array $payload, bool $reclaimed = false, int $attempt = 0 ): array {
 		$existing_order = $order_id > 0 ? wc_get_order( $order_id ) : false;
 
 		if ( '' === $stored_hash && $existing_order instanceof \WC_Order ) {
@@ -1349,6 +1355,10 @@ final class Importer {
 					$order_id
 				);
 
+				if ( $reclaimed ) {
+					Order_Repository::fail( $external_id, 'Conflicting replay rejected: ' . implode( ', ', $reasons ), $attempt );
+				}
+
 				return $this->result( 'conflict', 409, 'A rendelés már korábban importálásra került, de az új értesítés tartalma eltér. Kérjük, ellenőrizze a rendelést a WooCommerce-ben.' );
 			}
 
@@ -1399,12 +1409,16 @@ final class Importer {
 				$order_id
 			);
 
+			if ( $reclaimed ) {
+				Order_Repository::fail( $external_id, 'Conflicting replay rejected: hash mismatch', $attempt );
+			}
+
 			return $this->result( 'conflict', 409, 'A rendelés már korábban importálásra került, de az új értesítés tartalma eltér. Kérjük, ellenőrizze a rendelést a WooCommerce-ben.' );
 		}
 
 		// Replay is valid: complete claim if reclaimed, and sync claim hash
 		if ( $order_id > 0 ) {
-			Order_Repository::complete( $external_id, $order_id, $payload_hash );
+			Order_Repository::complete( $external_id, $order_id, $payload_hash, $attempt );
 		}
 
 		return $this->result(

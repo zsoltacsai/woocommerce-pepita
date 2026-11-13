@@ -909,7 +909,6 @@ class WC_Order {
 
 	/** @var array<int, array{content: string, customer_note: bool}> */
 	public array $order_notes = array();
-	private array $notes = array();
 
 	public function add_order_note( string $note, int $is_customer_note = 0, bool $added_by_user = false ): int {
 		$this->order_notes[] = array(
