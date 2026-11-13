@@ -29,10 +29,10 @@ The staging distribution archive has been generated in a strictly reproducible, 
 | **Plugin Version** | `1.1.0` (`WPS_PEPITA_VERSION`) |
 | **Database Schema Version** | `1.1.0` (`WPS_PEPITA_DB_VERSION`) |
 | **Commit SHA** | `security/m9-staging-readiness` HEAD |
-| **Package SHA-256** | `b0b3843655480c45124eea748bdb4cf8cc5240af08698795d1db02ba4a94ece8` |
-| **Archive File Count** | 55 files |
-| **Archive Uncompressed Size** | 443,264 bytes (~433 KB) |
-| **Archive Compressed Size** | 137,867 bytes (~135 KB) |
+| **Package SHA-256** | `dbd68ff4c67ceb15d9ca96f37f231ccbab5b5c9987e8f52ce67e5a3f52acbb57` |
+| **Archive Entry Count** | 55 entries (47 files + 8 directories) |
+| **Archive Uncompressed Size** | 445,466 bytes (~435 KB) |
+| **Archive Compressed Size** | 134,845 bytes (~132 KB) |
 | **Secret-Free Verification** | Confirmed: no API keys, tokens, passwords, private salts, or credentials in archive |
 | **Development Leftovers** | Confirmed clean: `.git`, `tests/`, `integration/`, `dist/`, `.DS_Store`, `*.map` stripped |
 
@@ -75,10 +75,12 @@ The four remaining risks identified during M9 staging preparation have been inve
 * **Remediation**:
   1. **Atomic Conditional Claims**: `Order_Repository::claim()` relies on an atomic MySQL `INSERT IGNORE` and conditional state checks. The first worker receives state `claimed`. Any concurrent worker attempting to claim an active lease receives `busy`.
   2. **Retry Lease Timeout**: If a worker terminates abnormally, the lease window of 15 minutes allows safe reclaim only after stale lease expiration.
-  3. **Fencing Tokens via Attempt Counters**: Every claim lease acquisition and stale lease reclaim increments the `attempts` counter. `associate()`, `complete()`, and `fail()` queries are guarded by `AND attempts = %d` and `status = 'processing'`. A slow or zombie worker whose lease expired cannot clobber a newly reclaimed lease or overwrite order associations.
-  4. **Completed State Locking**: Once marked `completed`, the claim row locks permanently; subsequent requests are immediately recognized as `completed` without entering creation code.
+  3. **Fencing Tokens via Attempt Counters**: Every claim lease acquisition and stale lease reclaim increments the `attempts` counter. `associate()`, `complete()`, and `fail()` queries are guarded by `AND attempts = %d` and `(status = 'processing' OR status = 'completed')`. A slow or zombie worker whose lease expired cannot clobber a newly reclaimed lease or overwrite order associations.
+  4. **Completed Order Preservation**: When an order is completed, its status is finalized and `_wps_pepita_in_progress` is cleared. If a fenced-out worker loses its lease at `complete()`, it preserves the completed order intact (no destructive `delete(true)` is executed), allowing the overtaking worker or next retry to adopt it safely. The fenced worker returns HTTP 409 retry.
+  5. **Pre-Save Lease Re-Verification**: Before removing `_wps_pepita_in_progress` and finalizing the order, `associate()` is re-checked to ensure the lease was not taken over during long line item processing. If lost, the incomplete shell is discarded and HTTP 409 retry is returned.
+  6. **Completed State Locking**: Once marked `completed`, the claim row locks permanently; subsequent requests are immediately recognized as `completed` without entering creation code.
 * **Verification**:
-  - Unit test `lease fencing: stale worker cannot overwrite newly reclaimed attempt` in [106-recovery-and-replay-test.php](file:///home/zsolt/Projects/woocommerce-pepita/tests/cases/106-recovery-and-replay-test.php).
+  - Unit tests in [106-recovery-and-replay-test.php](file:///home/zsolt/Projects/woocommerce-pepita/tests/cases/106-recovery-and-replay-test.php) covering stale worker lease fencing, completed order preservation on complete() fence, create_order fence-out discard, replay fence verification, and purge fence abort.
   - Integration test `The durable claim transitions claimed -> busy -> failed -> claimed -> completed` in [07-idempotency.php](file:///home/zsolt/Projects/woocommerce-pepita/integration/tests/cases/07-idempotency.php#L92).
 
 ### 2.4 Deduplication Scheme Safety Under Process Termination
@@ -86,6 +88,7 @@ The four remaining risks identified during M9 staging preparation have been inve
 * **Remediation**:
   1. **Dual Anchor Architecture**: Deduplication is anchored in two independent datastores: MySQL table `wps_pepita_order_claims` (with unique index on `external_id` using `utf8mb4_bin` collation) and WooCommerce order metadata (`_wps_pepita_order_id`).
   2. **Self-Healing Recovery**: If the claims table row is lost or dropped, crash recovery uses indexed order metadata to restore the claim. If the WooCommerce metadata write was interrupted, the claim table provides the allocated order ID for cleanup.
+  3. **Fail-Closed Claim Gates**: If a claim read-back returns a null row or non-positive attempt count, processing fails closed immediately with HTTP 500 error instead of silently bypassing fencing.
 * **Verification**:
   - Integration test `A lost claim row recovers the existing order by its external id meta` in [07-idempotency.php](file:///home/zsolt/Projects/woocommerce-pepita/integration/tests/cases/07-idempotency.php#L127).
 
@@ -94,8 +97,17 @@ The four remaining risks identified during M9 staging preparation have been inve
 ## 3. Automated Verification Matrix & CI Status
 
 ### 3.1 CI Suite Coverage
-* **Total Unit Suite**: **180 Unit Tests across 19 cases (0 failures, 100% pass)** covering PHP 8.1, 8.2, 8.3, 8.4, and 8.5.
+* **Total Unit Suite**: **185 Unit Tests across 19 cases (0 failures, 100% pass)** covering PHP 8.1, 8.2, 8.3, 8.4, and 8.5.
 * **Total Integration Suite**: **71 Integration Scenarios across both HPOS and Legacy stores (0 failures, 100% pass)** running on real WordPress 7.1.4, WooCommerce 11.3.0, and MySQL 8.4.
+* **Automated CI Run**: Run ID [43417311280](https://github.com/zsoltacsai/woocommerce-pepita/actions/runs/43417311280) on branch `security/m9-staging-readiness` — **All 8 Checks Passed 100% Green**:
+  - `lint (PHP 8.5)`: PASSED (9s)
+  - `unit (PHP 8.1)`: PASSED (9s)
+  - `unit (PHP 8.2)`: PASSED (8s)
+  - `unit (PHP 8.3)`: PASSED (7s)
+  - `unit (PHP 8.4)`: PASSED (13s)
+  - `unit (PHP 8.5)`: PASSED (8s)
+  - `integration-legacy`: PASSED (1m 39s)
+  - `integration-hpos`: PASSED (1m 56s)
 
 ---
 
@@ -104,14 +116,32 @@ The four remaining risks identified during M9 staging preparation have been inve
 An independent, rigorous security QA review was conducted across multiple iterative rounds on the `security/m9-staging-readiness` branch by Claude Haiku 5.5 in persona as Alastor "Mad-Eye" Moody.
 
 * **Auditor**: Claude Haiku 5.5 (`claude-haiku-5-5`)
-* **Scope**: `class-importer.php`, `class-order-repository.php`, `class-wps-assert.php`, `106-recovery-and-replay-test.php`, `07-idempotency.php`, `TESTING.md`, `M9-STAGING-READINESS.md`.
+* **Scope**: `class-importer.php`, `class-order-repository.php`, `class-wc-stubs.php`, `105-order-tax-test.php`, `106-recovery-and-replay-test.php`, `07-idempotency.php`, `TESTING.md`, `M9-STAGING-READINESS.md`.
 * **Focus**: Financial integrity, duplicate order prevention, crash recovery, historical replay validation, concurrent webhook handling, process kill resilience, and optimistic lease fencing.
 * **Audit Findings & Resolutions**:
-  1. **Fail-Closed Historical Replay Validation**: Legacy orders lacking a stored hash execute full structural `validate($payload)` and enforce zero-tolerance financial invariants (currency match, order total delta < 0.001, customer billing email, line count, and per-line SKU and quantity match). Items lacking SKU fail closed with HTTP 409 Conflict.
-  2. **Atomic In-Progress Lifecycle**: Initial shell is created with `_wps_pepita_in_progress = '1'`, `META_ORDER_ID`, and `META_PAYLOAD_HASH` prior to initial DB write. Incomplete shells from crashed processes are detected by `is_order_incomplete()` and forcefully purged (`$order->delete(true)`).
-  3. **Early Email & Hook Suppression**: `suppress_emails()` is active before the initial shell save in a `try ... finally` block, preventing creation hooks or email notifications during shell construction.
-  4. **Optimistic Attempt Counter Fencing**: `Order_Repository::associate()`, `complete()`, and `fail()` return boolean status and are fenced by `attempts` version counters. Stale workers whose lease expired (>15 min) match 0 rows and return `false`, causing the importer to discard the orphaned shell and abort rather than reporting false success.
-  5. **`fail()` Status & Regression Coverage**: Fixed undefined `STATUS_CLAIMED`, fenced on `status = STATUS_PROCESSING`, and added dedicated unfenced regression test in `106-recovery-and-replay-test.php`.
+  1. **CRITICAL: Preserving Completed Orders on Fenced-Out `complete()`**:
+     - *Issue*: A stalled worker waking up after another worker adopted its completed order could execute `$order->delete(true)` when `complete()` returned false, destroying the adopted order.
+     - *Resolution*: Removed `$order->delete(true)` on `complete()` fence-out. Completed orders are preserved intact for adoption, and the fenced worker returns HTTP 409 retry.
+  2. **HIGH: Comprehensive Importer-Level Lease Fencing Tests**:
+     - *Issue*: Fencing assertions existed only at repository layer; importer-level handling of `wps_fenced_out`, 409 retry, and replay fencing had no test coverage.
+     - *Resolution*: Added 5 deterministic unit tests in `106-recovery-and-replay-test.php` covering `create_order` discard, completed order preservation, reclaimed replay fence check, recovery purge fence check, and fail-closed claim gates (total suite expanded to 185 tests).
+  3. **MEDIUM: `create_order` Lease Loss Mapped to HTTP 409 Retry**:
+     - *Issue*: A lease loss during `create_order()` returned a generic 500 error instead of 409 retry.
+     - *Resolution*: `import()` explicitly detects `wps_fenced_out` from `create_order()` and returns HTTP 409 retry.
+  4. **MEDIUM: Replay Path Fenced-Out Check**:
+     - *Issue*: In `handle_existing_order()`, `complete()` return value was unchecked, returning 200 duplicate even if lease was lost.
+     - *Resolution*: Checked `$completed` on reclaimed replays; returns HTTP 409 retry if fenced out.
+  5. **MEDIUM: Fail-Closed on Corrupted / Null Claim Row**:
+     - *Issue*: Missing claim row or zero attempt counter could bypass fencing guards.
+     - *Resolution*: Validated `$claim['row']` and enforced `$attempt > 0` before proceeding; invalid rows fail closed with HTTP 500.
+  6. **MEDIUM: Stub Integrity & Customer Note Filter**:
+     - *Issue*: `get_customer_notes()` in WC stub had been modified to return all notes, masking internal notes.
+     - *Resolution*: Restored customer note filtering in `get_customer_notes()`, and updated assertions in `105-order-tax-test.php` to verify operator notes via `get_all_notes()`.
+  7. **LOW: Pre-Save Lease Re-Verification & Recovery Associate Guard**:
+     - *Issue*: A stalled worker during item construction could write items to an adopted shell; recovery shell purge dropped `associate()` return.
+     - *Resolution*: Re-verified lease before clearing `_wps_pepita_in_progress`, and checked `associate()` return in recovery shell purge.
+  8. **LOW: Entry Count Clarification**:
+     - *Issue*: "55 files" was ambiguous; clarified as 47 files + 8 directory entries.
 * **Verdict**: **CONDITIONAL PASS — STAGING PREPARATION ONLY**
 * **Production Gate**: **STRICT NO-GO (HOLD)** pending live staging dry-run acceptance and partner team clarifications.
 
@@ -249,10 +279,10 @@ If any critical defect or operational instability occurs during staging validati
 ## 9. Final Decision & Gate Status
 
 * **Staging Gate**: **GO (CONDITIONAL APPROVAL)**
-  - All four security and financial integrity risks are closed and verified with automated regression and integration suites.
-  - Reproducible, secret-free distribution package `dist/wp-pepita-sync.zip` (SHA-256: `105d4486498c0eba2d59511907501de14f79e530ddb2fc188ffb25440eb15105`) is prepared and verified.
-  - CI verification runs across all supported PHP versions and HPOS modes.
-  - Independent review by Mad-Eye Moody confirms conditional readiness for isolated staging deployment.
+  - All four security and financial integrity risks are closed and verified with automated regression and integration suites (185 unit tests, 71 integration scenarios).
+  - Reproducible, secret-free distribution package `dist/wp-pepita-sync.zip` (SHA-256: `dbd68ff4c67ceb15d9ca96f37f231ccbab5b5c9987e8f52ce67e5a3f52acbb57`, 55 entries: 47 files + 8 directories) is prepared and verified.
+  - CI verification runs across all supported PHP versions and HPOS modes with 100% pass rate.
+  - Independent review by Mad-Eye Moody confirms conditional readiness for isolated staging deployment following lease fencing and order preservation fixes.
 
 * **Production Gate**: **STRICT NO-GO (HOLD)**
   - No code may be deployed to production.

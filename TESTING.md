@@ -4,7 +4,7 @@
 
 ```
 $ php tests/run.php
-180 passed, 0 failed, 0 skipped
+185 passed, 0 failed, 0 skipped
 ```
 
 PHP 8.1–8.5 CLI, no WordPress installation required.
@@ -35,7 +35,7 @@ Verified cases cover environment, schema creation and collation, REST endpoint a
 
 The repository CI workflow runs on Ubuntu 24.04 runners for every PR and push. The workflow matrix includes:
 1. `lint (PHP 8.5)`: PHP syntax check across all PHP files.
-2. `unit (PHP 8.1–8.5)`: Unit test suite (180 tests across 19 cases).
+2. `unit (PHP 8.1–8.5)`: Unit test suite (185 tests across 19 cases).
 3. `integration-hpos`: Full integration suite on WooCommerce 11.3 HPOS store.
 4. `integration-legacy`: Full integration suite on WooCommerce 11.3 legacy store.
 never as PASS, until the workflow reaches `main` and runs on the exact review
@@ -97,6 +97,8 @@ php tests/run.php validator
 | `130-performance-test.php` | 5 | 1000 products, bounded runs, memory, stock consistency, idempotency, bulk exclusion |
 | `140-bootstrap-test.php` | 7 | Front-end/admin wiring, all eight admin screens render, activation/deactivation, health checks, missing-WooCommerce notice |
 | `150-retention-test.php` | 3 | Package-label retention for open, closed and custom-status orders |
+| `105-order-tax-test.php` | 9 | Deterministic zero-tax and tax-inclusive/exclusive handling, operator notes |
+| `106-recovery-and-replay-test.php` | 18 | Mid-creation crash recovery, shell purge, lease fencing, historical replay, deduplication |
 
 ### Key behaviours proven
 
@@ -194,6 +196,19 @@ each now covered by a case:
 18. Non-PDF bytes were accepted as a package label (CF-13).
 19. `external_id` used a case-insensitive collation, so `PEP-1` and `pep-1`
     collided (PV-03).
+20. Stale-worker lease takeover was unfenced; a worker stalled past the 15-minute lease
+    could overwrite newly reclaimed attempts. Now fenced by `attempts = %d` on all state
+    mutations (`associate()`, `complete()`, `fail()`), matching 0 rows and aborting with 409 retry.
+21. Fenced-out completed order preservation: a worker losing its lease at the completion
+    boundary preserves the created order intact instead of calling `delete(true)`, allowing
+    the overtaking worker or retry to adopt it via `find_order_by_external_id()`.
+22. Incomplete order shell discard: mid-creation crashes and fence-outs reliably discard
+    partial order shells with `_wps_pepita_in_progress` before returning 409 retry.
+23. Historical order replay without stored hash verifies all invariant fields
+    (currency, line item count, totals within 0.001, billing email, per-line SKU and quantity)
+    and fails closed if any field conflicts.
+24. Fail-closed claim initialization: claim read-back returning null or non-positive attempt
+    counter rejects the order with 500 error instead of silently bypassing fencing.
 
 ## 5. What the suites do not cover
 

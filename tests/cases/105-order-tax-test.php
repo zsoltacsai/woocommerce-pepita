@@ -393,7 +393,7 @@ $suite->add(
 		WPS_Assert::equals( 1990.0, $order->get_total() );
 
 		// Operator note is added to the order
-		$notes = $order->get_customer_notes();
+		$notes = $order->get_all_notes();
 		WPS_Assert::true( count( $notes ) > $notes_count_before );
 		WPS_Assert::contains( 'NEW-2', end( $notes ) );
 	}
@@ -517,7 +517,7 @@ $suite->add(
 		WPS_Assert::equals( 1990.0, $order->get_total() );
 
 		// Note recorded
-		$notes = $order->get_customer_notes();
+		$notes = $order->get_all_notes();
 		WPS_Assert::true( count( $notes ) > $notes_before );
 		WPS_Assert::contains( 'NEW-2', end( $notes ) );
 	}

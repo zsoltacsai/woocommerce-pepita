@@ -34,12 +34,17 @@ cp -R "$ROOT/assets" "$STAGE/assets"
 # Remove development leftovers that must never ship.
 find "$STAGE" -name '.DS_Store' -delete
 find "$STAGE" -name '*.map' -delete
-find "$STAGE" -type f -name '*.php' -exec chmod 644 {} \;
+find "$STAGE" -type f -exec chmod 644 {} \;
+find "$STAGE" -type d -exec chmod 755 {} \;
+
+# Normalize timestamps for reproducible builds.
+SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git log -1 --pretty=%ct 2>/dev/null || date +%s)}"
+find "$STAGE" -exec touch -d "@$SOURCE_DATE_EPOCH" {} +
 
 echo "==> Csomagolás"
 (
 	cd "$DIST"
-	zip -rq "$ZIP" "$SLUG"
+	zip -rq -X "$ZIP" "$SLUG"
 )
 
 echo "==> Ellenőrzés"

@@ -51,10 +51,10 @@ final class Importer {
 		$payload_hash      = hash( 'sha256', $payload_json );
 		$payload['__hash'] = $payload_hash;
 
-		$claim   = Order_Repository::claim( $external_id, (string) ( $payload['origin'] ?? '' ), $payload_json, $payload_hash );
-		$attempt = (int) ( $claim['row']['attempts'] ?? 0 );
+		$claim = Order_Repository::claim( $external_id, (string) ( $payload['origin'] ?? '' ), $payload_json, $payload_hash );
 
 		if ( 'completed' === $claim['state'] ) {
+			$attempt     = (int) ( $claim['row']['attempts'] ?? 0 );
 			$order_id    = (int) ( $claim['row']['wc_order_id'] ?? 0 );
 			$stored_hash = (string) ( $claim['row']['payload_hash'] ?? '' );
 
@@ -81,9 +81,11 @@ final class Importer {
 			return $this->result( 'retry', 409, 'A rendelés feldolgozása folyamatban van. Kérjük, próbálja újra később.' );
 		}
 
-		if ( 'claimed' !== $claim['state'] ) {
+		if ( 'claimed' !== $claim['state'] || ! isset( $claim['row']['attempts'] ) || (int) $claim['row']['attempts'] <= 0 ) {
 			return $this->result( 'error', 500, 'A rendelés rögzítése átmenetileg nem lehetséges.' );
 		}
+
+		$attempt = (int) $claim['row']['attempts'];
 
 		// Durable fallback: an order may already exist if a previous attempt
 		// crashed after the WooCommerce order was initiated.
@@ -108,7 +110,10 @@ final class Importer {
 					);
 
 					$existing_order->delete( true );
-					Order_Repository::associate( $external_id, 0, $attempt );
+					$reset = Order_Repository::associate( $external_id, 0, $attempt );
+					if ( ! $reset ) {
+						return $this->result( 'retry', 409, 'A rendelés feldolgozási zárolása lejárt, a feldolgozást egy újabb kísérlet vette át.' );
+					}
 					$existing = 0;
 				} else {
 					$stored_hash = (string) $existing_order->get_meta( self::META_PAYLOAD_HASH );
@@ -143,17 +148,28 @@ final class Importer {
 
 			$order_id = $this->create_order( $payload, $validation, $external_id, $attempt );
 			if ( is_wp_error( $order_id ) ) {
+				if ( 'wps_fenced_out' === $order_id->get_error_code() ) {
+					return $this->result( 'retry', 409, 'A rendelés feldolgozási zárolása lejárt, a feldolgozást egy újabb kísérlet vette át.' );
+				}
+
 				Order_Repository::fail( $external_id, $order_id->get_error_message(), $attempt );
 
 				return $this->result( 'error', 500, 'A WooCommerce rendelés létrehozása sikertelen.' );
 			}
 
 			$completed = Order_Repository::complete( $external_id, (int) $order_id, $payload_hash, $attempt );
-			if ( $attempt > 0 && ! $completed ) {
-				$order = wc_get_order( (int) $order_id );
-				if ( $order instanceof \WC_Order ) {
-					$order->delete( true );
-				}
+			if ( ! $completed ) {
+				Logger::warning(
+					'order_import',
+					'A rendelés feldolgozási bérlete lejárt a befejezés előtt; a rendelést egy újabb kísérlet veszi át.',
+					array(
+						'external_id' => $external_id,
+						'order_id'    => $order_id,
+						'attempt'     => $attempt,
+					),
+					'order',
+					(int) $order_id
+				);
 
 				return $this->result( 'retry', 409, 'A rendelés feldolgozási zárolása lejárt, a feldolgozást egy újabb kísérlet vette át.' );
 			}
@@ -524,7 +540,7 @@ final class Importer {
 			}
 
 			$associated = Order_Repository::associate( $external_id, (int) $order_id, $attempt );
-			if ( $attempt > 0 && ! $associated ) {
+			if ( ! $associated ) {
 				return $this->discard_order( $order, 'wps_fenced_out', 'A rendelés zárolása lejárt, a feldolgozást más folyamat vette át.' );
 			}
 
@@ -846,6 +862,12 @@ final class Importer {
 			$this->apply_package_label( $order, $payload, $external_id );
 
 			$order->set_status( $status, 'Pepita import' );
+
+			// Re-verify lease before finalizing completion to prevent orphan rows if worker stalled
+			$reassociated = Order_Repository::associate( $external_id, (int) $order_id, $attempt );
+			if ( ! $reassociated ) {
+				return $this->discard_order( $order, 'wps_fenced_out', 'A rendelés zárolása lejárt a véglegesítés előtt, a feldolgozást más folyamat vette át.' );
+			}
 
 			// Remove in-progress marker and record completion timestamp
 			$order->delete_meta_data( '_wps_pepita_in_progress' );
@@ -1428,7 +1450,14 @@ final class Importer {
 
 		// Replay is valid: complete claim if reclaimed, and sync claim hash
 		if ( $order_id > 0 ) {
-			Order_Repository::complete( $external_id, $order_id, $payload_hash, $attempt );
+			if ( $reclaimed ) {
+				$completed = Order_Repository::complete( $external_id, $order_id, $payload_hash, $attempt );
+				if ( ! $completed ) {
+					return $this->result( 'retry', 409, 'A rendelés feldolgozási zárolása lejárt, a feldolgozást egy újabb kísérlet vette át.' );
+				}
+			} else {
+				Order_Repository::complete( $external_id, $order_id, $payload_hash, 0 );
+			}
 		}
 
 		return $this->result(

@@ -805,3 +805,205 @@ $suite->add(
 		WPS_Assert::same( 'Dedikált hiba leírás', $row['last_error'] );
 	}
 );
+
+$suite->add(
+	'importer: fenced out on create_order initial associate returns 409 retry and discards incomplete shell',
+	static function () use ( $recovery_payload ): void {
+		$importer    = new Importer();
+		$external_id = 'PEP-FENCE-IMP-1';
+		$payload     = $recovery_payload( array( 'id' => $external_id ) );
+
+		$filter_fired = false;
+		$filter       = static function ( $enabled ) use ( &$filter_fired, $external_id ) {
+			if ( ! $filter_fired ) {
+				$filter_fired = true;
+				global $wpdb;
+				$wpdb->update(
+					Order_Repository::table(),
+					array( 'attempts' => 2 ),
+					array( 'external_id' => $external_id )
+				);
+			}
+			return $enabled;
+		};
+
+		add_filter( 'woocommerce_email_enabled_new_order', $filter );
+		$result = $importer->import( $payload );
+		remove_filter( 'woocommerce_email_enabled_new_order', $filter );
+
+		WPS_Assert::true( $filter_fired );
+		WPS_Assert::same( 409, $result['http'] );
+		WPS_Assert::same( 'retry', $result['status'] );
+
+		// The incomplete order shell must be discarded
+		$found_id = $importer->find_order_by_external_id( $external_id );
+		WPS_Assert::same( 0, $found_id );
+	}
+);
+
+$suite->add(
+	'importer: fenced out on complete() returns 409 retry and preserves completed order for adoption',
+	static function () use ( $recovery_payload ): void {
+		$importer    = new Importer();
+		$external_id = 'PEP-FENCE-IMP-2';
+		$payload     = $recovery_payload( array( 'id' => $external_id ) );
+
+		$save_count = 0;
+		$filter     = static function ( $enabled ) use ( &$save_count, $external_id ) {
+			$save_count++;
+			// Advance attempts on the second save (final save) after pre-save check passed
+			if ( 2 === $save_count ) {
+				global $wpdb;
+				$wpdb->update(
+					Order_Repository::table(),
+					array( 'attempts' => 2 ),
+					array( 'external_id' => $external_id )
+				);
+			}
+			return $enabled;
+		};
+
+		add_filter( 'woocommerce_email_enabled_new_order', $filter );
+		$result = $importer->import( $payload );
+		remove_filter( 'woocommerce_email_enabled_new_order', $filter );
+
+		WPS_Assert::same( 409, $result['http'] );
+		WPS_Assert::same( 'retry', $result['status'] );
+
+		// CRITICAL (Mad-Eye Finding 1): Completed order must NOT be deleted!
+		$order_id = $importer->find_order_by_external_id( $external_id );
+		WPS_Assert::true( $order_id > 0 );
+		$order = wc_get_order( $order_id );
+		WPS_Assert::true( $order instanceof \WC_Order );
+		WPS_Assert::same( '', (string) $order->get_meta( '_wps_pepita_in_progress' ) );
+
+		// Simulate Worker B or next retry adopting the completed order
+		$retry_result = $importer->import( $payload );
+		WPS_Assert::same( 200, $retry_result['http'] );
+		WPS_Assert::same( 'duplicate', $retry_result['status'] );
+		WPS_Assert::same( $order_id, $retry_result['order_id'] );
+	}
+);
+
+$suite->add(
+	'importer: reclaimed replay fenced out on complete() returns 409 retry',
+	static function () use ( $recovery_payload ): void {
+		$importer    = new Importer();
+		$external_id = 'PEP-FENCE-REPLAY-1';
+		$payload     = $recovery_payload( array( 'id' => $external_id ) );
+
+		// 1. Initial order import with historical missing hash
+		$first = $importer->import( $payload );
+		WPS_Assert::same( 200, $first['http'] );
+		$order_id = (int) $first['order_id'];
+
+		// Clear hashes to simulate historical order replay
+		$order = wc_get_order( $order_id );
+		$order->delete_meta_data( Importer::META_PAYLOAD_HASH );
+		global $wpdb;
+		$wpdb->update(
+			Order_Repository::table(),
+			array(
+				'status'       => Order_Repository::STATUS_FAILED,
+				'payload_hash' => null,
+				'last_error'   => 'Stale/failed for replay',
+			),
+			array( 'external_id' => $external_id )
+		);
+
+		// During replay, backfill will trigger $order->save(), bumping attempts before complete()
+		$filter_fired = false;
+		$filter       = static function ( $enabled ) use ( &$filter_fired, $external_id ) {
+			if ( ! $filter_fired ) {
+				$filter_fired = true;
+				global $wpdb;
+				$wpdb->update(
+					Order_Repository::table(),
+					array( 'attempts' => 99 ),
+					array( 'external_id' => $external_id )
+				);
+			}
+			return $enabled;
+		};
+
+		add_filter( 'woocommerce_email_enabled_new_order', $filter );
+		$replay_result = $importer->import( $payload );
+		remove_filter( 'woocommerce_email_enabled_new_order', $filter );
+
+		WPS_Assert::true( $filter_fired );
+		WPS_Assert::same( 409, $replay_result['http'] );
+		WPS_Assert::same( 'retry', $replay_result['status'] );
+	}
+);
+
+$suite->add(
+	'importer: recovery shell purge aborts with 409 retry if fenced out',
+	static function () use ( $recovery_payload ): void {
+		$importer    = new Importer();
+		$external_id = 'PEP-FENCE-PURGE-1';
+		$payload     = $recovery_payload( array( 'id' => $external_id ) );
+
+		// Create an incomplete shell order
+		$shell = new \WC_Order();
+		$shell->set_created_via( 'wps-pepita' );
+		$shell->update_meta_data( Importer::META_ORDER_ID, $external_id );
+		$shell->update_meta_data( '_wps_pepita_in_progress', '1' );
+		$shell_id = $shell->save();
+		WPS_Assert::true( $shell_id > 0 );
+
+		// Create claim for this order
+		$claim = Order_Repository::claim( $external_id, 'pepita.hu', wp_json_encode( $payload ), 'hash-1' );
+		WPS_Assert::same( 'claimed', $claim['state'] );
+
+		// When the incomplete shell is deleted during recovery, bump attempts to fence Worker A
+		$action_fired = false;
+		$action       = static function ( $id ) use ( &$action_fired, $shell_id, $external_id ) {
+			if ( (int) $id === $shell_id ) {
+				$action_fired = true;
+				global $wpdb;
+				$wpdb->update(
+					Order_Repository::table(),
+					array( 'attempts' => 5 ),
+					array( 'external_id' => $external_id )
+				);
+			}
+		};
+
+		add_action( 'woocommerce_delete_order', $action );
+		$result = $importer->import( $payload );
+		remove_action( 'woocommerce_delete_order', $action );
+
+		WPS_Assert::true( $action_fired );
+		WPS_Assert::same( 409, $result['http'] );
+		WPS_Assert::same( 'retry', $result['status'] );
+	}
+);
+
+$suite->add(
+	'importer: claim returning non-claimed state fails closed with 500 error',
+	static function () use ( $recovery_payload ): void {
+		$importer    = new Importer();
+		$external_id = 'PEP-CLAIM-FAIL-1';
+		$payload     = $recovery_payload( array( 'id' => $external_id ) );
+
+		// Seed a claim with invalid status so claim() returns failed
+		global $wpdb;
+		$wpdb->insert(
+			Order_Repository::table(),
+			array(
+				'external_id' => $external_id,
+				'origin'      => 'pepita.hu',
+				'status'      => 'corrupted_state',
+				'wc_order_id' => 0,
+				'attempts'    => 0,
+				'created_at'  => gmdate( 'Y-m-d H:i:s', time() - 1000 ),
+				'updated_at'  => gmdate( 'Y-m-d H:i:s', time() ),
+			)
+		);
+
+		$result = $importer->import( $payload );
+		WPS_Assert::same( 500, $result['http'] );
+		WPS_Assert::same( 'error', $result['status'] );
+		WPS_Assert::same( 'A rendelés rögzítése átmenetileg nem lehetséges.', $result['message'] );
+	}
+);

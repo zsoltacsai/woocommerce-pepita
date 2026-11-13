@@ -702,6 +702,7 @@ class WC_Order {
 
 	public function delete( bool $force_delete = false ): bool {
 		if ( $this->id > 0 && isset( WPS_Test_State::$orders[ $this->id ] ) ) {
+			do_action( 'woocommerce_delete_order', $this->id );
 			unset( WPS_Test_State::$orders[ $this->id ] );
 			return true;
 		}
@@ -924,7 +925,14 @@ class WC_Order {
 	 * @return string[]
 	 */
 	public function get_customer_notes(): array {
-		return $this->notes;
+		$customer = array();
+		foreach ( $this->order_notes as $n ) {
+			if ( $n['customer_note'] ) {
+				$customer[] = $n['content'];
+			}
+		}
+
+		return $customer;
 	}
 
 	/**
