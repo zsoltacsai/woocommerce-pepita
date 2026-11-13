@@ -129,16 +129,10 @@ final class Storage {
 		$pointer = self::read_pointer();
 		if ( null !== $pointer ) {
 			if ( 'full' === $type && ! empty( $pointer['active']['full_feed'] ) ) {
-				$candidate = self::path( $pointer['active']['full_feed'] );
-				if ( is_file( $candidate ) ) {
-					return $candidate;
-				}
+				return self::path( $pointer['active']['full_feed'] );
 			}
 			if ( 'stock' === $type && ! empty( $pointer['active']['stock_feed'] ) ) {
-				$candidate = self::path( $pointer['active']['stock_feed'] );
-				if ( is_file( $candidate ) ) {
-					return $candidate;
-				}
+				return self::path( $pointer['active']['stock_feed'] );
 			}
 		}
 
@@ -149,16 +143,10 @@ final class Storage {
 		$pointer = self::read_pointer();
 		if ( null !== $pointer && ! empty( $pointer['previous'] ) ) {
 			if ( 'full' === $type && ! empty( $pointer['previous']['full_feed'] ) ) {
-				$candidate = self::path( $pointer['previous']['full_feed'] );
-				if ( is_file( $candidate ) ) {
-					return $candidate;
-				}
+				return self::path( $pointer['previous']['full_feed'] );
 			}
 			if ( 'stock' === $type && ! empty( $pointer['previous']['stock_feed'] ) ) {
-				$candidate = self::path( $pointer['previous']['stock_feed'] );
-				if ( is_file( $candidate ) ) {
-					return $candidate;
-				}
+				return self::path( $pointer['previous']['stock_feed'] );
 			}
 		}
 
@@ -172,10 +160,7 @@ final class Storage {
 	public static function catalog_index_path(): string {
 		$pointer = self::read_pointer();
 		if ( null !== $pointer && ! empty( $pointer['active']['catalog_index'] ) ) {
-			$candidate = self::path( $pointer['active']['catalog_index'] );
-			if ( is_file( $candidate ) ) {
-				return $candidate;
-			}
+			return self::path( $pointer['active']['catalog_index'] );
 		}
 
 		return self::path( 'catalog.jsonl' );
@@ -184,10 +169,7 @@ final class Storage {
 	public static function previous_catalog_index_path(): string {
 		$pointer = self::read_pointer();
 		if ( null !== $pointer && ! empty( $pointer['previous']['catalog_index'] ) ) {
-			$candidate = self::path( $pointer['previous']['catalog_index'] );
-			if ( is_file( $candidate ) ) {
-				return $candidate;
-			}
+			return self::path( $pointer['previous']['catalog_index'] );
 		}
 
 		return self::path( 'catalog.previous.jsonl' );
