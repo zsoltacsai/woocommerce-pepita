@@ -94,17 +94,28 @@ $meta_keys = array(
 	'_wps_pepita_product_id',
 	'_wps_pepita_sku',
 	'_wps_pepita_vat',
+	'_wps_pepita_in_progress',
+	'_wps_pepita_quarantined_from',
 );
 
-// HPOS stores order meta in its own table; legacy stores use postmeta.
-$hpos_meta_table = $wpdb->prefix . 'wc_orders_meta';
-$has_hpos_meta   = $hpos_meta_table === $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $hpos_meta_table ) ) );
+// HPOS stores order meta in WooCommerce's own table; legacy stores use postmeta.
+// The table name comes from WooCommerce, never from a hand-built string.
+$hpos_meta_table = '';
+$hpos_store      = '\\Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\OrdersTableDataStore';
+
+if ( class_exists( $hpos_store ) && method_exists( $hpos_store, 'get_meta_table_name' ) ) {
+	$candidate = (string) $hpos_store::get_meta_table_name();
+
+	if ( '' !== $candidate && $candidate === $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $candidate ) ) ) ) {
+		$hpos_meta_table = $candidate;
+	}
+}
 
 foreach ( $meta_keys as $meta_key ) {
 	$wpdb->delete( $wpdb->postmeta, array( 'meta_key' => $meta_key ) );
 	$wpdb->delete( $wpdb->termmeta, array( 'meta_key' => $meta_key ) );
 
-	if ( $has_hpos_meta ) {
+	if ( '' !== $hpos_meta_table ) {
 		$wpdb->delete( $hpos_meta_table, array( 'meta_key' => $meta_key ) );
 	}
 }

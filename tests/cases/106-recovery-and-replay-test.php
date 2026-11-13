@@ -1543,7 +1543,7 @@ $suite->add(
 );
 
 $suite->add(
-	'importer: is_order_incomplete returns false for completed, processing, or populated orders',
+	'importer: is_order_incomplete is true for any unfinalized marker order (even with line items) and false for finished orders',
 	static function (): void {
 		$importer = new Importer();
 		$ref      = new \ReflectionMethod( Importer::class, 'is_order_incomplete' );
@@ -1566,7 +1566,9 @@ $suite->add(
 		$order3->set_status( 'processing' );
 		WPS_Assert::false( $ref->invoke( $importer, $order3 ) );
 
-		// 4. Order with in_progress=1 and status pending but with line items is never incomplete
+		// 4. RR20: the marker is cleared only by the final, lease-verified save, so an order that still
+		// carries in_progress=1 is UNFINALIZED even when it already has line items. A competing worker
+		// must never adopt and acknowledge it (it would be reported as imported with a partial total).
 		$order4 = new \WC_Order();
 		$order4->update_meta_data( '_wps_pepita_in_progress', '1' );
 		$order4->set_status( 'pending' );
@@ -1575,6 +1577,10 @@ $suite->add(
 		$item->set_product( $product );
 		$item->set_quantity( 1 );
 		$order4->add_item( $item );
+		WPS_Assert::true( $ref->invoke( $importer, $order4 ) );
+
+		// 4b. ...but once the final save cleared the marker, the same populated order is complete.
+		$order4->delete_meta_data( '_wps_pepita_in_progress' );
 		WPS_Assert::false( $ref->invoke( $importer, $order4 ) );
 
 		// 5. Order with in_progress=1 and status pending with empty items IS incomplete

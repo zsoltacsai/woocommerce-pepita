@@ -869,10 +869,12 @@ final class Importer {
 			$order->update_meta_data( self::META_ORIGIN, (string) ( $payload['origin'] ?? 'pepita.hu' ) );
 			$order->update_meta_data( self::META_PAYMENT_STATUS, (string) $validated['payment_status'] );
 			$order->update_meta_data( self::META_DELIVERY_MODE, (string) $validated['delivery_mode'] );
-			$order->update_meta_data( self::META_IMPORTED_AT, current_time( 'mysql', true ) );
+			// The in-progress marker and the imported-at stamp are set ONLY by the final,
+			// lease-verified save below. calculate_totals() persists the order earlier; if
+			// the marker were cleared here, a competing recovery worker would treat a
+			// half-built order as complete and acknowledge it (RR20).
 			$order->update_meta_data( self::META_PAYLOAD_HASH, (string) ( $payload['__hash'] ?? '' ) );
 			$order->update_meta_data( self::META_RAW_TOTAL, (string) $validated['total'] );
-			$order->delete_meta_data( '_wps_pepita_in_progress' );
 
 			if ( (float) $validated['voucher'] > 0 ) {
 				$order->update_meta_data( self::META_VOUCHER, (string) $validated['voucher'] );
@@ -1225,11 +1227,13 @@ final class Importer {
 	}
 
 	/**
-	 * Check whether an existing order was left incomplete by a mid-creation crash.
+	 * Check whether an existing order was left unfinished by an interrupted import.
 	 *
-	 * An order with status 'completed', 'processing', or having line items is NEVER incomplete.
-	 * Only orders with _wps_pepita_in_progress === '1' AND status in ('pending', 'failed', 'draft', 'checkout-draft')
-	 * AND empty line items can ever be considered incomplete shells.
+	 * The `_wps_pepita_in_progress` marker is set when the order shell is created and is removed
+	 * ONLY by the final, lease-verified save in create_order(). Therefore marker === '1' means the
+	 * import never finished, regardless of line items (an order that already has items but still
+	 * carries the marker has an unfinalized total/status and must never be acknowledged or adopted).
+	 * Orders an operator already moved to a final status are never treated as incomplete.
 	 */
 	private function is_order_incomplete( \WC_Order $order ): bool {
 		if ( '1' !== (string) $order->get_meta( '_wps_pepita_in_progress' ) ) {
@@ -1237,25 +1241,8 @@ final class Importer {
 		}
 
 		$status = str_replace( 'wc-', '', $order->get_status() );
-		if ( in_array( $status, array( 'completed', 'processing' ), true ) ) {
-			return false;
-		}
 
-		if ( ! in_array( $status, array( 'pending', 'failed', 'draft', 'checkout-draft' ), true ) ) {
-			return false;
-		}
-
-		$line_items = $order->get_items( 'line_item' );
-		if ( ! empty( $line_items ) ) {
-			return false;
-		}
-
-		$all_items = $order->get_items();
-		if ( ! empty( $all_items ) ) {
-			return false;
-		}
-
-		return true;
+		return in_array( $status, array( 'pending', 'failed', 'draft', 'checkout-draft' ), true );
 	}
 
 	/**

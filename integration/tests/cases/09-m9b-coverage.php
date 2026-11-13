@@ -151,3 +151,44 @@ WPS_IT::test(
 		WPS_IT::same( '', (string) $closed->get_meta( Importer::META_PACKAGE_LABEL ), 'The label meta of the purged label was not cleared.' );
 	}
 );
+
+WPS_IT::test(
+	'RR20 regression: an import executed in-process keeps the marker on every save but the last',
+	static function () use ( $run ): void {
+		$external_id = 'IT-RR20-INPROC-' . $run;
+		$payload     = WPS_IT::order_payload( 'order-transfer-unpaid.json', $external_id );
+		$saves       = array();
+
+		$probe = static function ( $order ) use ( &$saves, $external_id ): void {
+			if ( ! $order instanceof \WC_Order || $external_id !== (string) $order->get_meta( Importer::META_ORDER_ID ) ) {
+				return;
+			}
+
+			$saves[] = array(
+				'in_progress' => (string) $order->get_meta( '_wps_pepita_in_progress' ),
+				'imported_at' => (string) $order->get_meta( Importer::META_IMPORTED_AT ),
+			);
+		};
+
+		add_action( 'woocommerce_before_order_object_save', $probe, 1 );
+
+		try {
+			$result = ( new Importer() )->import( $payload );
+		} finally {
+			remove_action( 'woocommerce_before_order_object_save', $probe, 1 );
+		}
+
+		WPS_IT::same( 200, $result['http'], 'In-process import failed: ' . (string) $result['message'] );
+		WPS_IT::greater( 1, count( $saves ), 'Expected several saves of the order during the import.' );
+
+		$last = array_pop( $saves );
+
+		WPS_IT::same( '', $last['in_progress'], 'The final save must clear the marker.' );
+		WPS_IT::not_same( '', $last['imported_at'], 'The final save must set imported_at.' );
+
+		foreach ( $saves as $index => $save ) {
+			WPS_IT::same( '1', $save['in_progress'], 'Save #' . ( $index + 1 ) . ' before the final one cleared the marker early (RR20).' );
+			WPS_IT::same( '', $save['imported_at'], 'Save #' . ( $index + 1 ) . ' before the final one set imported_at early (RR20).' );
+		}
+	}
+);
