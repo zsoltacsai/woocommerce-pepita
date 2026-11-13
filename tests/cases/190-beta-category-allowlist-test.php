@@ -325,7 +325,7 @@ $suite->add(
 
 		// Rule change: change 11 to exclude
 		update_term_meta( 11, 'wps_include', 'exclude' );
-		Category_Rules::clear_cache();
+		Product_Selection::clear_cache();
 
 		$res2 = Product_Selection::resolve( 601 );
 		WPS_Assert::false( $res2['included'] );
@@ -333,7 +333,7 @@ $suite->add(
 
 		// Rule change: remove meta (unapproved)
 		delete_term_meta( 11, 'wps_include' );
-		Category_Rules::clear_cache();
+		Product_Selection::clear_cache();
 
 		$res3 = Product_Selection::resolve( 601 );
 		WPS_Assert::false( $res3['included'] );

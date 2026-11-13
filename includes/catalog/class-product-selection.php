@@ -434,8 +434,12 @@ final class Product_Selection {
 	}
 
 	public static function clear_cache(): void {
-		self::$resolution_cache = array();
+		self::clear_resolution_cache();
 		Category_Rules::clear_cache();
+	}
+
+	public static function clear_resolution_cache(): void {
+		self::$resolution_cache = array();
 	}
 
 	/**
