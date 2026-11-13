@@ -924,14 +924,7 @@ class WC_Order {
 	 * @return string[]
 	 */
 	public function get_customer_notes(): array {
-		$customer = array();
-		foreach ( $this->order_notes as $n ) {
-			if ( $n['customer_note'] ) {
-				$customer[] = $n['content'];
-			}
-		}
-
-		return $customer;
+		return $this->notes;
 	}
 
 	/**

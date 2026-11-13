@@ -784,3 +784,24 @@ $suite->add(
 		WPS_Assert::same( 9992, (int) $row['wc_order_id'] );
 	}
 );
+
+$suite->add(
+	'fail: unfenced fail() transitions processing claim to failed and records error',
+	static function (): void {
+		$external_id = 'PEP-FAIL-UNFENCED-1';
+		$payload     = '{"id":"PEP-FAIL-UNFENCED-1"}';
+		$hash        = hash( 'sha256', $payload );
+
+		$claim = Order_Repository::claim( $external_id, 'pepita.hu', $payload, $hash );
+		WPS_Assert::same( 'claimed', $claim['state'] );
+		WPS_Assert::same( 'processing', $claim['row']['status'] );
+
+		// Call unfenced fail()
+		$result = Order_Repository::fail( $external_id, 'Dedikált hiba leírás' );
+		WPS_Assert::true( $result );
+
+		$row = Order_Repository::get( $external_id );
+		WPS_Assert::same( 'failed', $row['status'] );
+		WPS_Assert::same( 'Dedikált hiba leírás', $row['last_error'] );
+	}
+);

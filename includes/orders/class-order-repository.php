@@ -198,14 +198,14 @@ final class Order_Repository {
 		);
 	}
 
-	public static function complete( string $external_id, int $order_id, string $payload_hash = '', int $expected_attempt = 0 ): void {
+	public static function complete( string $external_id, int $order_id, string $payload_hash = '', int $expected_attempt = 0 ): bool {
 		global $wpdb;
 
 		$table = self::table();
 
 		if ( $expected_attempt > 0 ) {
 			if ( '' !== $payload_hash ) {
-				$wpdb->query(
+				$res = $wpdb->query(
 					$wpdb->prepare(
 						"UPDATE {$table}
 						 SET status = %s, wc_order_id = %d, payload_hash = %s, last_error = NULL, updated_at = %s
@@ -221,7 +221,7 @@ final class Order_Repository {
 					)
 				);
 			} else {
-				$wpdb->query(
+				$res = $wpdb->query(
 					$wpdb->prepare(
 						"UPDATE {$table}
 						 SET status = %s, wc_order_id = %d, last_error = NULL, updated_at = %s
@@ -236,9 +236,13 @@ final class Order_Repository {
 					)
 				);
 			}
+
+			if ( false === $res || 0 === (int) $res ) {
+				return false;
+			}
 		} else {
 			if ( '' !== $payload_hash ) {
-				$wpdb->query(
+				$res = $wpdb->query(
 					$wpdb->prepare(
 						"UPDATE {$table}
 						 SET status = %s, wc_order_id = %d, payload_hash = %s, last_error = NULL, updated_at = %s
@@ -253,7 +257,7 @@ final class Order_Repository {
 					)
 				);
 			} else {
-				$wpdb->query(
+				$res = $wpdb->query(
 					$wpdb->prepare(
 						"UPDATE {$table}
 						 SET status = %s, wc_order_id = %d, last_error = NULL, updated_at = %s
@@ -266,6 +270,10 @@ final class Order_Repository {
 						self::STATUS_COMPLETED
 					)
 				);
+			}
+
+			if ( false === $res ) {
+				return false;
 			}
 		}
 
@@ -276,6 +284,8 @@ final class Order_Repository {
 			'order',
 			$order_id
 		);
+
+		return true;
 	}
 
 	/**
@@ -284,13 +294,13 @@ final class Order_Repository {
 	 * Ensures crash recovery can locate the order even if the process is killed
 	 * before final metadata persistence or completion.
 	 */
-	public static function associate( string $external_id, int $order_id, int $expected_attempt = 0 ): void {
+	public static function associate( string $external_id, int $order_id, int $expected_attempt = 0 ): bool {
 		global $wpdb;
 
 		$table = self::table();
 
 		if ( $expected_attempt > 0 ) {
-			$wpdb->query(
+			$res = $wpdb->query(
 				$wpdb->prepare(
 					"UPDATE {$table}
 					 SET wc_order_id = %d, updated_at = %s
@@ -303,10 +313,11 @@ final class Order_Repository {
 					$expected_attempt
 				)
 			);
-			return;
+
+			return false !== $res && (int) $res > 0;
 		}
 
-		$wpdb->query(
+		$res = $wpdb->query(
 			$wpdb->prepare(
 				"UPDATE {$table}
 				 SET wc_order_id = %d, updated_at = %s
@@ -318,6 +329,8 @@ final class Order_Repository {
 				self::STATUS_COMPLETED
 			)
 		);
+
+		return false !== $res;
 	}
 
 	/**
@@ -344,13 +357,13 @@ final class Order_Repository {
 		);
 	}
 
-	public static function fail( string $external_id, string $error, int $expected_attempt = 0 ): void {
+	public static function fail( string $external_id, string $error, int $expected_attempt = 0 ): bool {
 		global $wpdb;
 
 		$table = self::table();
 
 		if ( $expected_attempt > 0 ) {
-			$wpdb->query(
+			$res = $wpdb->query(
 				$wpdb->prepare(
 					"UPDATE {$table}
 					 SET status = %s, last_error = %s, updated_at = %s
@@ -363,10 +376,11 @@ final class Order_Repository {
 					$expected_attempt
 				)
 			);
-			return;
+
+			return false !== $res && (int) $res > 0;
 		}
 
-		$wpdb->query(
+		$res = $wpdb->query(
 			$wpdb->prepare(
 				"UPDATE {$table}
 				 SET status = %s, last_error = %s, updated_at = %s
@@ -378,6 +392,8 @@ final class Order_Repository {
 				self::STATUS_PROCESSING
 			)
 		);
+
+		return false !== $res;
 	}
 
 	/**

@@ -94,25 +94,26 @@ The four remaining risks identified during M9 staging preparation have been inve
 ## 3. Automated Verification Matrix & CI Status
 
 ### 3.1 CI Suite Coverage
-* **Total Unit Suite**: **179 Unit Tests across 19 cases (0 failures, 100% pass)** covering PHP 8.1, 8.2, 8.3, 8.4, and 8.5.
+* **Total Unit Suite**: **180 Unit Tests across 19 cases (0 failures, 100% pass)** covering PHP 8.1, 8.2, 8.3, 8.4, and 8.5.
 * **Total Integration Suite**: **71 Integration Scenarios across both HPOS and Legacy stores (0 failures, 100% pass)** running on real WordPress 7.1.4, WooCommerce 11.3.0, and MySQL 8.4.
 
 ---
 
 ## 4. Independent Security Re-Review (Mad-Eye Moody)
 
-An independent security QA review was conducted on candidate commit `d7abc00` by Claude Haiku 5.5 in persona as Alastor "Mad-Eye" Moody.
+An independent, rigorous security QA review was conducted across multiple iterative rounds on the `security/m9-staging-readiness` branch by Claude Haiku 5.5 in persona as Alastor "Mad-Eye" Moody.
 
 * **Auditor**: Claude Haiku 5.5 (`claude-haiku-5-5`)
-* **Scope**: `class-importer.php`, `class-order-repository.php`, `class-wps-assert.php`, `106-recovery-and-replay-test.php`, `07-idempotency.php`.
-* **Focus**: Financial integrity, duplicate order creation, crash recovery, historical replay, concurrent webhooks, process kill resilience.
-* **Verdict**: **PASS / STAGING GO**
-* **Auditor Notes**:
-  - The crash window between order allocation and metadata persistence is closed by immediate claim association and in-progress metadata tracking.
-  - The in-progress flag ensures incomplete order shells left by killed processes are destroyed and recreated cleanly rather than adopted in a truncated state.
-  - The invariant validation (currency, total, item count) for historical orders prevents silent acceptance of altered payloads while providing safe hash backfilling for legitimate replays.
-  - Dual anchoring across `wps_pepita_order_claims` and WooCommerce order metadata guarantees robust idempotency under process termination.
-  - Production gate remains strictly **NO-GO** pending staging environment dry-run.
+* **Scope**: `class-importer.php`, `class-order-repository.php`, `class-wps-assert.php`, `106-recovery-and-replay-test.php`, `07-idempotency.php`, `TESTING.md`, `M9-STAGING-READINESS.md`.
+* **Focus**: Financial integrity, duplicate order prevention, crash recovery, historical replay validation, concurrent webhook handling, process kill resilience, and optimistic lease fencing.
+* **Audit Findings & Resolutions**:
+  1. **Fail-Closed Historical Replay Validation**: Legacy orders lacking a stored hash execute full structural `validate($payload)` and enforce zero-tolerance financial invariants (currency match, order total delta < 0.001, customer billing email, line count, and per-line SKU and quantity match). Items lacking SKU fail closed with HTTP 409 Conflict.
+  2. **Atomic In-Progress Lifecycle**: Initial shell is created with `_wps_pepita_in_progress = '1'`, `META_ORDER_ID`, and `META_PAYLOAD_HASH` prior to initial DB write. Incomplete shells from crashed processes are detected by `is_order_incomplete()` and forcefully purged (`$order->delete(true)`).
+  3. **Early Email & Hook Suppression**: `suppress_emails()` is active before the initial shell save in a `try ... finally` block, preventing creation hooks or email notifications during shell construction.
+  4. **Optimistic Attempt Counter Fencing**: `Order_Repository::associate()`, `complete()`, and `fail()` return boolean status and are fenced by `attempts` version counters. Stale workers whose lease expired (>15 min) match 0 rows and return `false`, causing the importer to discard the orphaned shell and abort rather than reporting false success.
+  5. **`fail()` Status & Regression Coverage**: Fixed undefined `STATUS_CLAIMED`, fenced on `status = STATUS_PROCESSING`, and added dedicated unfenced regression test in `106-recovery-and-replay-test.php`.
+* **Verdict**: **CONDITIONAL PASS — STAGING PREPARATION ONLY**
+* **Production Gate**: **STRICT NO-GO (HOLD)** pending live staging dry-run acceptance and partner team clarifications.
 
 ---
 
@@ -247,11 +248,11 @@ If any critical defect or operational instability occurs during staging validati
 
 ## 9. Final Decision & Gate Status
 
-* **Staging Gate**: **GO (APPROVED)**
+* **Staging Gate**: **GO (CONDITIONAL APPROVAL)**
   - All four security and financial integrity risks are closed and verified with automated regression and integration suites.
-  - Reproducible, secret-free distribution package `dist/wp-pepita-sync.zip` (SHA-256: `0fefdff825c3b1199ef222d28fa39790e798c993b4d5d4a04b8dd80beb5f6b1d`) is prepared and verified.
-  - CI verification is 100% green across all supported PHP versions and HPOS modes.
-  - Independent review by Mad-Eye Moody confirms staging readiness.
+  - Reproducible, secret-free distribution package `dist/wp-pepita-sync.zip` (SHA-256: `105d4486498c0eba2d59511907501de14f79e530ddb2fc188ffb25440eb15105`) is prepared and verified.
+  - CI verification runs across all supported PHP versions and HPOS modes.
+  - Independent review by Mad-Eye Moody confirms conditional readiness for isolated staging deployment.
 
 * **Production Gate**: **STRICT NO-GO (HOLD)**
   - No code may be deployed to production.

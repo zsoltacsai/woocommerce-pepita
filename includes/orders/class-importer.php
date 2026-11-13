@@ -148,7 +148,15 @@ final class Importer {
 				return $this->result( 'error', 500, 'A WooCommerce rendelés létrehozása sikertelen.' );
 			}
 
-			Order_Repository::complete( $external_id, (int) $order_id, $payload_hash, $attempt );
+			$completed = Order_Repository::complete( $external_id, (int) $order_id, $payload_hash, $attempt );
+			if ( $attempt > 0 && ! $completed ) {
+				$order = wc_get_order( (int) $order_id );
+				if ( $order instanceof \WC_Order ) {
+					$order->delete( true );
+				}
+
+				return $this->result( 'retry', 409, 'A rendelés feldolgozási zárolása lejárt, a feldolgozást egy újabb kísérlet vette át.' );
+			}
 
 			return $this->result( 'created', 200, '', (int) $order_id );
 		} catch ( \Throwable $throwable ) {
@@ -515,7 +523,10 @@ final class Importer {
 				return new \WP_Error( 'wps_order_failed', 'A WooCommerce nem adott vissza rendelés azonosítót.' );
 			}
 
-			Order_Repository::associate( $external_id, (int) $order_id, $attempt );
+			$associated = Order_Repository::associate( $external_id, (int) $order_id, $attempt );
+			if ( $attempt > 0 && ! $associated ) {
+				return $this->discard_order( $order, 'wps_fenced_out', 'A rendelés zárolása lejárt, a feldolgozást más folyamat vette át.' );
+			}
 
 			$prices_include_tax = function_exists( 'wc_prices_include_tax' ) ? wc_prices_include_tax() : false;
 			if ( method_exists( $order, 'set_prices_include_tax' ) ) {

@@ -4,7 +4,7 @@
 
 ```
 $ php tests/run.php
-179 passed, 0 failed, 0 skipped
+180 passed, 0 failed, 0 skipped
 ```
 
 PHP 8.1–8.5 CLI, no WordPress installation required.
@@ -35,7 +35,7 @@ Verified cases cover environment, schema creation and collation, REST endpoint a
 
 The repository CI workflow runs on Ubuntu 24.04 runners for every PR and push. The workflow matrix includes:
 1. `lint (PHP 8.5)`: PHP syntax check across all PHP files.
-2. `unit (PHP 8.1–8.5)`: Unit test suite (179 tests across 19 cases).
+2. `unit (PHP 8.1–8.5)`: Unit test suite (180 tests across 19 cases).
 3. `integration-hpos`: Full integration suite on WooCommerce 11.3 HPOS store.
 4. `integration-legacy`: Full integration suite on WooCommerce 11.3 legacy store.
 never as PASS, until the workflow reaches `main` and runs on the exact review
