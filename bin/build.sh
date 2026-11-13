@@ -44,7 +44,7 @@ find "$STAGE" -exec touch -d "@$SOURCE_DATE_EPOCH" {} +
 echo "==> Csomagolás"
 (
 	cd "$DIST"
-	find "$SLUG" | LC_ALL=C sort | zip -rq -X -@ "$ZIP"
+	find "$SLUG" | LC_ALL=C sort | zip -q -X -@ "$ZIP"
 )
 
 echo "==> Ellenőrzés"
@@ -57,6 +57,7 @@ echo "Fájlok: $COUNT, méret: $SIZE"
 
 # Fail loudly if a forbidden path slipped in.
 if unzip -Z1 "$ZIP" | grep -Eq '/(tests|bin|dist|\.git)/'; then
+	rm -f "$ZIP"
 	echo "Hiba: a csomag fejlesztői fájlokat tartalmaz." >&2
 	exit 1
 fi

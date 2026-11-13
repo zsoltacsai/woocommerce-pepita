@@ -59,9 +59,13 @@ final class Importer {
 			$stored_hash = (string) ( $claim['row']['payload_hash'] ?? '' );
 
 			if ( 0 === $order_id ) {
-				$order_id = $this->find_order_by_external_id( $external_id );
-				if ( $order_id > 0 ) {
-					Order_Repository::associate_legacy_completed_order( $external_id, $order_id );
+				$candidate_id = $this->find_order_by_external_id( $external_id );
+				if ( $candidate_id > 0 ) {
+					$candidate_order = wc_get_order( $candidate_id );
+					if ( $candidate_order instanceof \WC_Order && ! $this->is_order_incomplete( $candidate_order ) ) {
+						$order_id = $candidate_id;
+						Order_Repository::associate_legacy_completed_order( $external_id, $order_id );
+					}
 				}
 			}
 

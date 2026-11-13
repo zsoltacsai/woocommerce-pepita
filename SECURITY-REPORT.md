@@ -246,6 +246,14 @@ not a substitute for the live M9 staging validation.
     duplicate webhooks for already-completed claims do not perform redundant database writes on the
     claim table, and the redundant unfenced `complete(..., 0)` call has been eliminated. Only reclaimed
     leases execute `complete()` with attempt verification, returning HTTP 409 retry on lost lease.
+20. **Finalize-versus-cleanup concurrent race (Residual Observation).** If a slow worker is
+    preempted between its pre-save lease re-verification (`associate()`) and final order save,
+    and a concurrent recovery worker executes atomic lease fence, fresh reload, and shell cleanup
+    precisely within that millisecond window, the shell order could be cleaned up right before
+    the slow worker attempts final save. The slow worker's subsequent `complete()` is safely fenced
+    out and returns 409 retry, but WooCommerce hooks on the discarded ID may have fired. In
+    practice, this execution window is sub-millisecond and imports run under standard bounded
+    execution. Documented and accepted for staging dry-run.
 
 ## 10. Recommendations
 

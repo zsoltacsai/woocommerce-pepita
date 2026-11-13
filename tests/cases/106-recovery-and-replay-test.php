@@ -1280,6 +1280,11 @@ $suite->add(
 		// The shell was preserved, NOT deleted
 		WPS_Assert::true( isset( WPS_Test_State::$orders[ $shell_id ] ) );
 		WPS_Assert::same( 'processing', WPS_Test_State::$orders[ $shell_id ]->get_status() );
+
+		// The claim was completed with the preserved shell ID
+		$claim_row = Order_Repository::get( $external_id );
+		WPS_Assert::same( 'completed', $claim_row['status'] );
+		WPS_Assert::same( $shell_id, (int) $claim_row['wc_order_id'] );
 	}
 );
 

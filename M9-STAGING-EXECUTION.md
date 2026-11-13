@@ -5,7 +5,7 @@
 **Repository:** `zsoltacsai/woocommerce-pepita`  
 **Target Pull Request:** [PR #2 (security/claude-audit-remediation)](https://github.com/zsoltacsai/woocommerce-pepita/pull/2) (Draft, Unmerged)  
 **Exact Review & Candidate SHA:** `1cbadd24353ea0eb31c63e29c1eca4db4417034a`  
-**Distribution Package SHA-256:** `613c070a14b1b8a90ae3cb9f70ab901f015a7f3efa71993d35db5fa2fea252f9`  
+**Distribution Package SHA-256:** `4d19df0446a653335aa15b6f894e5b77dbd389b2d6d92179abb9453ead1a3302`  
 **Date:** 2026-11-13  
 **Auditor:** Alastor "Mad-Eye" Moody (Independent QA via Claude Haiku 5.5 / `claude-haiku-5-5`)  
 **Development Harness:** T3 Code Orchestrator / Gemini 3.8 Flash
@@ -35,11 +35,11 @@ The release candidate has been synchronized with [PR #2](https://github.com/zsol
 | **Plugin Slug** | `wp-pepita-sync` |
 | **Plugin Version** | `1.1.0` (`WPS_PEPITA_VERSION`) |
 | **Database Version** | `1.1.0` (`WPS_PEPITA_DB_VERSION`) |
-| **Candidate Commit** | Candidate HEAD |
-| **Package SHA-256** | `98efe59e0e8dc248cb7fa35c616683abad30e43efba6433c7a0a2ae94794aad8` |
+| **Candidate Commit** | `security/m9-hardening` candidate HEAD |
+| **Package SHA-256** | `4d19df0446a653335aa15b6f894e5b77dbd389b2d6d92179abb9453ead1a3302` |
 | **Entry Count** | 55 entries (47 files + 8 directories) |
-| **Compressed Size** | 136,314 bytes (~133 KB) |
-| **Uncompressed Size** | 452,614 bytes (~442 KB) |
+| **Compressed Size** | 136,361 bytes (~133 KB) |
+| **Uncompressed Size** | 452,878 bytes (~442 KB) |
 | **Source Identity** | 100% byte-for-byte identity against repository tree files |
 | **Cleanliness & Secrets** | 100% secret-free; `.git`, `tests/`, `integration/`, `dist/`, `.DS_Store`, and `*.map` stripped |
 | **Build Reproducibility** | Byte-for-byte reproducible via `SOURCE_DATE_EPOCH=1794570814 bash bin/build.sh` (sorted zip index) |
@@ -55,11 +55,11 @@ The release candidate has been synchronized with [PR #2](https://github.com/zsol
    - **Trigger / Event**: `pull_request` on `security/claude-audit-remediation` at commit `1cbadd2`
    - **Jobs (8/8 Passed 100% Green)**:
      - `lint (PHP 8.5)`: PASSED (9s) — clean `php -l` across all source files
-     - `unit (PHP 8.1)`: PASSED (9s) — 185 passed, 0 failed
-     - `unit (PHP 8.2)`: PASSED (17s) — 185 passed, 0 failed
-     - `unit (PHP 8.3)`: PASSED (11s) — 185 passed, 0 failed
-     - `unit (PHP 8.4)`: PASSED (10s) — 185 passed, 0 failed
-     - `unit (PHP 8.5)`: PASSED (10s) — 185 passed, 0 failed
+     - `unit (PHP 8.1)`: PASSED (9s) — 193 passed, 0 failed
+     - `unit (PHP 8.2)`: PASSED (17s) — 193 passed, 0 failed
+     - `unit (PHP 8.3)`: PASSED (11s) — 193 passed, 0 failed
+     - `unit (PHP 8.4)`: PASSED (10s) — 193 passed, 0 failed
+     - `unit (PHP 8.5)`: PASSED (10s) — 193 passed, 0 failed
      - `integration-legacy`: PASSED (2m 1s) — 71 scenarios passed on WooCommerce 11.3.0 Legacy storage
      - `integration-hpos`: PASSED (1m 50s) — 71 scenarios passed on WooCommerce 11.3.0 HPOS storage
 2. **Candidate Branch CI Run**:

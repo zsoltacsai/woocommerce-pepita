@@ -259,7 +259,8 @@ final class Order_Repository {
 			$row = self::get( $external_id );
 			return null !== $row
 				&& (int) ( $row['attempts'] ?? 0 ) === $expected_attempt
-				&& self::STATUS_COMPLETED === ( $row['status'] ?? '' );
+				&& self::STATUS_COMPLETED === ( $row['status'] ?? '' )
+				&& (int) ( $row['wc_order_id'] ?? 0 ) === $order_id;
 		}
 
 		Logger::info(
