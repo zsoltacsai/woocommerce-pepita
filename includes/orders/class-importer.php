@@ -1035,12 +1035,21 @@ final class Importer {
 	private function fenced_out( \WC_Order $order ): \WP_Error {
 		$order_id = (int) $order->get_id();
 
-		if ( $order_id > 0 && function_exists( 'wc_get_order_notes' ) && function_exists( 'wc_delete_order_note' ) && ! ( wc_get_order( $order_id ) instanceof \WC_Order ) ) {
-			// WooCommerce excludes order notes from ordinary comment queries; use its own API.
-			foreach ( (array) wc_get_order_notes( array( 'order_id' => $order_id ) ) as $note ) {
-				if ( isset( $note->id ) ) {
-					wc_delete_order_note( (int) $note->id );
-				}
+		if ( $order_id > 0 && function_exists( 'wp_delete_comment' ) && ! ( wc_get_order( $order_id ) instanceof \WC_Order ) ) {
+			global $wpdb;
+
+			// WooCommerce excludes order notes from ordinary comment queries and its note lookup
+			// is store-dependent, so the (already orphaned) notes are selected directly and removed
+			// through the WordPress API (which also removes their comment meta).
+			$note_ids = $wpdb->get_col(
+				$wpdb->prepare(
+					"SELECT comment_ID FROM {$wpdb->comments} WHERE comment_post_ID = %d AND comment_type = 'order_note'", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					$order_id
+				)
+			);
+
+			foreach ( (array) $note_ids as $note_id ) {
+				wp_delete_comment( (int) $note_id, true );
 			}
 		}
 
