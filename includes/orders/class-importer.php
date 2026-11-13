@@ -601,10 +601,25 @@ final class Importer {
 
 			// Save fence: WooCommerce fires this action inside save(), immediately before the data
 			// store write. A worker whose lease was taken over while it was stalled must not write
-			// to an order a newer attempt has already discarded (it would leave orphan rows and fire
-			// order hooks for a non-existent order). The window left is the single DB write.
-			$save_fence = static function ( $saving ) use ( $order, $external_id, $attempt ): void {
-				if ( $saving === $order && ! Order_Repository::is_attempt_current( $external_id, $attempt ) ) {
+			// to an order a newer attempt has already discarded (orphan rows, order hooks for a
+			// non-existent order). WooCommerce 11 catches exceptions thrown here (it logs them, adds
+			// an order note and still runs status_transition()), so the fence also discards the
+			// pending status transition and raises $fenced, which the caller checks right after
+			// every save. The remaining window is the single DB write.
+			$fenced     = false;
+			$save_fence = static function ( $saving ) use ( $order, $external_id, $attempt, &$fenced ): void {
+				if ( $saving !== $order || ! empty( $fenced ) ) {
+					if ( $saving === $order ) {
+						throw new \RuntimeException( self::FENCED_OUT );
+					}
+
+					return;
+				}
+
+				if ( ! Order_Repository::is_attempt_current( $external_id, $attempt ) ) {
+					$fenced = true;
+					self::discard_status_transition( $saving );
+
 					throw new \RuntimeException( self::FENCED_OUT );
 				}
 			};
@@ -912,6 +927,10 @@ final class Importer {
 			// Pepita gross total is authoritative, and taxes have already been
 			// correctly partitioned into net and tax rows.
 			$order->calculate_totals( false );
+
+			if ( $fenced ) {
+				return $this->fenced_out( $order );
+			}
 			$order->set_cart_tax( $total_cart_tax );
 			$order->set_shipping_tax( $total_shipping_tax );
 			$order->set_total( (float) $validated['total'] );
@@ -941,6 +960,10 @@ final class Importer {
 			$order->update_meta_data( self::META_IMPORTED_AT, current_time( 'mysql', true ) );
 
 			$order_id = $order->save();
+
+			if ( $fenced ) {
+				return $this->fenced_out( $order );
+			}
 
 			if ( $order_id ) {
 				$order->add_order_note(
@@ -1001,6 +1024,76 @@ final class Importer {
 			}
 
 			$this->restore_emails( $email_filters );
+		}
+	}
+
+	/**
+	 * Abandon the order of a worker that lost its lease: a newer attempt owns the claim and
+	 * discards/rebuilds the order. Nothing is deleted or notified here; only ghost notes that
+	 * WooCommerce may have attached to an already-discarded order are removed.
+	 */
+	private function fenced_out( \WC_Order $order ): \WP_Error {
+		$order_id = (int) $order->get_id();
+
+		if ( $order_id > 0 && function_exists( 'wc_get_order_notes' ) && function_exists( 'wc_delete_order_note' ) && ! ( wc_get_order( $order_id ) instanceof \WC_Order ) ) {
+			// WooCommerce excludes order notes from ordinary comment queries; use its own API.
+			foreach ( (array) wc_get_order_notes( array( 'order_id' => $order_id ) ) as $note ) {
+				if ( isset( $note->id ) ) {
+					wc_delete_order_note( (int) $note->id );
+				}
+			}
+		}
+
+		return new \WP_Error( 'wps_fenced_out', 'A rendelés zárolása lejárt a mentés előtt, a feldolgozást más folyamat vette át.' );
+			}
+
+			// Never leave a half-built pending order behind: the retry would
+			// create a second one.
+			if ( isset( $order ) && $order instanceof \WC_Order ) {
+				$this->discard_order( $order );
+			}
+
+			throw $throwable;
+		} finally {
+			if ( null !== $save_fence ) {
+				remove_action( 'woocommerce_before_order_object_save', $save_fence, PHP_INT_MAX );
+			}
+
+			$this->restore_emails( $email_filters );
+		}
+	}
+
+	/**
+	 * Abandon the order of a worker that lost its lease: a newer attempt owns the claim and
+	 * discards/rebuilds the order. Nothing is deleted or notified here; only ghost notes that
+	 * WooCommerce may have attached to an already-discarded order are removed.
+	 */
+	private function fenced_out( \WC_Order $order ): \WP_Error {
+		$order_id = (int) $order->get_id();
+
+		if ( $order_id > 0 && function_exists( 'get_comments' ) && function_exists( 'wp_delete_comment' ) && ! ( wc_get_order( $order_id ) instanceof \WC_Order ) ) {
+			foreach ( (array) get_comments( array( 'post_id' => $order_id, 'type' => 'order_note', 'status' => 'any' ) ) as $comment ) {
+				wp_delete_comment( $comment, true );
+			}
+		}
+
+		return new \WP_Error( 'wps_fenced_out', 'A rendelés zárolása lejárt a mentés előtt, a feldolgozást más folyamat vette át.' );
+	}
+
+	/**
+	 * Drop the pending status transition so that a fenced-out save fires no status hooks.
+	 */
+	private static function discard_status_transition( \WC_Order $order ): void {
+		try {
+			\Closure::bind(
+				static function ( $target ): void {
+					$target->status_transition = false;
+				},
+				null,
+				\WC_Order::class
+			)( $order );
+		} catch ( \Throwable $ignored ) {
+			unset( $ignored );
 		}
 	}
 
