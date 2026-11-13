@@ -971,11 +971,12 @@ $suite->add(
 			array( 'external_id' => $external_id )
 		);
 
-		// During replay, backfill records an order note, bumping attempts before complete()
-		$action_fired = false;
-		$action       = static function ( $note_id, $order ) use ( &$action_fired, $external_id ) {
-			if ( ! $action_fired ) {
-				$action_fired = true;
+		// During replay in handle_existing_order, wc_get_order() is called before complete().
+		// Intercept to bump attempts to 99, simulating another worker taking over the lease.
+		$filter_fired = false;
+		$filter       = static function ( $order ) use ( &$filter_fired, $external_id ) {
+			if ( ! $filter_fired && $order instanceof \WC_Order ) {
+				$filter_fired = true;
 				global $wpdb;
 				$wpdb->update(
 					Order_Repository::table(),
@@ -983,13 +984,14 @@ $suite->add(
 					array( 'external_id' => $external_id )
 				);
 			}
+			return $order;
 		};
 
-		add_action( 'woocommerce_order_note_added', $action, 10, 2 );
+		add_filter( 'woocommerce_get_order', $filter );
 		$replay_result = $importer->import( $payload );
-		remove_action( 'woocommerce_order_note_added', $action, 10 );
+		remove_filter( 'woocommerce_get_order', $filter );
 
-		WPS_Assert::true( $action_fired );
+		WPS_Assert::true( $filter_fired );
 		WPS_Assert::same( 409, $replay_result['http'] );
 		WPS_Assert::same( 'retry', $replay_result['status'] );
 	}

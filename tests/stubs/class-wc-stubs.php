@@ -1240,9 +1240,10 @@ function wc_create_order( array $args = array() ) {
  * @return array<int, int|WC_Order>
  */
 function wc_get_order( $order = 0 ) {
-	$id = $order instanceof WC_Order ? $order->get_id() : (int) $order;
+	$id  = $order instanceof WC_Order ? $order->get_id() : (int) $order;
+	$obj = WPS_Test_State::$orders[ $id ] ?? false;
 
-	return WPS_Test_State::$orders[ $id ] ?? false;
+	return apply_filters( 'woocommerce_get_order', $obj, $order );
 }
 
 function wc_get_orders( array $args = array() ) {
