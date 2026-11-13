@@ -128,9 +128,16 @@ wp wps-pepita purge-logs
 
 ```bash
 php -l woocommerce-pepita.php
-php tests/run.php            # 133 tests
-bash bin/build.sh            # dist/wp-pepita-sync.zip
+php tests/run.php            # unit suite (stubs)
+bash bin/build.sh            # dist/wp-pepita-sync.zip (+ .sha256)
+bash bin/verify-reproducible.sh   # same SHA-256 in every time zone / clean checkout
 ```
+
+The ZIP is byte-reproducible: `bin/build.sh` forces UTC, stamps every entry with
+the versioned `bin/release-epoch` (never the wall clock or git history; the
+ZIP cannot contain its own commit time), sorts entries and normalizes modes.
+When the package inputs change, bump `bin/release-epoch`, rebuild and commit
+`dist/`; CI fails if the committed ZIP differs from a clean rebuild.
 
 The test suite runs against lightweight WordPress/WooCommerce stubs and needs no
 WordPress installation. See [TESTING.md](TESTING.md) for what is and is not

@@ -4,6 +4,32 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased — RR20 / M9-B follow-up fixes
+
+### Fixed (RR20 - concurrent import takeover; found by a two-worker test)
+- An import worker that stalled past the 15-minute lease no longer lets a second worker adopt and
+  acknowledge its half-built order (HTTP 200) while the first worker later deletes it. The in-progress
+  marker is now cleared only by the final, lease-verified save; any unfinalized marker order is rebuilt.
+- A taken-over worker can no longer write to a discarded order (save fence; also discards the pending
+  WooCommerce status transition, which WooCommerce 11 runs even when `save()` swallows an exception).
+- A persisted, finalized order is never deleted by the error path; a swallowed save failure is never
+  reported as an imported order; stock is returned before an unfinished order is discarded.
+- Replays of a completed claim are acknowledged only if the WooCommerce order exists and is finalized,
+  otherwise HTTP 500 with a log entry. New: `wp wps-pepita repair-claim <external_id> [--force]`.
+- Uninstall with data removal now also removes plugin order meta on HPOS stores.
+
+### Known residual risks
+- Between the fence check and the data-store write there is a short window (no row lock); on legacy
+  storage the final save writes the post status before the meta, so a process killed inside it leaves
+  `status + marker` (the importer treats its own paid/unpaid status plus the marker as unfinished and rebuilds).
+- Item rows are written outside the order save and are not fenced; a fenced worker may leave a label PDF.
+- A merchant who permanently deletes an imported order gets HTTP 500 on later Pepita replays until the
+  claim is repaired/acknowledged (previously a silent 200).
+- Swallowed-save detection uses `WC_Order::get_last_save_error()` (WooCommerce >= 11.2.2).
+
+### Build
+- Byte-reproducible ZIP (`bin/release-epoch`, `bin/verify-reproducible.sh`, checked in CI).
+
 ## [Unreleased]
 
 ### Security — audit remediation (1.1.0)

@@ -1543,7 +1543,7 @@ $suite->add(
 );
 
 $suite->add(
-	'importer: is_order_incomplete returns false for completed, processing, or populated orders',
+	'importer: is_order_incomplete is true for any unfinalized marker order (even with line items) and false for finished orders',
 	static function (): void {
 		$importer = new Importer();
 		$ref      = new \ReflectionMethod( Importer::class, 'is_order_incomplete' );
@@ -1560,13 +1560,19 @@ $suite->add(
 		$order2->set_status( 'completed' );
 		WPS_Assert::false( $ref->invoke( $importer, $order2 ) );
 
-		// 3. Order with in_progress=1 and status processing is never incomplete
+		// 3. RR20 review: 'processing' is the importer's OWN paid status, so processing + marker is what an
+		// interrupted final save leaves behind - it proves no operator action and is unfinished. A status the
+		// importer never assigns (here: cancelled) is operator evidence and takes the order out of recovery.
 		$order3 = new \WC_Order();
 		$order3->update_meta_data( '_wps_pepita_in_progress', '1' );
 		$order3->set_status( 'processing' );
+		WPS_Assert::true( $ref->invoke( $importer, $order3 ) );
+		$order3->set_status( 'cancelled' );
 		WPS_Assert::false( $ref->invoke( $importer, $order3 ) );
 
-		// 4. Order with in_progress=1 and status pending but with line items is never incomplete
+		// 4. RR20: the marker is cleared only by the final, lease-verified save, so an order that still
+		// carries in_progress=1 is UNFINALIZED even when it already has line items. A competing worker
+		// must never adopt and acknowledge it (it would be reported as imported with a partial total).
 		$order4 = new \WC_Order();
 		$order4->update_meta_data( '_wps_pepita_in_progress', '1' );
 		$order4->set_status( 'pending' );
@@ -1575,6 +1581,10 @@ $suite->add(
 		$item->set_product( $product );
 		$item->set_quantity( 1 );
 		$order4->add_item( $item );
+		WPS_Assert::true( $ref->invoke( $importer, $order4 ) );
+
+		// 4b. ...but once the final save cleared the marker, the same populated order is complete.
+		$order4->delete_meta_data( '_wps_pepita_in_progress' );
 		WPS_Assert::false( $ref->invoke( $importer, $order4 ) );
 
 		// 5. Order with in_progress=1 and status pending with empty items IS incomplete
@@ -1582,5 +1592,130 @@ $suite->add(
 		$order5->update_meta_data( '_wps_pepita_in_progress', '1' );
 		$order5->set_status( 'pending' );
 		WPS_Assert::true( $ref->invoke( $importer, $order5 ) );
+	}
+);
+
+$suite->add(
+	'importer: replay of a completed claim whose order is missing is a 500 failure (never 200) and repair-claim lets it rebuild',
+	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
+		$importer = new Importer();
+		$payload  = $recovery_payload( array( 'id' => 'PEP-LOST-ORDER-1' ) );
+
+		$first = $importer->import( $payload );
+		WPS_Assert::same( 200, $first['http'] );
+		$order_id = (int) $first['order_id'];
+		WPS_Assert::true( $order_id > 0 );
+
+		// RR20 victim: claim completed, WooCommerce order gone.
+		unset( WPS_Test_State::$orders[ $order_id ] );
+
+		$replay = $importer->import( $payload );
+		WPS_Assert::same( 500, $replay['http'], 'A completed claim with a missing order must not be acknowledged.' );
+		WPS_Assert::same( 'error', $replay['status'] );
+
+		WPS_Assert::true( Order_Repository::reopen_completed( 'PEP-LOST-ORDER-1' ) );
+		WPS_Assert::false( Order_Repository::reopen_completed( 'PEP-LOST-ORDER-1' ), 'Only a completed claim can be reopened.' );
+
+		$again = $importer->import( $payload );
+		WPS_Assert::same( 200, $again['http'] );
+		WPS_Assert::same( 'created', $again['status'] );
+		WPS_Assert::true( (int) $again['order_id'] > 0 );
+	}
+);
+
+$suite->add(
+	'importer: replay of a completed claim whose order still carries the in-progress marker is a 500 failure',
+	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
+		$importer = new Importer();
+		$payload  = $recovery_payload( array( 'id' => 'PEP-UNFINALIZED-1' ) );
+
+		$first    = $importer->import( $payload );
+		$order_id = (int) $first['order_id'];
+		WPS_Assert::same( 200, $first['http'] );
+
+		WPS_Test_State::$orders[ $order_id ]->update_meta_data( '_wps_pepita_in_progress', '1' );
+		WPS_Test_State::$orders[ $order_id ]->set_status( 'pending' );
+
+		$replay = $importer->import( $payload );
+		WPS_Assert::same( 500, $replay['http'], 'An unfinalized order must not be acknowledged on replay.' );
+	}
+);
+
+$suite->add(
+	'importer: a marker order an operator moved to a status the importer never assigns is adopted once, finalized, and then replays cleanly',
+	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
+		$importer = new Importer();
+		$payload  = $recovery_payload( array( 'id' => 'PEP-OPERATOR-FINAL-1' ) );
+
+		$first    = $importer->import( $payload );
+		$order_id = (int) $first['order_id'];
+		WPS_Assert::same( 200, $first['http'] );
+
+		WPS_Test_State::$orders[ $order_id ]->update_meta_data( '_wps_pepita_in_progress', '1' );
+		WPS_Test_State::$orders[ $order_id ]->set_status( 'cancelled' );
+
+		$second = $importer->import( $payload );
+		WPS_Assert::same( 200, $second['http'] );
+		WPS_Assert::same( $order_id, (int) $second['order_id'] );
+		WPS_Assert::same( '', (string) WPS_Test_State::$orders[ $order_id ]->get_meta( '_wps_pepita_in_progress' ), 'Adoption must finalize the marker.' );
+
+		$third = $importer->import( $payload );
+		WPS_Assert::same( 200, $third['http'], 'A later replay must not fail the completed-claim gate.' );
+	}
+);
+
+$suite->add(
+	'importer: an unfinalized marker order is incomplete whatever its non-final status (filtered default status)',
+	static function (): void {
+		$importer = new Importer();
+		$ref      = new \ReflectionMethod( Importer::class, 'is_order_incomplete' );
+		$ref->setAccessible( true );
+
+		$order = new \WC_Order();
+		$order->update_meta_data( '_wps_pepita_in_progress', '1' );
+		$order->set_status( 'on-hold' );
+		WPS_Assert::true( $ref->invoke( $importer, $order ) );
+
+		$order->set_status( 'processing' );
+		WPS_Assert::true( $ref->invoke( $importer, $order ), 'processing + marker is a torn final save, not operator evidence.' );
+
+		$order->set_status( 'cancelled' );
+		WPS_Assert::false( $ref->invoke( $importer, $order ), 'An operator-final status takes the order out of recovery.' );
 	}
 );

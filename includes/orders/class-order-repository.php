@@ -409,6 +409,28 @@ final class Order_Repository {
 	}
 
 	/**
+	 * Operator repair: reopen a COMPLETED claim whose WooCommerce order is missing or unfinalized so the
+	 * next webhook replay rebuilds the order. Returns true when a row was reopened.
+	 */
+	public static function reopen_completed( string $external_id ): bool {
+		global $wpdb;
+
+		$table = self::table();
+		$res   = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table} SET status = %s, wc_order_id = 0, last_error = %s, updated_at = %s WHERE external_id = %s AND status = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				self::STATUS_FAILED,
+				'Operator repair: completed claim reopened',
+				current_time( 'mysql', true ),
+				$external_id,
+				self::STATUS_COMPLETED
+			)
+		);
+
+		return is_int( $res ) && $res > 0;
+	}
+
+	/**
 	 * Verify whether an attempt counter is still the active holder of the claim lease.
 	 */
 	public static function is_attempt_current( string $external_id, int $expected_attempt ): bool {
