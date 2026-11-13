@@ -124,6 +124,7 @@ WPS_IT::test(
 		WPS_IT::line( '        note: _wps_pepita_order_id after uninstall = "' . (string) $order->get_meta( Importer::META_ORDER_ID ) . '" (HPOS: ' . ( \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled() ? 'yes' : 'no' ) . ')' );
 
 		// Database rollback / reinstall: activation must rebuild a working plugin.
+		Settings::reset_cache();
 		Order_Repository::reset_table_cache();
 		\WPS\Pepita\Logger::reset_table_cache();
 		Installer::activate();
@@ -134,6 +135,7 @@ WPS_IT::test(
 			'order_api_key'     => (string) getenv( 'WPS_ORDER_API_KEY' ),
 			'order_api_keep_payloads' => true,
 			'order_api_require_https' => false,
+			'delete_data_on_uninstall' => false,
 		) );
 
 		$again = WPS_IT::post_order( WPS_IT::order_payload( 'order-transfer-unpaid.json', $external_id . '-AFTER' ) );
