@@ -28,13 +28,14 @@ The staging distribution archive has been generated in a strictly reproducible, 
 | **Plugin Slug** | `wp-pepita-sync` |
 | **Plugin Version** | `1.1.0` (`WPS_PEPITA_VERSION`) |
 | **Database Schema Version** | `1.1.0` (`WPS_PEPITA_DB_VERSION`) |
-| **Commit SHA** | `security/m9-staging-readiness` HEAD |
-| **Package SHA-256** | `613c070a14b1b8a90ae3cb9f70ab901f015a7f3efa71993d35db5fa2fea252f9` |
+| **Commit SHA** | `security/m9-hardening` candidate HEAD |
+| **Package SHA-256** | `f5aa516f6f0a2b4fdff0ef9d0503113500e144dcc7797d8801bdbbd06411da66` |
 | **Archive Entry Count** | 55 entries (47 files + 8 directories) |
-| **Archive Uncompressed Size** | 445,466 bytes (~435 KB) |
-| **Archive Compressed Size** | 134,845 bytes (~132 KB) |
+| **Archive Uncompressed Size** | 452,305 bytes (~441 KB) |
+| **Archive Compressed Size** | 136,240 bytes (~133 KB) |
 | **Secret-Free Verification** | Confirmed: no API keys, tokens, passwords, private salts, or credentials in archive |
 | **Development Leftovers** | Confirmed clean: `.git`, `tests/`, `integration/`, `dist/`, `.DS_Store`, `*.map` stripped |
+| **Build Reproducibility** | Confirmed 100% byte-reproducible with `SOURCE_DATE_EPOCH=1794570814 bash bin/build.sh` (sorted zip index) |
 
 ---
 
@@ -115,8 +116,8 @@ The four remaining risks identified during M9 staging preparation have been inve
 ## 3. Automated Verification Matrix & CI Status
 
 ### 3.1 CI Suite Coverage
-* **Total Unit Suite**: **185 Unit Tests across 19 cases (0 failures, 100% pass)** covering PHP 8.1, 8.2, 8.3, 8.4, and 8.5.
-* **Total Integration Suite**: **71 Integration Scenarios across both HPOS and Legacy stores (0 failures, 100% pass)** running on real WordPress 7.1.4, WooCommerce 11.3.0, and MySQL 8.4.
+* **Total Unit Suite**: **193 Unit Tests across 19 cases (0 failures, 100% pass)** covering PHP 8.1, 8.2, 8.3, 8.4, and 8.5.
+* **Total Integration Suite**: **71 Integration Scenarios across both HPOS and Legacy stores (0 failures, 100% pass)** running on real WordPress 7.1.4, WooCommerce 11.3.0, and MySQL 8.4.13.
 * **Automated CI Run**: Run ID [43421152998](https://github.com/zsoltacsai/woocommerce-pepita/actions/runs/43421152998) on commit `3ca88443e2e92c019bc2e0d37e29cf4dca67d561` (`security/m9-staging-readiness`) — **All 8 Checks Passed 100% Green**:
   - `lint (PHP 8.5)`: PASSED (13s)
   - `unit (PHP 8.1)`: PASSED (8s)
@@ -161,12 +162,13 @@ An independent, rigorous security QA review was conducted across multiple iterat
   8. **LOW: Entry Count Clarification**:
      - *Issue*: "55 files" was ambiguous; clarified as 47 files + 8 directory entries.
 * **Verdict**: **CONDITIONAL PASS — STAGING PREPARATION ONLY**
-  - All 8 audit findings (1 Critical, 1 High, 4 Medium, 2 Low) confirmed **Resolved** on branch `security/m9-staging-readiness`.
+  - All audit findings confirmed **Resolved** on branch `security/m9-hardening`.
   - Non-blocking residual observations noted for staging observation:
     1. *TOCTOU Pre-Save Gap*: Pre-save check (`is_attempt_current()`) and final `$order->save()` are distinct operations; fenced `complete()` guards post-save integrity.
-    2. *Reproducible Build Verification*: Package SHA-256 confirmed byte-for-byte stable with `SOURCE_DATE_EPOCH` and `zip -X`.
-    3. *Intermediate Commits*: Intermediate commits `4503906`, `14b9f0f`, and `3ca8844` resolved unit test mock fixtures and MySQL same-second affected rows count without affecting core invariants.
+    2. *Reproducible Build Verification*: Package SHA-256 confirmed byte-for-byte stable with `SOURCE_DATE_EPOCH=1794570814` and sorted `zip -X`.
+    3. *Intermediate Commits*: Intermediate commits resolved unit test mock fixtures and MySQL same-second affected rows count without affecting core invariants.
     4. *Manual Acceptance Scenarios*: Synthetic test scenarios ST-01 to ST-11 must be executed during staging dry-run.
+    5. *Pre-Delete 15-Minute Expiration Window (C2)*: Between `is_attempt_current()` and `$order->delete(true)` during incomplete shell recovery, there is a theoretical TOCTOU gap if the PHP process is suspended for > 15 minutes. In normal execution, this window is microseconds. Documented and accepted for staging.
 * **Production Gate**: **STRICT NO-GO (HOLD)** pending live staging dry-run acceptance and partner team clarifications.
 
 ---
@@ -208,6 +210,10 @@ Before deploying `wp-pepita-sync.zip` to a staging environment, operators MUST v
         return 404;
     }
     ```
+  - **Reverse Proxy / Ingress**: When deployed behind a reverse proxy, load balancer, or CDN:
+    - Do not rely on plain HTTP; keep `order_api_require_https` enabled.
+    - Configure the ingress IP/CIDR in **Megbízható proxyk** (`order_api_trusted_proxies`). `REMOTE_ADDR` is preserved; `X-Forwarded-*` headers are inspected only when `REMOTE_ADDR` matches `order_api_trusted_proxies`.
+    - If TLS is terminated at the proxy, ensure `X-Forwarded-Proto: https` is sent by the trusted proxy.
 * **Memory Limit**: `WP_MEMORY_LIMIT` recommended minimum 256M (512M recommended for large catalog generation).
 * **Cron Execution**: Real system cron recommended over WP-Cron:
   ```bash

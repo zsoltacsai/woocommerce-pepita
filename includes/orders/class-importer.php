@@ -61,7 +61,7 @@ final class Importer {
 			if ( 0 === $order_id ) {
 				$order_id = $this->find_order_by_external_id( $external_id );
 				if ( $order_id > 0 ) {
-					Order_Repository::associate( $external_id, $order_id );
+					Order_Repository::associate_legacy_completed_order( $external_id, $order_id );
 				}
 			}
 
@@ -109,9 +109,7 @@ final class Importer {
 								'external_id' => $external_id,
 								'orphan_id'   => $existing,
 								'attempt'     => $attempt,
-							),
-							'order',
-							$existing
+							)
 						);
 
 						return $this->result( 'retry', 409, 'A rendelés feldolgozási zárolása lejárt, a feldolgozást egy újabb kísérlet vette át.' );
@@ -119,20 +117,22 @@ final class Importer {
 
 					// 2. Reload the order state fresh from the database before deleting.
 					$fresh_order = wc_get_order( $existing );
-					if ( ! ( $fresh_order instanceof \WC_Order ) || ! $this->is_order_incomplete( $fresh_order ) ) {
+					if ( ! ( $fresh_order instanceof \WC_Order ) ) {
+						// Shell vanished or was deleted outside this worker.
+						// Clear association in claim and fall through to create a fresh order.
+						Order_Repository::associate( $external_id, 0, $attempt );
+						$existing = 0;
+					} elseif ( ! $this->is_order_incomplete( $fresh_order ) ) {
 						Logger::info(
 							'order_recovery',
 							'A félbehagyottnak hitt rendelés időközben befejeződött vagy tételeket kapott; megőrizzük és meglévőként kezeljük.',
 							array(
 								'external_id' => $external_id,
 								'order_id'    => $existing,
-							),
-							'order',
-							$existing
+							)
 						);
 
-						$target_order = ( $fresh_order instanceof \WC_Order ) ? $fresh_order : $existing_order;
-						$stored_hash  = (string) $target_order->get_meta( self::META_PAYLOAD_HASH );
+						$stored_hash = (string) $fresh_order->get_meta( self::META_PAYLOAD_HASH );
 						if ( '' === $stored_hash ) {
 							$stored_hash = (string) ( $claim['row']['payload_hash'] ?? '' );
 						}
@@ -140,28 +140,29 @@ final class Importer {
 						Order_Repository::associate( $external_id, $existing, $attempt );
 
 						return $this->handle_existing_order( $external_id, $existing, $stored_hash, $payload_hash, $payload, true, $attempt );
+					} else {
+						// 3. Pre-delete check: confirm is_attempt_current() one more time before calling delete().
+						if ( ! Order_Repository::is_attempt_current( $external_id, $attempt ) ) {
+							Logger::warning(
+								'order_recovery',
+								'A félbehagyott rendelés törlése megszakítva a törlés előtti ellenőrzésnél: a bérlet lejárt.',
+								array(
+									'external_id' => $external_id,
+									'orphan_id'   => $existing,
+									'attempt'     => $attempt,
+								)
+							);
+
+							return $this->result( 'retry', 409, 'A rendelés feldolgozási zárolása lejárt, a feldolgozást egy újabb kísérlet vette át.' );
+						}
+
+						// 4. Safely delete or quarantine.
+						$cleaned = $this->safe_cleanup_incomplete_order( $fresh_order, $external_id, $attempt );
+						if ( ! $cleaned ) {
+							return $this->result( 'retry', 409, 'A félbehagyott rendelés tisztítása és karanténba helyezése meghiúsult. Újrapróbálkozás szükséges.' );
+						}
+						$existing = 0;
 					}
-
-					// 3. Pre-delete check: confirm is_attempt_current() one more time before calling delete().
-					if ( ! Order_Repository::is_attempt_current( $external_id, $attempt ) ) {
-						Logger::warning(
-							'order_recovery',
-							'A félbehagyott rendelés törlése megszakítva a törlés előtti ellenőrzésnél: a bérlet lejárt.',
-							array(
-								'external_id' => $external_id,
-								'orphan_id'   => $existing,
-								'attempt'     => $attempt,
-							),
-							'order',
-							$existing
-						);
-
-						return $this->result( 'retry', 409, 'A rendelés feldolgozási zárolása lejárt, a feldolgozást egy újabb kísérlet vette át.' );
-					}
-
-					// 4. Safely delete or quarantine.
-					$this->safe_cleanup_incomplete_order( $fresh_order, $external_id, $attempt );
-					$existing = 0;
 				} else {
 					$stored_hash = (string) $existing_order->get_meta( self::META_PAYLOAD_HASH );
 					if ( '' === $stored_hash ) {
@@ -1273,9 +1274,7 @@ final class Importer {
 					array(
 						'external_id' => $external_id,
 						'orphan_id'   => $order_id,
-					),
-					'order',
-					$order_id
+					)
 				);
 
 				return true;
@@ -1288,9 +1287,7 @@ final class Importer {
 					'external_id' => $external_id,
 					'orphan_id'   => $order_id,
 					'error'       => $e->getMessage(),
-				),
-				'order',
-				$order_id
+				)
 			);
 		}
 
@@ -1301,6 +1298,8 @@ final class Importer {
 			$order->delete_meta_data( '_wps_pepita_in_progress' );
 			$order->set_status( 'failed', sprintf( 'Pepita csonka rendelés karanténba helyezve (kísérlet: %d, Pepita ID: %s) sikertelen törlés miatt.', $attempt, $external_id ) );
 			$order->save();
+
+			return true;
 		} catch ( \Throwable $q_err ) {
 			Logger::error(
 				'order_recovery',
@@ -1309,9 +1308,7 @@ final class Importer {
 					'external_id' => $external_id,
 					'orphan_id'   => $order_id,
 					'error'       => $q_err->getMessage(),
-				),
-				'order',
-				$order_id
+				)
 			);
 		}
 

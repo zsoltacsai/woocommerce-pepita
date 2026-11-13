@@ -44,7 +44,7 @@ find "$STAGE" -exec touch -d "@$SOURCE_DATE_EPOCH" {} +
 echo "==> Csomagolás"
 (
 	cd "$DIST"
-	zip -rq -X "$ZIP" "$SLUG"
+	find "$SLUG" | LC_ALL=C sort | zip -rq -X -@ "$ZIP"
 )
 
 echo "==> Ellenőrzés"

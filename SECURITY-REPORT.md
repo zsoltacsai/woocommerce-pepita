@@ -246,7 +246,6 @@ not a substitute for the live M9 staging validation.
     duplicate webhooks for already-completed claims do not perform redundant database writes on the
     claim table, and the redundant unfenced `complete(..., 0)` call has been eliminated. Only reclaimed
     leases execute `complete()` with attempt verification, returning HTTP 409 retry on lost lease.
-    safely backfill the hash in WooCommerce metadata and claims table.
 
 ## 10. Recommendations
 

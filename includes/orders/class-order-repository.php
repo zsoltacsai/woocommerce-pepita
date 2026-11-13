@@ -201,104 +201,60 @@ final class Order_Repository {
 	public static function complete( string $external_id, int $order_id, string $payload_hash = '', int $expected_attempt = 0 ): bool {
 		global $wpdb;
 
+		if ( $expected_attempt <= 0 ) {
+			return false;
+		}
+
 		$table = self::table();
 
-		if ( $expected_attempt > 0 ) {
-			if ( '' !== $payload_hash ) {
-				$res = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE {$table}
-						 SET status = %s, wc_order_id = %d, payload_hash = %s, last_error = NULL, updated_at = %s
-						 WHERE external_id = %s AND (status = %s OR status = %s) AND attempts = %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-						self::STATUS_COMPLETED,
-						max( 0, $order_id ),
-						$payload_hash,
-						current_time( 'mysql', true ),
-						$external_id,
-						self::STATUS_PROCESSING,
-						self::STATUS_COMPLETED,
-						$expected_attempt
-					)
-				);
-			} else {
-				$res = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE {$table}
-						 SET status = %s, wc_order_id = %d, last_error = NULL, updated_at = %s
-						 WHERE external_id = %s AND (status = %s OR status = %s) AND attempts = %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-						self::STATUS_COMPLETED,
-						max( 0, $order_id ),
-						current_time( 'mysql', true ),
-						$external_id,
-						self::STATUS_PROCESSING,
-						self::STATUS_COMPLETED,
-						$expected_attempt
-					)
-				);
-			}
-
-			if ( false === $res ) {
-				return false;
-			}
-
-			if ( 0 === (int) $res ) {
-				$row = self::get( $external_id );
-				return null !== $row
-					&& (int) ( $row['attempts'] ?? 0 ) === $expected_attempt
-					&& self::STATUS_COMPLETED === ( $row['status'] ?? '' );
-			}
+		if ( '' !== $payload_hash ) {
+			$res = $wpdb->query(
+				$wpdb->prepare(
+					"UPDATE {$table}
+					 SET status = %s, wc_order_id = %d, payload_hash = %s, last_error = NULL, updated_at = %s
+					 WHERE external_id = %s AND (status = %s OR status = %s) AND attempts = %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					self::STATUS_COMPLETED,
+					max( 0, $order_id ),
+					$payload_hash,
+					current_time( 'mysql', true ),
+					$external_id,
+					self::STATUS_PROCESSING,
+					self::STATUS_COMPLETED,
+					$expected_attempt
+				)
+			);
 		} else {
-			$existing_row = self::get( $external_id );
-			if ( null !== $existing_row && self::STATUS_COMPLETED === ( $existing_row['status'] ?? '' ) ) {
-				$existing_wc_id = (int) ( $existing_row['wc_order_id'] ?? 0 );
-				$existing_hash  = (string) ( $existing_row['payload_hash'] ?? '' );
-				if ( $existing_wc_id === $order_id && ( '' === $payload_hash || $existing_hash === $payload_hash ) ) {
-					return true;
-				}
-			}
+			$res = $wpdb->query(
+				$wpdb->prepare(
+					"UPDATE {$table}
+					 SET status = %s, wc_order_id = %d, last_error = NULL, updated_at = %s
+					 WHERE external_id = %s AND (status = %s OR status = %s) AND attempts = %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					self::STATUS_COMPLETED,
+					max( 0, $order_id ),
+					current_time( 'mysql', true ),
+					$external_id,
+					self::STATUS_PROCESSING,
+					self::STATUS_COMPLETED,
+					$expected_attempt
+				)
+			);
+		}
 
-			if ( '' !== $payload_hash ) {
-				$res = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE {$table}
-						 SET status = %s, wc_order_id = %d, payload_hash = %s, last_error = NULL, updated_at = %s
-						 WHERE external_id = %s AND (status = %s OR status = %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-						self::STATUS_COMPLETED,
-						max( 0, $order_id ),
-						$payload_hash,
-						current_time( 'mysql', true ),
-						$external_id,
-						self::STATUS_PROCESSING,
-						self::STATUS_COMPLETED
-					)
-				);
-			} else {
-				$res = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE {$table}
-						 SET status = %s, wc_order_id = %d, last_error = NULL, updated_at = %s
-						 WHERE external_id = %s AND (status = %s OR status = %s)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-						self::STATUS_COMPLETED,
-						max( 0, $order_id ),
-						current_time( 'mysql', true ),
-						$external_id,
-						self::STATUS_PROCESSING,
-						self::STATUS_COMPLETED
-					)
-				);
-			}
+		if ( false === $res ) {
+			return false;
+		}
 
-			if ( false === $res ) {
-				return false;
-			}
+		if ( 0 === (int) $res ) {
+			$row = self::get( $external_id );
+			return null !== $row
+				&& (int) ( $row['attempts'] ?? 0 ) === $expected_attempt
+				&& self::STATUS_COMPLETED === ( $row['status'] ?? '' );
 		}
 
 		Logger::info(
 			'order_import',
 			'Pepita rendelés sikeresen importálva.',
-			array( 'external_id' => $external_id, 'order_id' => $order_id ),
-			'order',
-			$order_id
+			array( 'external_id' => $external_id, 'order_id' => $order_id )
 		);
 
 		return true;
@@ -350,6 +306,38 @@ final class Order_Repository {
 				current_time( 'mysql', true ),
 				$external_id,
 				self::STATUS_PROCESSING,
+				self::STATUS_COMPLETED
+			)
+		);
+
+		return false !== $res;
+	}
+
+	/**
+	 * Associate a recovered order ID with a legacy completed claim that lacked wc_order_id.
+	 *
+	 * Strictly fenced to completed claims where wc_order_id is currently 0 or NULL.
+	 *
+	 * @param string $external_id
+	 * @param int    $order_id
+	 * @return bool
+	 */
+	public static function associate_legacy_completed_order( string $external_id, int $order_id ): bool {
+		global $wpdb;
+
+		if ( $order_id <= 0 ) {
+			return false;
+		}
+
+		$table = self::table();
+		$res   = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table}
+				 SET wc_order_id = %d, updated_at = %s
+				 WHERE external_id = %s AND status = %s AND (wc_order_id = 0 OR wc_order_id IS NULL)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$order_id,
+				current_time( 'mysql', true ),
+				$external_id,
 				self::STATUS_COMPLETED
 			)
 		);

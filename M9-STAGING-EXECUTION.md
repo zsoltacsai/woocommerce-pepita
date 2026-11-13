@@ -16,7 +16,7 @@
 
 This report certifies the controlled staging execution and release candidate synchronization for **WP Pepita Sync** (version 1.1.0, database schema 1.1.0).
 
-All four security and financial integrity risks identified in the M9 audit scope have been investigated, remediated with optimistic lease fencing and dual-anchor recovery, deterministically verified through automated test suites (185 unit tests across PHP 8.1–8.5, 71 integration scenarios on HPOS and legacy stores), and audited by independent reviewer Alastor "Mad-Eye" Moody.
+All four security and financial integrity risks identified in the M9 audit scope have been investigated, remediated with optimistic lease fencing and dual-anchor recovery, deterministically verified through automated test suites (193 unit tests across PHP 8.1–8.5, 71 integration scenarios on HPOS and legacy stores), and audited by independent reviewer Alastor "Mad-Eye" Moody.
 
 The release candidate has been synchronized with [PR #2](https://github.com/zsoltacsai/woocommerce-pepita/pull/2) via a clean, strict fast-forward merge without history rewriting. PR #2 remains in **Draft** status and strictly unmerged.
 
@@ -35,14 +35,14 @@ The release candidate has been synchronized with [PR #2](https://github.com/zsol
 | **Plugin Slug** | `wp-pepita-sync` |
 | **Plugin Version** | `1.1.0` (`WPS_PEPITA_VERSION`) |
 | **Database Version** | `1.1.0` (`WPS_PEPITA_DB_VERSION`) |
-| **Candidate Commit** | `1cbadd24353ea0eb31c63e29c1eca4db4417034a` |
-| **Package SHA-256** | `613c070a14b1b8a90ae3cb9f70ab901f015a7f3efa71993d35db5fa2fea252f9` |
+| **Candidate Commit** | Candidate HEAD |
+| **Package SHA-256** | `f5aa516f6f0a2b4fdff0ef9d0503113500e144dcc7797d8801bdbbd06411da66` |
 | **Entry Count** | 55 entries (47 files + 8 directories) |
-| **Compressed Size** | 134,845 bytes (~132 KB) |
-| **Uncompressed Size** | 445,466 bytes (~435 KB) |
+| **Compressed Size** | 136,240 bytes (~133 KB) |
+| **Uncompressed Size** | 452,305 bytes (~441 KB) |
 | **Source Identity** | 100% byte-for-byte identity against repository tree files |
 | **Cleanliness & Secrets** | 100% secret-free; `.git`, `tests/`, `integration/`, `dist/`, `.DS_Store`, and `*.map` stripped |
-| **Build Reproducibility** | Byte-for-byte reproducible via `SOURCE_DATE_EPOCH=1794570814 bash bin/build.sh` |
+| **Build Reproducibility** | Byte-for-byte reproducible via `SOURCE_DATE_EPOCH=1794570814 bash bin/build.sh` (sorted zip index) |
 
 ---
 
@@ -71,7 +71,7 @@ The release candidate has been synchronized with [PR #2](https://github.com/zsol
 
 Both integration test jobs execute against real containerized stacks:
 * **PHP Runtime**: PHP 8.5 (verified via `Environment: PASS PHP 8.5 is the runtime`)
-* **Database**: MySQL 8.4 server (verified via `PASS MySQL 8.4 is the database server`)
+* **Database**: MySQL 8.4.13 server (verified via `PASS MySQL 8.4 is the database server`)
 * **WordPress**: WordPress 7.1.4 (verified via `PASS WordPress 7.1.4 is installed`)
 * **WooCommerce**: WooCommerce 11.3.0 (verified via `PASS WooCommerce 11.3.0 is active`)
 * **HPOS Storage**: Verified with HPOS tables active (`PASS The order storage mode matches this test configuration`)
@@ -176,7 +176,7 @@ The candidate SHA `1cbadd24353ea0eb31c63e29c1eca4db4417034a` and staging executi
 * **Reviewer Residual Observations & Recommendations**:
   1. *Stale Incomplete Shell Delete Ordering* (`class-importer.php:112`): At line 112, `$existing_order->delete(true)` runs before `associate(..., 0, $attempt)`. While it cannot delete a completed order (checked via `is_order_incomplete()`), recommendation is to move the fence before the delete or make delete conditional on active attempt.
   2. *Duplicate Path Complete Fence* (`class-importer.php:1458`): Calls `Order_Repository::complete(..., 0)`, skipping attempt check. Benign due to completed status filter, but recommended to document or fence for full consistency.
-  3. *Unit Test Count Evidence*: 185 unit tests confirmed via CI job logs (185 passed, 0 failed across PHP 8.1–8.5).
+  3. *Unit Test Count Evidence*: 193 unit tests confirmed via CI job logs (193 passed, 0 failed across PHP 8.1–8.5).
 * **Reviewer Verdict**: **CONDITIONAL PASS — Staging Execution Only; Production Gate remains STRICT NO-GO**.
 
 ---

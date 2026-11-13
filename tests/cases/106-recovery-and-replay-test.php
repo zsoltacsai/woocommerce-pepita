@@ -1246,14 +1246,14 @@ $suite->add(
 			array( 'external_id' => $external_id )
 		);
 
-		// Hook woocommerce_get_order: on the fresh reload call after fencing, simulate concurrent completion
+		// Hook woocommerce_get_order: on call #3 (fresh reload after fencing), simulate concurrent completion
 		$calls = 0;
 		$hook = static function ( $obj, $order_arg ) use ( &$calls, $shell_id, $hash ) {
 			$id = $obj instanceof \WC_Order ? $obj->get_id() : (int) $order_arg;
 			if ( $id === $shell_id ) {
 				++$calls;
-				if ( 2 === $calls && $obj instanceof \WC_Order ) {
-					// Concurrent process completes the order
+				if ( 3 === $calls && $obj instanceof \WC_Order ) {
+					// Concurrent process completes the order right during the post-fence reload
 					$obj->delete_meta_data( '_wps_pepita_in_progress' );
 					$obj->update_meta_data( Importer::META_PAYLOAD_HASH, $hash );
 					$obj->set_status( 'processing' );
@@ -1267,6 +1267,7 @@ $suite->add(
 		$result = $importer->import( $payload );
 		remove_filter( 'woocommerce_get_order', $hook, 10 );
 
+		WPS_Assert::same( 3, $calls );
 		WPS_Assert::same( 200, $result['http'] );
 		WPS_Assert::same( 'duplicate', $result['status'] );
 		WPS_Assert::same( $shell_id, $result['order_id'] );
@@ -1274,6 +1275,146 @@ $suite->add(
 		// The shell was preserved, NOT deleted
 		WPS_Assert::true( isset( WPS_Test_State::$orders[ $shell_id ] ) );
 		WPS_Assert::same( 'processing', WPS_Test_State::$orders[ $shell_id ]->get_status() );
+	}
+);
+
+$suite->add(
+	'importer: shell vanishing between fence and reload falls through to clean creation',
+	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
+		$importer    = new Importer();
+		$external_id = 'PEP-VANISHED-SHELL-1';
+		$payload     = $recovery_payload( array( 'id' => $external_id ) );
+
+		// Create an incomplete shell order
+		$shell = new \WC_Order();
+		$shell->set_created_via( 'wps-pepita' );
+		$shell->update_meta_data( Importer::META_ORDER_ID, $external_id );
+		$shell->update_meta_data( '_wps_pepita_in_progress', '1' );
+		$shell_id = $shell->save();
+		WPS_Assert::true( $shell_id > 0 );
+
+		// Create claim and make it stale (> 15 min)
+		$claim = Order_Repository::claim( $external_id, 'pepita.hu', wp_json_encode( $payload ), 'hash-1' );
+		WPS_Assert::same( 'claimed', $claim['state'] );
+		Order_Repository::associate( $external_id, $shell_id, (int) $claim['row']['attempts'] );
+
+		global $wpdb;
+		$wpdb->update(
+			Order_Repository::table(),
+			array( 'updated_at' => gmdate( 'Y-m-d H:i:s', time() - 2000 ) ),
+			array( 'external_id' => $external_id )
+		);
+
+		// Hook wc_get_order: on call #3 (post-fence reload), remove the shell completely from WPS_Test_State
+		$calls = 0;
+		$hook  = static function ( $obj, $order_arg ) use ( &$calls, $shell_id ) {
+			$id = $obj instanceof \WC_Order ? $obj->get_id() : (int) $order_arg;
+			if ( $id === $shell_id ) {
+				++$calls;
+				if ( 3 === $calls ) {
+					unset( WPS_Test_State::$orders[ $shell_id ] );
+					return false;
+				}
+			}
+			return $obj;
+		};
+
+		add_filter( 'woocommerce_get_order', $hook, 10, 2 );
+		$result = $importer->import( $payload );
+		remove_filter( 'woocommerce_get_order', $hook, 10 );
+
+		WPS_Assert::same( 3, $calls );
+		WPS_Assert::same( 200, $result['http'] );
+		WPS_Assert::same( 'created', $result['status'] );
+		$new_id = $result['order_id'];
+		WPS_Assert::not_same( $shell_id, $new_id );
+
+		// Claim was completed to the new order, NOT the vanished shell
+		$claim_row = Order_Repository::get( $external_id );
+		WPS_Assert::same( 'completed', $claim_row['status'] );
+		WPS_Assert::same( $new_id, (int) $claim_row['wc_order_id'] );
+	}
+);
+
+$suite->add(
+	'importer: shell cleanup is aborted if lease is lost at pre-delete check',
+	static function () use ( $recovery_payload ): void {
+		WPS_Test_State::$tax_enabled = false;
+		update_option( 'woocommerce_calc_taxes', 'no' );
+		WPS_Test_State::add_product(
+			array(
+				'id'         => 701,
+				'name'       => 'Recovery Product 1',
+				'sku'        => 'SKU-REC-1',
+				'price'      => '2000',
+				'tax_status' => 'none',
+			)
+		);
+
+		$importer    = new Importer();
+		$external_id = 'PEP-FENCE-PRE-DELETE-1';
+		$payload     = $recovery_payload( array( 'id' => $external_id ) );
+
+		// Create an incomplete shell order
+		$shell = new \WC_Order();
+		$shell->set_created_via( 'wps-pepita' );
+		$shell->update_meta_data( Importer::META_ORDER_ID, $external_id );
+		$shell->update_meta_data( '_wps_pepita_in_progress', '1' );
+		$shell_id = $shell->save();
+		WPS_Assert::true( $shell_id > 0 );
+
+		// Create claim and make it stale (> 15 min)
+		$claim = Order_Repository::claim( $external_id, 'pepita.hu', wp_json_encode( $payload ), 'hash-1' );
+		WPS_Assert::same( 'claimed', $claim['state'] );
+		Order_Repository::associate( $external_id, $shell_id, (int) $claim['row']['attempts'] );
+
+		global $wpdb;
+		$wpdb->update(
+			Order_Repository::table(),
+			array( 'updated_at' => gmdate( 'Y-m-d H:i:s', time() - 2000 ) ),
+			array( 'external_id' => $external_id )
+		);
+
+		// Hook woocommerce_get_order: on call #3 (fresh reload after fencing), steal the lease by bumping attempts to 999
+		$calls = 0;
+		$hook = static function ( $obj, $order_arg ) use ( &$calls, $shell_id, $external_id ) {
+			$id = $obj instanceof \WC_Order ? $obj->get_id() : (int) $order_arg;
+			if ( $id === $shell_id ) {
+				++$calls;
+				if ( 3 === $calls ) {
+					global $wpdb;
+					$wpdb->update(
+						Order_Repository::table(),
+						array( 'attempts' => 999 ),
+						array( 'external_id' => $external_id )
+					);
+				}
+			}
+			return $obj;
+		};
+
+		add_filter( 'woocommerce_get_order', $hook, 10, 2 );
+		$result = $importer->import( $payload );
+		remove_filter( 'woocommerce_get_order', $hook, 10 );
+
+		WPS_Assert::same( 3, $calls );
+		WPS_Assert::same( 409, $result['http'] );
+		WPS_Assert::same( 'retry', $result['status'] );
+
+		// The shell was NOT deleted because pre-delete lease check failed
+		WPS_Assert::true( isset( WPS_Test_State::$orders[ $shell_id ] ) );
 	}
 );
 
@@ -1383,6 +1524,8 @@ $suite->add(
 		$claim_after = Order_Repository::get( $external_id );
 		WPS_Assert::same( 'completed', $claim_after['status'] );
 		WPS_Assert::same( $order_id, (int) $claim_after['wc_order_id'] );
+		WPS_Assert::same( (int) $claim_before['attempts'], (int) $claim_after['attempts'] );
+		WPS_Assert::same( $claim_before['payload_hash'], $claim_after['payload_hash'] );
 		WPS_Assert::same( $updated_at_before, $claim_after['updated_at'] );
 	}
 );
