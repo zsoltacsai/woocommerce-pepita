@@ -16,7 +16,7 @@ and "Later" are improvements, not defects.
    fallback are verified locally; still test `DISABLE_WP_CRON` with a real system
    cron on the host.
 4. **Feed acceptance.** Confirm Pepita ingests both feeds, matches the stock feed
-   to the full feed, and accepts the variation shape.
+   to the full feed, and accepts the variation shape (XML contract verified in M9-D).
 5. **Gateway mapping.** Choose a real WooCommerce gateway for `creditcard` and
    verify the order shows the expected payment method.
 6. **Direct-file exposure test.** Request the private feed path directly over

@@ -1,0 +1,2088 @@
+
+
+        <div class="tabbable-line tabbable-full-width">
+            <ul class="nav nav-tabs">
+                <li class="nav-item  active ">
+                    <a href="https://pepita.hu/partners/xml-format" class="nav-link">Magyar</a>
+                </li>
+                <li class="nav-item ">
+                    <a href="https://pepita.com/en/partners/xml-format" class="nav-link">English</a>
+                </li>
+            </ul>
+        </div>
+
+        <div class="mt-15 tab-content">
+            <h1>XML ismertető</h1>
+            <p>Jelen ismertető az alábbiakat tartalmazza:</p>
+            <ol>
+                <li>
+                    <a href="#product-feed-description">Termék és készlet adatok átadása a Pepita.hu rendszerébe</a>
+                    <ol>
+                        <li><a href="#product-feed-xml">Termék XML fájl szerkezete és feltüntetendő mezők</a></li>
+                        <li><a href="#variation-product-feed-xml">Termék XML fájl szerkezete variációs termék esetén</a></li>
+                        <li><a href="#product-feed-sample">Példa termék XML fájl</a></li>
+                    </ol>
+                </li>
+                <li class="mt-15">
+                    <a href="#stock-feed-description">Készlet átadása a Pepita.hu rendszerébe</a>
+                    <ol>
+                        <li><a href="#stock-feed-xml">Készlet XML fájl szerkezete és feltüntetendő mezők</a></li>
+                        <li><a href="#variation-stock-feed-xml">Készlet XML fájl szerkezete variációs termék esetén</a></li>
+                        <li><a href="#stock-feed-sample">Példa készlet XML fájl</a></li>
+                    </ol>
+                </li>
+            </ol>
+
+            <h2 id="product-feed-description">Termékek átadása a Pepita.hu rendszerébe</h2>
+
+<p>
+    Az átadott terméklistának az alábbi szabályoknak kell megfelelnie:
+
+    <ul>
+        <li>Az XML terméklista kódolása kizárólag <code>UTF-8</code> lehet</li>
+        <li>Az árakat minden esetben kötelező megadni, 0-s árat rendszerünk nem fogad el</li>
+        <li>A speciális karakterek XML szabványnak megfelelő kódolása kötelező.
+            ("&amp;, &lt;, &gt;" karakterek helyett &amp;amp;, &amp;gt;, &amp;lt; használata)</li>
+        <li>URL-ek esetében kérjük ügyeljen arra, hogy az url csak szabványos karaktereket
+            tartalmazzon (például szóköz helyett +, vagy %20 karakter)</li>
+    </ul>
+</p>
+
+<br>
+<h5 id="product-feed-xml">
+    Az XML fájl szerkezetét és a feltüntetendő mezőket az alábbi táblázat tartalmazza:
+</h5>
+<br>
+
+<table class="table table-bordered table-striped table-responsive table-sm">
+    <thead>
+    <tr>
+        <th>Elem</th>
+        <th>Kötelező?</th>
+        <th>Leírás</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr>
+        <th><code>&lt;Id&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+            A termék egyedi azonosítója. Ez egy szöveges érték, ami:
+            <ul>
+                <li>Tetszőlegesen megválasztható (lehet az adatbázisotokban levő egyedi azonosító, cikkszám, EAN/UPC kód,
+                    etc.)
+                </li>
+                <li>Termékenként egyedi, azaz két termék nem rendelkezik ugyanazzal az ID-val</li>
+                <li>Nem változik (azaz ha a terméket adatai változnak, készlet változik, etc. ez az azonosító ugyanaz
+                    marad)
+                </li>
+            </ul>
+        </td>
+    </tr>
+    <tr>
+        <th><code>&lt;LastMod&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            A termék utolsó módosítási időpontja, időbélyege. Formátuma egy számérték (timestamp), pl.: 1583996473 (Ez 2020-03-12 07:01:13 időpontnak felel meg).
+        </td>
+    </tr>
+    <tr>
+        <th><code>&lt;StructuredId&gt;</code></th>
+        <td>Ajánlott</td>
+        <td>
+            Termék UPC/EAN/ISBN kódja, melyet a gyártó adott meg a termékhez. Amennyiben van, erősen ajánlott megadni a
+            gyorsabb és hatékonyabb feldolgozás érdekében.
+        </td>
+    </tr>
+    <tr>
+        <th><code>&lt;ProductNumber&gt;</code></th>
+        <td>Ajánlott</td>
+        <td>
+            A gyártó által megadott termékkód (MPN - gyártói cikkszám)
+        </td>
+    </tr>
+    <tr>
+        <th><code>&lt;EmailDelivery&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            Jelzi, hogy a termék e-mailben kerül kézbesítésre. Elfogadott értékek: <code>true</code>, <code>false</code>,
+            <code>1</code>, <code>0</code>. Ha hiányzik, a mezőben tárolt érték nem változik. <code>true</code> érték
+            csak akkor érvényesül, ha a partnerhez be van állítva e-mailes kézbesítési mód a termék célországára.
+        </td>
+    </tr>
+    <tr>
+        <th><code>&lt;Descriptions&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Name&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+            A termék neve.
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Description&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+            A termék (hosszú) leírása. A leírás részeként megküldött képek, videók és egyéb médiatartalmak nem kerülnek átvételre, így azok nem jelennek meg a termékleírásban.
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Brand&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            A termék brandje.
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Manufacturer&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            A termék gyártójának neve.
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Author&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            Könyv típusú termék esetén a könyv szerzőjének neve.
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Publisher&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            Könyv típusú termék esetén a könyv kiadójának neve.
+        </td>
+    </tr>
+
+    <tr>
+        <th><code>&lt;Prices&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Currency&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+            A termék ár pénznemének ISO 4217 kódja. (pl. Ft esetén <code>HUF</code>)
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Price&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+            A termék ára (a <code>&lt;Currency&gt;</code> tag-ben megadott pénznemben).
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;VatPercent&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+            A termék áfa tartalma.
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;DiscountedPrice&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            Kedvezményes/leárazott termék esetén a termék kedvezményes/leárazott ára (a <code>&lt;Currency&gt;</code> tag-ben megadott pénznemben).
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;PurchaseNetPrice&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            A termék nettó átadási ára (a <code>&lt;Currency&gt;</code> tag-ben megadott pénznemben).
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;ShippingPrice&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            A termék szállítási költsége, amennyiben az eltér az alapértelmezetten beállított szállítási költségetől. Termék darabonként értendő, tehát pl.: nagy csomagok, súly határon, vagy méret határon kívüli termékek (a <code>&lt;Currency&gt;</code> tag-ben megadott pénznemben).
+        </td>
+    </tr>
+    <tr>
+        <th><code>&lt;Warranty&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Garanciainformációkat tartalmaz a termékről</td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Type&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            Amennyiben a termékre vállalnak garanciát, a garanciális időszak típusát tartalmazza. Lehetséges értékek:
+            <table class="table table-bordered table-responsive">
+                <thead>
+                <tr>
+                    <th>Érték</th>
+                    <th>Jelentés</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr>
+                    <th><code>None</code></th>
+                    <td>Nincs garancia</td>
+                </tr>
+                <tr>
+                    <th><code>Day</code></th>
+                    <td>A <code>&lt;Duration&gt;</code> mező a garanciális időszak hosszát tartalmazza munkanapokban.</td>
+                </tr>
+                <tr>
+                    <th><code>Week</code></th>
+                    <td>A <code>&lt;Duration&gt;</code> mező a garanciális időszak hosszát tartalmazza hetekben.</td>
+                </tr>
+                <tr>
+                    <th><code>Month</code></th>
+                    <td>A <code>&lt;Duration&gt;</code> mező a garanciális időszak hosszát tartalmazza hónapokban.</td>
+                </tr>
+                <tr>
+                    <th><code>Year</code></th>
+                    <td>A <code>&lt;Duration&gt;</code> mező a garanciális időszak hosszát tartalmazza években.</td>
+                </tr>
+                </tbody>
+            </table>
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Duration&gt;</code></th>
+        <td>Opcionális</td>
+        <td>A garanciális időszak hossza</td>
+    </tr>
+
+    <tr>
+        <th><code>&lt;Categories&gt;</code></th>
+        <td>Kötelező</td>
+        <td>Milyen kategóriákhoz tartozik a termék, a legfelsőbb kategóriától a legalsóbbig. (pl. Könyvek &gt; Babanapló). Egy vagy több <code>&lt;Category&gt;</code> elemet tartalmaz.</td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Category&gt;</code></th>
+        <td>Kötelező</td>
+        <td>A termék egyik kategóriáját írja le</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Id&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Kategória egyedi azonosítója saját áruházának nyilvántartásában</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Name&gt;</code></th>
+        <td>Kötelező</td>
+        <td>Kategória neve</td>
+    </tr>
+
+    <tr>
+        <th><code>&lt;Photos&gt;</code></th>
+        <td>Kötelező</td>
+        <td>Milyen képek tartoznak a termékhez; egy vagy több <code>&lt;Photo&gt;</code> elemet tartalmaz.</td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Photo&gt;</code></th>
+        <td>Kötelező</td>
+        <td>A termék egyik képét írja le</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Url&gt;</code></th>
+        <td>Kötelező</td>
+        <td>Kép teljes URL-je</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;IsPrimary&gt;</code></th>
+        <td>Kötelező</td>
+        <td>Ez a kép a termék elsődleges/alapértelmezett képe? (<code>true</code> vagy <code>false</code> értéket vehet fel)</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Title&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Kép aláírása</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;PrimaryVariation&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Ha a kép a termék egy változatához tartozik, az elsődleges tulajdonság értéke (a <code>PrimaryAttribute</code> mezőben megadott tulajdonsághoz tartozó érték)</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;SecondaryVariation&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Ha a kép a termék egy változatához tartozik, a másodlagos tulajdonság értéke (a <code>SecondaryAttribute</code> mezőben megadott tulajdonsághoz tartozó érték)</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;TertiaryVariation&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Ha a kép a termék egy változatához tartozik, a harmadlagos tulajdonság értéke (a <code>TertiaryAttribute</code> mezőben megadott tulajdonsághoz tartozó érték)</td>
+    </tr>
+
+    <tr>
+        <th><code>&lt;VideoLinks&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Milyen videók tartoznak a termékhez. Egy vagy több videó teljes URL-je, vesszővel elválasztva</td>
+    </tr>
+
+    <tr>
+        <th><code>&lt;ProductUrl&gt;</code></th>
+        <td>Opcionális</td>
+        <td>A termék teljes URL-je</td>
+    </tr>
+
+    <tr>
+        <th><code>&lt;Availability&gt;</code></th>
+        <td>Kötelező</td>
+        <td>Készletinformációkat tartalmaz a termékről</td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Available&gt;</code></th>
+        <td>Kötelező</td>
+        <td>Készleten van a termék? (<code>true</code> vagy <code>false</code> értéket vehet fel)</td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Quantity&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Hány termék van készleten jelenleg</td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;RestockDate&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Mikorra várható a következő készletfeltöltés? (<code>YYYY-MM-DD</code> formátumú dátum)</td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;ShippingDelay&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Várható összekészítési idő, munkanapokban</td>
+    </tr>
+
+    <tr>
+        <th><code>&lt;Attributes&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Termékjellemzők megadására szolgáló mező. Érdemes minél több termékjellemzőt átadni, ugyanis a termék ezek alapján válik kereshetővé a rendszerben a vásárlók számára.</td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Attribute&gt;</code></th>
+        <td>Kötelező</td>
+        <td>Egy konkrét termékjellemző megadását teszi lehetővé és tetszőleges számú attribútum küldhető a feed-ben</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;AttributeName&gt;</code></th>
+        <td>Kötelező</td>
+        <td>A termékjellemző konkrét megnevezése, pl.: Memória (GB)</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;AttributeValue&gt;</code></th>
+        <td>Kötelező</td>
+        <td>A termékjellemző konkrét értéke, pl.: az előző, memória példánál maradva - 16</td>
+    </tr>
+
+    <tr>
+        <th><code>&lt;VolumeDimensions&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Termék térfogat adatainak és súlyának (Szélesség,Hosszúság,Magasság,Súly) megadására szolgáló mező.</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Width&gt;</code></th>
+        <td>Opcionális</td>
+        <td>A termék szélessége cm mértékegységben. Helyes formátumok: "15"; "0.5"; "0,68"; </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Height&gt;</code></th>
+        <td>Opcionális</td>
+        <td>A termék magassága cm mértékegységben. Helyes formátumok: "15"; "0.5"; "0,68"; </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Length&gt;</code></th>
+        <td>Opcionális</td>
+        <td>A termék hosszúsága cm mértékegységben. Helyes formátumok: "15"; "0.5"; "0,68"; </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Weight&gt;</code></th>
+        <td>Opcionális</td>
+        <td>A termék súlya kg mértékegységben. Helyes formátumok: "15"; "0.5"; "0,68"; "0.0001"; </td>
+    </tr>
+
+    </tbody>
+</table>
+
+<br>
+<h5 id="variation-product-feed-xml">
+    Az XML fájl szerkezete variációs termékek esetén a következőképpen egészül ki:
+</h5>
+<br>
+
+<table class="table table-bordered table-striped table-responsive table-sm">
+    <thead>
+    <tr>
+        <th>Elem</th>
+        <th>Kötelező?</th>
+        <th>Leírás</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr>
+        <th><code>&lt;Variations&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Milyen variációk tartoznak a termékhez. (Ha egy termék egyszer variációsként lett átadva, azon változtatni nem szabad)</td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;PrimaryAttribute&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+            Megadja, hogy milyen tulajdonság alapján vannak megkülönböztetve a variációk.
+            (pl. ha egy babakocsi 3 színben elérhető, akkor az elsődleges tulajdonság a szín lesz)
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;SecondaryAttribute&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            Ha két tulajdonság alapján is megkülönbözhethetjük a termék variációkat, megadja a második tulajdonságot.
+            (pl. ha egy póló több színben és méretben is elérhető)
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;TertiaryAttribute&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            Ha három tulajdonság alapján is megkülönbözhethetjük a termék variációkat, megadja a harmadik tulajdonságot.
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Variation&gt;</code></th>
+        <td>Kötelező</td>
+        <td>A termék egy változatát írja le. </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;PrimaryVariation&gt;</code></th>
+        <td>Kötelező</td>
+        <td>Elsődleges tulajdonság értéke (a <code>PrimaryAttribute</code> mezőben megadott tulajdonsághoz tartozó érték)</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;SecondaryVariation&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Másodlagos tulajdonság értéke (a <code>SecondaryAttribute</code> mezőben megadott tulajdonsághoz tartozó érték)</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;TertiaryVariation&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Harmadlagos tulajdonság értéke (a <code>TertiaryAttribute</code> mezőben megadott tulajdonsághoz tartozó érték)</td>
+    </tr>
+
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Prices&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            Amennyiben a termék különböző változatai más árakkal rendelkeznek, itt lehet azokat megadni.
+        </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Currency&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+            A termékvariáció ár pénznemének ISO 4217 kódja. (pl. Ft esetén <code>HUF</code>)
+        </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Price&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+            A termékvariáció ára (a <code>&lt;Currency&gt;</code> tag-ben megadott pénznemben).
+        </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;DiscountedPrice&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            Kedvezményes/leárazott termék esetén a termékvariáció kedvezményes/leárazott ára (a <code>&lt;Currency&gt;</code> tag-ben megadott pénznemben).
+        </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;PurchaseNetPrice&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            A termék nettó átadási ára (a <code>&lt;Currency&gt;</code> tag-ben megadott pénznemben).
+        </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;ShippingPrice&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            A termékvariáció szállítási költsége, amennyiben az eltér az alapértelmezetten beállított szállítási költségetől (a <code>&lt;Currency&gt;</code> tag-ben megadott pénznemben).
+        </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&lt;Availability&gt;</code></th>
+        <td>Kötelező</td>
+        <td>Készletinformációkat tartalmaz a termékváltozatról</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Available&gt;</code></th>
+        <td>Kötelező</td>
+        <td>Készleten van ez a termékváltozat? (<code>true</code> vagy <code>false</code> értéket vehet fel)</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Quantity&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Hány termék van készleten jelenleg</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;RestockDate&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Mikorra várható a következő készletfeltöltés? (<code>YYYY-MM-DD</code> formátumú dátum)</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;ShippingDelay&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Várható összekészítési idő, munkanapokban</td>
+    </tr>
+    </tbody>
+</table>
+            <style>
+    /* Copyright 2014 The Chromium Authors. All rights reserved.
+     * Use of this source code is governed by a BSD-style license that can be
+     * found in the LICENSE file.
+     */
+
+    div.collapsible > div.hidden {
+        display: none;
+    }
+
+    .pretty-print {
+        margin-top: 1em;
+        margin-left: 20px;
+        font-family: monospace;
+        font-size: 13px;
+    }
+
+    .collapsible-content {
+        margin-left: 1em;
+    }
+
+    .html-tag {
+        color: rgb(136, 18, 128);
+    }
+
+    .html-attribute-name {
+        color: rgb(153, 69, 0);
+    }
+
+    .html-attribute-value, .text {
+        color: rgb(26, 26, 166);
+    }
+
+    h2:not(:first-child) {
+        margin-top: 3rem;
+    }
+</style>
+
+<h2 id="product-feed-sample">Példa XML</h2>
+
+<strong><a href="/assets/xsd/pepita-sample.xml">Példa XML letöltése</a></strong>
+
+<div xmlns="http://www.w3.org/1999/xhtml" class="pretty-print">
+    <div class="collapsible" id="collapsible0">
+        <div class="expanded">
+            <div class="line"><span class="button collapse-button"></span><span class="html-tag">&lt;Catalog<span
+                            class="html-attribute"> <span class="html-attribute-name">xmlns</span>="<span
+                                class="html-attribute-value">https://pepita.hu/feed/1.0</span>"</span>&gt;</span></div>
+            <div class="collapsible-content"><span class="text"></span>
+                <div class="line"><span class="comment html-comment">&lt;!--  Példa normál termékre  --&gt;</span></div>
+                <span class="text"></span>
+                <div class="collapsible" id="collapsible1">
+                    <div class="expanded">
+                        <div class="line"><span class="button collapse-button"></span><span class="html-tag">&lt;Product&gt;</span>
+                        </div>
+                        <div class="collapsible-content"><span class="text"></span>
+                            <div class="line"><span class="html-tag">&lt;Id&gt;</span><span
+                                        class="text">1234</span><span class="html-tag">&lt;/Id&gt;</span></div>
+                            <span class="text"></span>
+                            <div class="line"><span class="html-tag">&lt;LastMod&gt;</span><span
+                                        class="text">1583996473</span><span class="html-tag">&lt;/LastMod&gt;</span>
+                            </div>
+                            <span class="text"></span>
+                            <div class="line"><span class="html-tag">&lt;StructuredId&gt;</span><span class="text">9789633736579</span><span
+                                        class="html-tag">&lt;/StructuredId&gt;</span></div>
+                            <span class="text"></span>
+                            <div class="collapsible" id="collapsible2">
+                                <div class="expanded">
+                                    <div class="line"><span class="button collapse-button"></span><span
+                                                class="html-tag">&lt;Descriptions&gt;</span></div>
+                                    <div class="collapsible-content"><span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;Name&gt;</span><span class="text">Játékos babafejlesztés</span><span
+                                                    class="html-tag">&lt;/Name&gt;</span></div>
+                                        <span class="text"></span>
+                                        <div class="collapsible" id="collapsible3">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="html-tag">&lt;Description&gt;</span></div>
+                                                <div class="collapsible-content"><span class="text">Ez az ellenállhatatlan könyv, a baba életkorához igazodó, inspiráló tevékenységeket soroltat fel az első 12 hónap minden egyes napjára, az újszülött kortól egészen a 12 hónapos korig. Játékok és programok a babával, megspékelve sok-sok remek tanáccsal és ötlettel az újdonsült anyukák és apukák számára. A kicsi fejlődését elősegítő játékokkal feldobhatod a mindennapi szülői rutinteendőket, és stimuláló, fejlesztő közeget biztosíthatsz a babádnak.</span>
+                                                </div>
+                                                <div class="line"><span class="html-tag">&lt;/Description&gt;</span>
+                                                </div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="html-tag">&lt;Description&gt;</span><span
+                                                            class="text">...</span><span class="html-tag">&lt;/Description&gt;</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;Author&gt;</span><span
+                                                    class="text">Susannah Steel</span><span class="html-tag">&lt;/Author&gt;</span>
+                                        </div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;Publisher&gt;</span><span
+                                                    class="text">Central Médiacsoport Zrt.</span><span class="html-tag">&lt;/Publisher&gt;</span>
+                                        </div>
+                                        <span class="text"></span></div>
+                                    <div class="line"><span class="html-tag">&lt;/Descriptions&gt;</span></div>
+                                </div>
+                                <div class="collapsed hidden">
+                                    <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Descriptions&gt;</span><span
+                                                class="text">...</span><span
+                                                class="html-tag">&lt;/Descriptions&gt;</span></div>
+                                </div>
+                            </div>
+                            <span class="text"></span>
+                            <div class="collapsible" id="collapsible4">
+                                <div class="expanded">
+                                    <div class="line"><span class="button collapse-button"></span><span
+                                                class="html-tag">&lt;Prices&gt;</span></div>
+                                    <div class="collapsible-content"><span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;Currency&gt;</span><span
+                                                    class="text">HUF</span><span
+                                                    class="html-tag">&lt;/Currency&gt;</span></div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;Price&gt;</span><span class="text">1500</span><span
+                                                    class="html-tag">&lt;/Price&gt;</span></div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;VatPercent&gt;</span><span class="text">27</span><span
+                                                class="html-tag">&lt;/VatPercent&gt;</span></div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;DiscountedPrice&gt;</span><span
+                                                    class="text">1200</span><span class="html-tag">&lt;/DiscountedPrice&gt;</span>
+                                        </div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;PurchaseNetPrice&gt;</span><span
+                                                    class="text">800</span><span class="html-tag">&lt;/PurchaseNetPrice&gt;</span>
+                                        </div>
+                                        <span class="text"></span></div>
+                                    <div class="line"><span class="html-tag">&lt;/Prices&gt;</span></div>
+                                </div>
+                                <div class="collapsed hidden">
+                                    <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Prices&gt;</span><span
+                                                class="text">...</span><span class="html-tag">&lt;/Prices&gt;</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <span class="text"></span>
+                            <div class="collapsible" id="collapsible5">
+                                <div class="expanded">
+                                    <div class="line"><span class="button collapse-button"></span><span
+                                                class="html-tag">&lt;Categories&gt;</span></div>
+                                    <div class="collapsible-content"><span class="text"></span>
+                                        <div class="collapsible" id="collapsible6">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="html-tag">&lt;Category&gt;</span></div>
+                                                <div class="collapsible-content"><span class="text"></span>
+                                                    <div class="line"><span class="html-tag">&lt;Id&gt;</span><span
+                                                                class="text">674</span><span class="html-tag">&lt;/Id&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="line"><span class="html-tag">&lt;Name&gt;</span><span
+                                                                class="text">Könyvek</span><span class="html-tag">&lt;/Name&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span></div>
+                                                <div class="line"><span class="html-tag">&lt;/Category&gt;</span></div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="html-tag">&lt;Category&gt;</span><span class="text">...</span><span
+                                                            class="html-tag">&lt;/Category&gt;</span></div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span>
+                                        <div class="collapsible" id="collapsible7">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="html-tag">&lt;Category&gt;</span></div>
+                                                <div class="collapsible-content"><span class="text"></span>
+                                                    <div class="line"><span class="html-tag">&lt;Id&gt;</span><span
+                                                                class="text">1087</span><span class="html-tag">&lt;/Id&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="line"><span class="html-tag">&lt;Name&gt;</span><span
+                                                                class="text">Család és szülők</span><span
+                                                                class="html-tag">&lt;/Name&gt;</span></div>
+                                                    <span class="text"></span></div>
+                                                <div class="line"><span class="html-tag">&lt;/Category&gt;</span></div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="html-tag">&lt;Category&gt;</span><span class="text">...</span><span
+                                                            class="html-tag">&lt;/Category&gt;</span></div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span></div>
+                                    <div class="line"><span class="html-tag">&lt;/Categories&gt;</span></div>
+                                </div>
+                                <div class="collapsed hidden">
+                                    <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Categories&gt;</span><span
+                                                class="text">...</span><span class="html-tag">&lt;/Categories&gt;</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <span class="text"></span>
+                            <div class="collapsible" id="collapsible8">
+                                <div class="expanded">
+                                    <div class="line"><span class="button collapse-button"></span><span
+                                                class="html-tag">&lt;Photos&gt;</span></div>
+                                    <div class="collapsible-content"><span class="text"></span>
+                                        <div class="collapsible" id="collapsible9">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="html-tag">&lt;Photo&gt;</span></div>
+                                                <div class="collapsible-content"><span class="text"></span>
+                                                    <div class="collapsible" id="collapsible10">
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="html-tag">&lt;Url&gt;</span></div>
+                                                            <div class="collapsible-content"><span class="text">http://i.pepita.hu/images/product/147925/30150920_original.jpg</span>
+                                                            </div>
+                                                            <div class="line"><span class="html-tag">&lt;/Url&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="collapsed hidden">
+                                                            <div class="line"><span class="button expand-button"></span><span
+                                                                        class="html-tag">&lt;Url&gt;</span><span
+                                                                        class="text">...</span><span class="html-tag">&lt;/Url&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="line"><span
+                                                                class="html-tag">&lt;IsPrimary&gt;</span><span
+                                                                class="text">true</span><span class="html-tag">&lt;/IsPrimary&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span></div>
+                                                <div class="line"><span class="html-tag">&lt;/Photo&gt;</span></div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="html-tag">&lt;Photo&gt;</span><span
+                                                            class="text">...</span><span
+                                                            class="html-tag">&lt;/Photo&gt;</span></div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span>
+                                        <div class="collapsible" id="collapsible11">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="html-tag">&lt;Photo&gt;</span></div>
+                                                <div class="collapsible-content"><span class="text"></span>
+                                                    <div class="collapsible" id="collapsible12">
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="html-tag">&lt;Url&gt;</span></div>
+                                                            <div class="collapsible-content"><span class="text">http://i.pepita.hu/images/product/145293/30145188_original.jpg</span>
+                                                            </div>
+                                                            <div class="line"><span class="html-tag">&lt;/Url&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="collapsed hidden">
+                                                            <div class="line"><span class="button expand-button"></span><span
+                                                                        class="html-tag">&lt;Url&gt;</span><span
+                                                                        class="text">...</span><span class="html-tag">&lt;/Url&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="line"><span
+                                                                class="html-tag">&lt;IsPrimary&gt;</span><span
+                                                                class="text">false</span><span class="html-tag">&lt;/IsPrimary&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span></div>
+                                                <div class="line"><span class="html-tag">&lt;/Photo&gt;</span></div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="html-tag">&lt;Photo&gt;</span><span
+                                                            class="text">...</span><span
+                                                            class="html-tag">&lt;/Photo&gt;</span></div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span></div>
+                                    <div class="line"><span class="html-tag">&lt;/Photos&gt;</span></div>
+                                </div>
+                                <div class="collapsed hidden">
+                                    <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Photos&gt;</span><span
+                                                class="text">...</span><span class="html-tag">&lt;/Photos&gt;</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="line"><span class="html-tag">&lt;VideoLinks&gt;</span><span class="text">https://www.youtube.com/watch?v=npMXbz3r218,https://www.youtube.com/watch?v=zXQ7JFOgEmc</span><span
+                                        class="html-tag">&lt;/VideoLinks&gt;</span>
+                            </div>
+                            <div class="line"><span class="html-tag">&lt;ProductUrl&gt;</span><span class="text">https://pepita.hu/gyerekulesek-c1170/summer-baby-berton-sps-isofix-gyerekules-0-36kg-ajandek-fekete-szurke-p275589</span><span
+                                        class="html-tag">&lt;/ProductUrl&gt;</span>
+                            </div>
+                            <div class="line"><span class="html-tag">&lt;EmailDelivery&gt;</span><span
+                                        class="text">false</span><span class="html-tag">&lt;/EmailDelivery&gt;</span>
+                            </div>
+                            <span class="text"></span>
+                            <div class="collapsible" id="collapsible13">
+                                <div class="expanded">
+                                    <div class="line"><span class="button collapse-button"></span><span
+                                                class="html-tag">&lt;Availability&gt;</span></div>
+                                    <div class="collapsible-content"><span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;Available&gt;</span><span
+                                                    class="text">true</span><span
+                                                    class="html-tag">&lt;/Available&gt;</span></div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;Quantity&gt;</span><span
+                                                    class="text">13</span><span
+                                                    class="html-tag">&lt;/Quantity&gt;</span></div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;ShippingDelay&gt;</span><span
+                                                    class="text">3</span><span
+                                                    class="html-tag">&lt;/ShippingDelay&gt;</span></div>
+                                        <span class="text"></span></div>
+                                    <div class="line"><span class="html-tag">&lt;/Availability&gt;</span></div>
+                                </div>
+                                <div class="collapsed hidden">
+                                    <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Availability&gt;</span><span
+                                                class="text">...</span><span
+                                                class="html-tag">&lt;/Availability&gt;</span></div>
+                                </div>
+                                <span class="text"></span>
+                                <div class="collapsible" id="collapsible14">
+                                    <div class="expanded">
+                                        <div class="line"><span class="button collapse-button"></span><span
+                                                    class="html-tag">&lt;Attributes&gt;</span></div>
+                                        <div class="collapsible-content"><span class="text"></span>
+                                            <div class="collapsible" id="collapsible6">
+                                                <div class="expanded">
+                                                    <div class="line"><span class="button collapse-button"></span><span
+                                                                class="html-tag">&lt;Attribute&gt;</span></div>
+                                                    <div class="collapsible-content"><span class="text"></span>
+                                                        <div class="line"><span
+                                                                    class="html-tag">&lt;AttributeName&gt;</span><span
+                                                                    class="text">Memória</span><span class="html-tag">&lt;/AttributeName&gt;</span>
+                                                        </div>
+                                                        <span class="text"></span>
+                                                        <div class="line"><span
+                                                                    class="html-tag">&lt;AttributeValue&gt;</span><span
+                                                                    class="text">8 Gb</span><span class="html-tag">&lt;/AttributeValue&gt;</span>
+                                                        </div>
+                                                        <span class="text"></span></div>
+                                                    <div class="line"><span class="html-tag">&lt;/Attribute&gt;</span>
+                                                    </div>
+                                                </div>
+                                                <div class="expanded">
+                                                    <div class="line"><span class="button collapse-button"></span><span
+                                                                class="html-tag">&lt;Attribute&gt;</span></div>
+                                                    <div class="collapsible-content"><span class="text"></span>
+                                                        <div class="line"><span
+                                                                    class="html-tag">&lt;AttributeName&gt;</span><span
+                                                                    class="text">Processzor</span><span
+                                                                    class="html-tag">&lt;/AttributeName&gt;</span>
+                                                        </div>
+                                                        <span class="text"></span>
+                                                        <div class="line"><span
+                                                                    class="html-tag">&lt;AttributeValue&gt;</span><span
+                                                                    class="text">3 Ghz</span><span class="html-tag">&lt;/AttributeValue&gt;</span>
+                                                        </div>
+                                                        <span class="text"></span></div>
+                                                    <div class="line"><span class="html-tag">&lt;/Attribute&gt;</span>
+                                                    </div>
+                                                </div>
+                                                <div class="collapsed hidden">
+                                                    <div class="line"><span class="button expand-button"></span><span
+                                                                class="html-tag">&lt;Attribute&gt;</span><span
+                                                                class="text">...</span><span
+                                                                class="html-tag">&lt;/Attribute&gt;</span></div>
+                                                </div>
+                                            </div>
+                                            <span class="text"></span>
+                                            <span class="text"></span></div>
+                                        <div class="line"><span class="html-tag">&lt;/Attributes&gt;</span></div>
+                                    </div>
+                                </div>
+
+                                <span class="text"></span>
+                                <div class="collapsible" id="collapsible33">
+                                    <div class="expanded">
+                                        <div class="line"><span class="button collapse-button"></span><span
+                                                    class="html-tag">&lt;VolumeDimensions&gt;</span></div>
+                                        <div class="collapsible-content"><span class="text"></span>
+                                            <div class="collapsible" id="collapsible34">
+                                                <div class="expanded">
+                                                    <div class="collapsible-content"><span class="text"></span>
+                                                        <div class="line"><span
+                                                                    class="html-tag">&lt;Length&gt;</span><span
+                                                                    class="text">20.3</span><span class="html-tag">&lt;/Length&gt;</span>
+                                                        </div>
+                                                        <div class="line"><span
+                                                                    class="html-tag">&lt;Width&gt;</span><span
+                                                                    class="text">15.6</span><span class="html-tag">&lt;/Width&gt;</span>
+                                                        </div>
+                                                        <div class="line"><span
+                                                                    class="html-tag">&lt;Height&gt;</span><span
+                                                                    class="text">8.5</span><span class="html-tag">&lt;/Height&gt;</span>
+                                                        </div>
+                                                        <div class="line"><span
+                                                                    class="html-tag">&lt;Weight&gt;</span><span
+                                                                    class="text">10.3</span><span class="html-tag">&lt;/Weight&gt;</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <span class="text"></span>
+                                            <span class="text"></span></div>
+                                        <div class="line"><span class="html-tag">&lt;/VolumeDimensions&gt;</span></div>
+                                    </div>
+                                </div>
+
+                            </div>
+                            <span class="text"></span></div>
+                        <div class="line"><span class="html-tag">&lt;/Product&gt;</span></div>
+                    </div>
+                    <div class="collapsed hidden">
+                        <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Product&gt;</span><span
+                                    class="text">...</span><span class="html-tag">&lt;/Product&gt;</span></div>
+                    </div>
+                </div>
+                <span class="text"></span>
+                <div class="line"><span class="comment html-comment">&lt;!--  Példa több változattal rendelkező termékre  --&gt;</span>
+                </div>
+                <span class="text"></span>
+                <div class="collapsible" id="collapsible14">
+                    <div class="expanded">
+                        <div class="line"><span class="button collapse-button"></span><span class="html-tag">&lt;Product&gt;</span>
+                        </div>
+                        <div class="collapsible-content"><span class="text"></span>
+                            <div class="line"><span class="html-tag">&lt;Id&gt;</span><span
+                                        class="text">1235</span><span class="html-tag">&lt;/Id&gt;</span></div>
+                            <span class="text"></span>
+                            <div class="line"><span class="html-tag">&lt;StructuredId&gt;</span><span class="text">9789633736586</span><span
+                                        class="html-tag">&lt;/StructuredId&gt;</span></div>
+                            <span class="text"></span>
+                            <div class="collapsible" id="collapsible15">
+                                <div class="expanded">
+                                    <div class="line"><span class="button collapse-button"></span><span
+                                                class="html-tag">&lt;Descriptions&gt;</span></div>
+                                    <div class="collapsible-content"><span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;Name&gt;</span><span class="text">CAM Agile babakocsi 2017</span><span
+                                                    class="html-tag">&lt;/Name&gt;</span></div>
+                                        <span class="text"></span>
+                                        <div class="collapsible" id="collapsible16">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="html-tag">&lt;Description&gt;</span></div>
+                                                <div class="collapsible-content"><span class="text">Könnyű (5,6 kg) fémvázas babakocsi különálló tolókarokkal, 2 pozíciós háttámlával, levehető kapaszkodóval.</span>
+                                                </div>
+                                                <div class="line"><span class="html-tag">&lt;/Description&gt;</span>
+                                                </div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="html-tag">&lt;Description&gt;</span><span
+                                                            class="text">...</span><span class="html-tag">&lt;/Description&gt;</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span></div>
+                                    <div class="line"><span class="html-tag">&lt;/Descriptions&gt;</span></div>
+                                </div>
+                                <div class="collapsed hidden">
+                                    <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Descriptions&gt;</span><span
+                                                class="text">...</span><span
+                                                class="html-tag">&lt;/Descriptions&gt;</span></div>
+                                </div>
+                            </div>
+                            <span class="text"></span>
+                            <div class="collapsible" id="collapsible17">
+                                <div class="expanded">
+                                    <div class="line"><span class="button collapse-button"></span><span
+                                                class="html-tag">&lt;Prices&gt;</span></div>
+                                    <div class="collapsible-content"><span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;Currency&gt;</span><span
+                                                    class="text">HUF</span><span
+                                                    class="html-tag">&lt;/Currency&gt;</span></div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;Price&gt;</span><span class="text">19900</span><span
+                                                    class="html-tag">&lt;/Price&gt;</span></div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;VatPercent&gt;</span><span class="text">27</span><span
+                                                class="html-tag">&lt;/VatPercent&gt;</span></div>
+                                        <span class="text"></span>
+                                    </div>
+                                    <div class="line"><span class="html-tag">&lt;/Prices&gt;</span></div>
+                                </div>
+                                <div class="collapsed hidden">
+                                    <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Prices&gt;</span><span
+                                                class="text">...</span><span class="html-tag">&lt;/Prices&gt;</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <span class="text"></span>
+                            <div class="collapsible" id="collapsible18">
+                                <div class="expanded">
+                                    <div class="line"><span class="button collapse-button"></span><span
+                                                class="html-tag">&lt;Categories&gt;</span></div>
+                                    <div class="collapsible-content"><span class="text"></span>
+                                        <div class="collapsible" id="collapsible19">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="html-tag">&lt;Category&gt;</span></div>
+                                                <div class="collapsible-content"><span class="text"></span>
+                                                    <div class="line"><span class="html-tag">&lt;Id&gt;</span><span
+                                                                class="text">1207</span><span class="html-tag">&lt;/Id&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="line"><span class="html-tag">&lt;Name&gt;</span><span
+                                                                class="text">Babakocsik</span><span class="html-tag">&lt;/Name&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span></div>
+                                                <div class="line"><span class="html-tag">&lt;/Category&gt;</span></div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="html-tag">&lt;Category&gt;</span><span class="text">...</span><span
+                                                            class="html-tag">&lt;/Category&gt;</span></div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span></div>
+                                    <div class="line"><span class="html-tag">&lt;/Categories&gt;</span></div>
+                                </div>
+                                <div class="collapsed hidden">
+                                    <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Categories&gt;</span><span
+                                                class="text">...</span><span class="html-tag">&lt;/Categories&gt;</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <span class="text"></span>
+                            <div class="collapsible" id="collapsible20">
+                                <div class="expanded">
+                                    <div class="line"><span class="button collapse-button"></span><span
+                                                class="html-tag">&lt;Photos&gt;</span></div>
+                                    <div class="collapsible-content"><span class="text"></span>
+                                        <div class="collapsible" id="collapsible21">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="html-tag">&lt;Photo&gt;</span></div>
+                                                <div class="collapsible-content"><span class="text"></span>
+                                                    <div class="collapsible" id="collapsible22">
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="html-tag">&lt;Url&gt;</span></div>
+                                                            <div class="collapsible-content"><span class="text">http://i.pepita.hu/images/product/153024/30205902_original.jpg</span>
+                                                            </div>
+                                                            <div class="line"><span class="html-tag">&lt;/Url&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="collapsed hidden">
+                                                            <div class="line"><span class="button expand-button"></span><span
+                                                                        class="html-tag">&lt;Url&gt;</span><span
+                                                                        class="text">...</span><span class="html-tag">&lt;/Url&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="line"><span
+                                                                class="html-tag">&lt;IsPrimary&gt;</span><span
+                                                                class="text">true</span><span class="html-tag">&lt;/IsPrimary&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="collapsible" id="collapsible23">
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="comment html-comment">&lt;!--</span>
+                                                            </div>
+                                                            <div class="collapsible-content"><span
+                                                                        class="comment html-comment">
+                    Ha egy kép nem a termékhez tartozik általánosan, hanem egy adott variációval,
+                    azt a PrimaryVariation/SeondaryVariation tulajdonságokkal kell jelezni.
+                    Ha a kép nem variációhoz kötött, akkor ezt a taget el kell hagyni.
+                </span></div>
+                                                            <div class="line"><span
+                                                                        class="comment html-comment">--&gt;</span></div>
+                                                        </div>
+                                                        <div class="collapsed hidden">
+                                                            <div class="line"><span class="button expand-button"></span><span
+                                                                        class="comment html-comment">&lt;!--</span><span
+                                                                        class="comment html-comment">...</span><span
+                                                                        class="comment html-comment">--&gt;</span></div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="line"><span
+                                                                class="html-tag">&lt;PrimaryVariation&gt;</span><span
+                                                                class="text">red</span><span class="html-tag">&lt;/PrimaryVariation&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span></div>
+                                                <div class="line"><span class="html-tag">&lt;/Photo&gt;</span></div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="html-tag">&lt;Photo&gt;</span><span
+                                                            class="text">...</span><span
+                                                            class="html-tag">&lt;/Photo&gt;</span></div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span>
+                                        <div class="collapsible" id="collapsible24">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="html-tag">&lt;Photo&gt;</span></div>
+                                                <div class="collapsible-content"><span class="text"></span>
+                                                    <div class="collapsible" id="collapsible25">
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="html-tag">&lt;Url&gt;</span></div>
+                                                            <div class="collapsible-content"><span class="text">http://i.pepita.hu/images/product/153025/30205903_original.jpg</span>
+                                                            </div>
+                                                            <div class="line"><span class="html-tag">&lt;/Url&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="collapsed hidden">
+                                                            <div class="line"><span class="button expand-button"></span><span
+                                                                        class="html-tag">&lt;Url&gt;</span><span
+                                                                        class="text">...</span><span class="html-tag">&lt;/Url&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="line"><span
+                                                                class="html-tag">&lt;IsPrimary&gt;</span><span
+                                                                class="text">true</span><span class="html-tag">&lt;/IsPrimary&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="line"><span
+                                                                class="html-tag">&lt;PrimaryVariation&gt;</span><span
+                                                                class="text">green</span><span class="html-tag">&lt;/PrimaryVariation&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span></div>
+                                                <div class="line"><span class="html-tag">&lt;/Photo&gt;</span></div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="html-tag">&lt;Photo&gt;</span><span
+                                                            class="text">...</span><span
+                                                            class="html-tag">&lt;/Photo&gt;</span></div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span></div>
+                                    <div class="line"><span class="html-tag">&lt;/Photos&gt;</span></div>
+                                </div>
+                                <div class="collapsed hidden">
+                                    <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Photos&gt;</span><span
+                                                class="text">...</span><span class="html-tag">&lt;/Photos&gt;</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="line"><span class="html-tag">&lt;VideoLinks&gt;</span><span class="text">https://www.youtube.com/watch?v=npMXbz3r218,https://www.youtube.com/watch?v=zXQ7JFOgEmc</span><span
+                                        class="html-tag">&lt;/VideoLinks&gt;</span>
+                            </div>
+                            <div class="line"><span class="html-tag">&lt;ProductUrl&gt;</span><span class="text">https://pepita.hu/gyerekulesek-c1170/summer-baby-berton-sps-isofix-gyerekules-0-36kg-ajandek-fekete-szurke-p275589</span><span
+                                        class="html-tag">&lt;/ProductUrl&gt;</span>
+                            </div>
+                            <span class="text"></span>
+                            <div class="line"><span class="comment html-comment">&lt;!--  Termék változatok megadása  --&gt;</span>
+                            </div>
+                            <span class="text"></span>
+                            <div class="collapsible" id="collapsible26">
+                                <div class="expanded">
+                                    <div class="line"><span class="button collapse-button"></span><span
+                                                class="html-tag">&lt;Variations&gt;</span></div>
+                                    <div class="collapsible-content"><span class="text"></span>
+                                        <div class="collapsible" id="collapsible27">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="comment html-comment">&lt;!--</span></div>
+                                                <div class="collapsible-content"><span class="comment html-comment">
+                Megadja, hogy milyen tulajdonság alapján vannak megkülönböztetve a variációk.
+                pl. ha egy babakocsi 3 színben elérhető, akkor az elsődleges tulajdonság a szín lesz.
+                Ha egy póló 2 színben és 4 méretben elérhető, akkor az elsődleges tulajdonság a szín,
+                a másodlagos tulajdonság a méret lesz.
+            </span></div>
+                                                <div class="line"><span class="comment html-comment">--&gt;</span></div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="comment html-comment">&lt;!--</span><span
+                                                            class="comment html-comment">...</span><span
+                                                            class="comment html-comment">--&gt;</span></div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;PrimaryAttribute&gt;</span><span
+                                                    class="text">color</span><span class="html-tag">&lt;/PrimaryAttribute&gt;</span>
+                                        </div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="comment html-comment">&lt;!--  Első termék variáció  --&gt;</span>
+                                        </div>
+                                        <span class="text"></span>
+                                        <div class="collapsible" id="collapsible28">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="html-tag">&lt;Variation&gt;</span></div>
+                                                <div class="collapsible-content"><span class="text"></span>
+                                                    <div class="line"><span class="comment html-comment">&lt;!--  Elsődleges tulajdonság értéke - vörös szín  --&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="line"><span
+                                                                class="html-tag">&lt;PrimaryVariation&gt;</span><span
+                                                                class="text">red</span><span class="html-tag">&lt;/PrimaryVariation&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="collapsible" id="collapsible29">
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="comment html-comment">&lt;!--</span>
+                                                            </div>
+                                                            <div class="collapsible-content"><span
+                                                                        class="comment html-comment">
+                    Ha egy termék több variációval rendelkezik, a készletet külön kell megadni minden variációnál
+                </span></div>
+                                                            <div class="line"><span
+                                                                        class="comment html-comment">--&gt;</span></div>
+                                                        </div>
+                                                        <div class="collapsed hidden">
+                                                            <div class="line"><span class="button expand-button"></span><span
+                                                                        class="comment html-comment">&lt;!--</span><span
+                                                                        class="comment html-comment">...</span><span
+                                                                        class="comment html-comment">--&gt;</span></div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="collapsible" id="collapsible30">
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="html-tag">&lt;Availability&gt;</span>
+                                                            </div>
+                                                            <div class="collapsible-content"><span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Available&gt;</span><span
+                                                                            class="text">true</span><span
+                                                                            class="html-tag">&lt;/Available&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Quantity&gt;</span><span
+                                                                            class="text">3</span><span class="html-tag">&lt;/Quantity&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span></div>
+                                                            <div class="line"><span class="html-tag">&lt;/Availability&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="html-tag">&lt;Prices&gt;</span>
+                                                            </div>
+                                                            <div class="collapsible-content"><span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Currency&gt;</span><span
+                                                                            class="text">HUF</span><span
+                                                                            class="html-tag">&lt;/Currency&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Price&gt;</span><span
+                                                                            class="text">15990</span><span class="html-tag">&lt;/Price&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;VatPercent&gt;</span><span class="text">27</span><span
+                                                                        class="html-tag">&lt;/VatPercent&gt;</span></div>
+                                                                <span class="text"></span>
+                                                            </div>
+                                                            <div class="line"><span class="html-tag">&lt;/Prices&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="collapsed hidden">
+                                                            <div class="line"><span class="button expand-button"></span><span
+                                                                        class="html-tag">&lt;Availability&gt;</span><span
+                                                                        class="text">...</span><span class="html-tag">&lt;/Availability&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="text"></span></div>
+                                                <div class="line"><span class="html-tag">&lt;/Variation&gt;</span></div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="html-tag">&lt;Variation&gt;</span><span class="text">...</span><span
+                                                            class="html-tag">&lt;/Variation&gt;</span></div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span>
+                                        <div class="collapsible" id="collapsible31">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="html-tag">&lt;Variation&gt;</span></div>
+                                                <div class="collapsible-content"><span class="text"></span>
+                                                    <div class="line"><span class="comment html-comment">&lt;!--  Elsődleges tulajdonság értéke - zöld szín  --&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="line"><span
+                                                                class="html-tag">&lt;PrimaryVariation&gt;</span><span
+                                                                class="text">green</span><span class="html-tag">&lt;/PrimaryVariation&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="collapsible" id="collapsible32">
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="html-tag">&lt;Availability&gt;</span>
+                                                            </div>
+                                                            <div class="collapsible-content"><span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Available&gt;</span><span
+                                                                            class="text">false</span><span
+                                                                            class="html-tag">&lt;/Available&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Quantity&gt;</span><span
+                                                                            class="text">0</span><span class="html-tag">&lt;/Quantity&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span></div>
+                                                            <div class="line"><span class="html-tag">&lt;/Availability&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="html-tag">&lt;Prices&gt;</span>
+                                                            </div>
+                                                            <div class="collapsible-content"><span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Currency&gt;</span><span
+                                                                            class="text">HUF</span><span
+                                                                            class="html-tag">&lt;/Currency&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Price&gt;</span><span
+                                                                            class="text">13990</span><span class="html-tag">&lt;/Price&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;VatPercent&gt;</span><span class="text">27</span><span
+                                                                        class="html-tag">&lt;/VatPercent&gt;</span></div>
+                                                                <span class="text"></span>
+                                                            </div>
+                                                            <div class="line"><span class="html-tag">&lt;/Prices&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="collapsed hidden">
+                                                            <div class="line"><span class="button expand-button"></span><span
+                                                                        class="html-tag">&lt;Availability&gt;</span><span
+                                                                        class="text">...</span><span class="html-tag">&lt;/Availability&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="text"></span></div>
+                                                <div class="line"><span class="html-tag">&lt;/Variation&gt;</span></div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="html-tag">&lt;Variation&gt;</span><span class="text">...</span><span
+                                                            class="html-tag">&lt;/Variation&gt;</span></div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span></div>
+                                    <div class="line"><span class="html-tag">&lt;/Variations&gt;</span></div>
+                                </div>
+                                <div class="collapsed hidden">
+                                    <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Variations&gt;</span><span
+                                                class="text">...</span><span class="html-tag">&lt;/Variations&gt;</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <span class="text"></span></div>
+                        <div class="line"><span class="html-tag">&lt;/Product&gt;</span></div>
+                    </div>
+                    <div class="collapsed hidden">
+                        <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Product&gt;</span><span
+                                    class="text">...</span><span class="html-tag">&lt;/Product&gt;</span></div>
+                    </div>
+                </div>
+                <span class="text"></span></div>
+            <div class="line"><span class="html-tag">&lt;/Catalog&gt;</span></div>
+        </div>
+        <div class="collapsed hidden">
+            <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Catalog<span
+                            class="html-attribute"> <span class="html-attribute-name">xmlns</span>="<span
+                                class="html-attribute-value">https://pepita.hu/feed/1.0</span>"</span>&gt;</span><span
+                        class="text">...</span><span class="html-tag">&lt;/Catalog&gt;</span></div>
+        </div>
+    </div>
+</div>
+
+            <h2 id="stock-feed-description">Készlet átadása a Pepita.hu rendszerébe</h2>
+
+<p>
+    A készlet XML-t a rendszer a teljes termék feedtől külön, a feedhez beállított saját időzítés szerint
+    (jellemzően gyakrabban) dolgozza fel, ezért ebben a futásban kizárólag a <strong>készlet</strong> és az
+    <strong>ár</strong> adatok frissülnek. Minden más
+    terméktulajdonság (név, leírás, kategória, képek, attribútumok, garancia, méretek, stb.) azon az értéken marad,
+    amit a teljes feed legutóbbi feldolgozása beállított.
+</p>
+
+<p>Fontos tudnivalók:</p>
+<ul>
+    <li>
+        A készlet XML csak a teljes feed-ből már ismert termékeket frissíti. Olyan <code>&lt;Id&gt;</code>, ami a
+        teljes feed-ben nem szerepelt, nem hoz létre új terméket, a rendszer az ilyen sorokat kihagyja.
+    </li>
+    <li>
+        A készlet XML-nek a teljes aktuális termékkínálatot tartalmaznia kell, nem csak a megváltozott termékeket:
+        a fájlból hiányzó termékeket a rendszer töröltnek tekinti.
+    </li>
+    <li>
+        A termékváltozatok azonosítása a variáció értékei (<code>&lt;PrimaryVariation&gt;</code>,
+        <code>&lt;SecondaryVariation&gt;</code>, <code>&lt;TertiaryVariation&gt;</code>) alapján történik, ezért
+        ezeknek karakterre pontosan meg kell egyezniük a teljes feed-ben átadott értékekkel.
+    </li>
+    <li>
+        A fájl felépítése és névtere megegyezik a teljes termék feed-ével, így az alább felsoroltakon kívüli elemek
+        is szerepelhetnek benne, viszont azok nem kerülnek feldolgozásra.
+    </li>
+</ul>
+
+<br>
+<h5 id="stock-feed-xml">
+    A készlet XML fájl szerkezetét és a feltüntetendő mezőket az alábbi táblázat tartalmazza:
+</h5>
+<br>
+
+<table class="table table-bordered table-striped table-responsive table-sm">
+    <thead>
+    <tr>
+        <th>Elem</th>
+        <th>Kötelező?</th>
+        <th>Leírás</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr>
+        <th><code>&lt;Id&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+            A termék egyedi azonosítója. Ez egy szöveges érték, ami:
+            <ul>
+                <li>Tetszőlegesen megválasztható (lehet az adatbázisotokban levő egyedi azonosító, cikkszám, EAN/UPC kód,
+                    etc.)
+                </li>
+                <li>Termékenként egyedi, azaz két termék nem rendelkezik ugyanazzal az ID-val</li>
+                <li>Nem változik (azaz ha a terméket adatai változnak, készlet változik, etc. ez az azonosító ugyanaz
+                    marad)
+                </li>
+                <li>Meg kell egyeznie a teljes termék feed-ben átadott <code>&lt;Id&gt;</code> értékkel</li>
+            </ul>
+        </td>
+    </tr>
+    <tr>
+        <th><code>&lt;Availability&gt;</code></th>
+        <td>Kötelező</td>
+        <td>Készletinformációkat tartalmaz a termékről</td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Available&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+            Készleten van a termék? (<code>true</code> vagy <code>false</code> értéket vehet fel)
+            <br>
+            Ha az érték nem értelmezhető, vagy ellentmond a <code>&lt;Quantity&gt;</code> értékének
+            (pl. <code>false</code> mellett 5 darab), a terméket készlethiányosra állítjuk.
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Quantity&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            Hány termék van készleten jelenleg. Egész szám, 0 és 1 000 000 közötti értéket vehet fel.
+            Ha nem adjátok meg, a termék készletét nem követjük (korlátlan készlet), ilyenkor a készlet meglétét
+            az <code>&lt;Available&gt;</code> érték határozza meg.
+        </td>
+    </tr>
+    <tr>
+        <th><code>&lt;Prices&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            A termék ár adatai. Ha a blokk nincs megadva, a termék ára változatlan marad.
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Currency&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            A termék ár pénznemének ISO 4217 kódja. (pl. Ft esetén <code>HUF</code>)
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Price&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            A termék ára, ha nincs megadva, üres vagy 0, a korábbi ár marad érvényben.
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;DiscountedPrice&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            A termék kedvezményes ára.
+            Ha meg van adva, a rendszer ezt az árat érvényesíti a <code>&lt;Price&gt;</code> helyett.
+            Nem lehet nagyobb, mint a <code>&lt;Price&gt;</code>.
+        </td>
+    </tr>
+    </tbody>
+</table>
+
+<p>
+    A <code>&lt;Prices&gt;</code> blokkban a teljes feed többi ár eleme (<code>&lt;VatPercent&gt;</code>,
+    <code>&lt;PurchaseNetPrice&gt;</code>, <code>&lt;ShippingPrice&gt;</code>) is szerepelhet, de a futás nem
+    frissíti őket: ezek az értékek a teljes feed feldolgozásakor kerülnek átvezetésre.
+</p>
+
+<br>
+<h5 id="variation-stock-feed-xml">
+    A készlet XML fájl szerkezete variációs termékek esetén a következőképpen egészül ki:
+</h5>
+<br>
+
+<table class="table table-bordered table-striped table-responsive table-sm">
+    <thead>
+    <tr>
+        <th>Elem</th>
+        <th>Kötelező?</th>
+        <th>Leírás</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr>
+        <th><code>&lt;Variations&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Milyen variációk tartoznak a termékhez.</td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;PrimaryAttribute&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+            Megadja, hogy milyen tulajdonság alapján vannak megkülönböztetve a variációk.
+            (pl. ha egy babakocsi 3 színben elérhető, akkor az elsődleges tulajdonság a szín lesz)
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;SecondaryAttribute&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            Ha két tulajdonság alapján is megkülönbözhethetjük a termék variációkat, megadja a második tulajdonságot.
+            (pl. ha egy póló több színben és méretben is elérhető)
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;TertiaryAttribute&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            Ha három tulajdonság alapján is megkülönbözhethetjük a termék variációkat, megadja a harmadik tulajdonságot.
+        </td>
+    </tr>
+    <tr>
+        <th><code>├──&nbsp;&lt;Variation&gt;</code></th>
+        <td>Kötelező</td>
+        <td>A termék egy változatát írja le. </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;PrimaryVariation&gt;</code></th>
+        <td>Kötelező</td>
+        <td>Elsődleges tulajdonság értéke (a <code>PrimaryAttribute</code> mezőben megadott tulajdonsághoz tartozó érték)</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;SecondaryVariation&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Másodlagos tulajdonság értéke (a <code>SecondaryAttribute</code> mezőben megadott tulajdonsághoz tartozó érték)</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;TertiaryVariation&gt;</code></th>
+        <td>Opcionális</td>
+        <td>Harmadlagos tulajdonság értéke (a <code>TertiaryAttribute</code> mezőben megadott tulajdonsághoz tartozó érték)</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Prices&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            Amennyiben a termék különböző változatai más árakkal rendelkeznek, itt lehet azokat megadni.
+        </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Currency&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            A termékvariáció ár pénznemének ISO 4217 kódja. (pl. Ft esetén <code>HUF</code>)
+        </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Price&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            A termékvariáció ára.
+        </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;DiscountedPrice&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            A termékvariáció kedvezményes ára.
+            Ha meg van adva, a rendszer ezt az árat érvényesíti a <code>&lt;Price&gt;</code> helyett.
+        </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;├──&lt;Availability&gt;</code></th>
+        <td>Kötelező</td>
+        <td>Készletinformációkat tartalmaz a termékváltozatról</td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Available&gt;</code></th>
+        <td>Kötelező</td>
+        <td>
+            Készleten van ez a termékváltozat? (<code>true</code> vagy <code>false</code> értéket vehet fel)
+            <br>
+            A változat saját készlete csak akkor érvényesül, ha a <code>&lt;Quantity&gt;</code> értéket is
+            megadjátok; e nélkül a változat a termék szintjén megadott készletet örökli.
+        </td>
+    </tr>
+    <tr>
+        <th><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├──&nbsp;&lt;Quantity&gt;</code></th>
+        <td>Opcionális</td>
+        <td>
+            Hány termék van készleten jelenleg. Ha a változatoknak eltérő a készletük, változatonként adjátok
+            meg; ha a változat nincs készleten, <code>0</code> értéket küldjetek. Ha nem adjátok meg, a változat
+            a termék szintjén megadott készletet örökli.
+            Ügyeljetek arra, hogy ne mondjon ellent az <code>&lt;Available&gt;</code> értéknek: a változat
+            szintjén az ellentmondást a rendszer nem szűri ki.
+        </td>
+    </tr>
+    </tbody>
+</table>
+
+<p>Jó tudni az árakról:</p>
+<ul>
+    <li>
+        Ha a <code>&lt;Prices&gt;</code> blokkban csak <code>&lt;DiscountedPrice&gt;</code> szerepel,
+        <code>&lt;Price&gt;</code> nélkül, akkor a kedvezményes ár lesz a termék érvényes ára.
+    </li>
+    <li>
+        Ha egy variációnál megadtok bármilyen árat, a termék szintű ár nem öröklődik arra a változatra,
+        ezért a <code>&lt;Price&gt;</code> értéket is adjátok meg a variációnál.
+    </li>
+    <li>
+        A <code>&lt;Currency&gt;</code> értékét a feldolgozás nem veszi figyelembe: az árakat minden esetben
+        a feedhez beállított célország pénznemében értelmezzük.
+    </li>
+    <li>
+        Az ár csak azoknál a termékeknél frissül, amelyeknél az árszinkron engedélyezett. Egyedileg fixált árú
+        termékeknél a feedben küldött ár nem érvényesül, a készlet frissítését viszont ez nem érinti.
+    </li>
+</ul>
+            <style>
+    /* Copyright 2014 The Chromium Authors. All rights reserved.
+     * Use of this source code is governed by a BSD-style license that can be
+     * found in the LICENSE file.
+     */
+
+    div.collapsible > div.hidden {
+        display: none;
+    }
+
+    .pretty-print {
+        margin-top: 1em;
+        margin-left: 20px;
+        font-family: monospace;
+        font-size: 13px;
+    }
+
+    .collapsible-content {
+        margin-left: 1em;
+    }
+
+    .html-tag {
+        color: rgb(136, 18, 128);
+    }
+
+    .html-attribute-name {
+        color: rgb(153, 69, 0);
+    }
+
+    .html-attribute-value, .text {
+        color: rgb(26, 26, 166);
+    }
+
+    h2:not(:first-child) {
+        margin-top: 3rem;
+    }
+</style>
+
+<h2 id="stock-feed-sample">Példa készlet XML</h2>
+
+<strong><a href="/assets/xsd/pepita-stock-sample-hu.xml">Példa készlet XML letöltése</a></strong>
+
+<div xmlns="http://www.w3.org/1999/xhtml" class="pretty-print">
+    <div class="collapsible" id="collapsible0">
+        <div class="expanded">
+            <div class="line"><span class="button collapse-button"></span><span class="html-tag">&lt;Catalog<span
+                            class="html-attribute"> <span class="html-attribute-name">xmlns</span>="<span
+                                class="html-attribute-value">https://pepita.hu/feed/1.0</span>"</span>&gt;</span></div>
+            <div class="collapsible-content"><span class="text"></span>
+                <div class="line"><span class="comment html-comment">&lt;!--  Példa normál termékre  --&gt;</span></div>
+                <span class="text"></span>
+                <div class="collapsible" id="collapsible1">
+                    <div class="expanded">
+                        <div class="line"><span class="button collapse-button"></span><span class="html-tag">&lt;Product&gt;</span>
+                        </div>
+                        <div class="collapsible-content"><span class="text"></span>
+                            <div class="line"><span class="html-tag">&lt;Id&gt;</span><span
+                                        class="text">1234</span><span class="html-tag">&lt;/Id&gt;</span></div>
+                            <span class="text"></span>
+                            <div class="collapsible" id="collapsible13">
+                                <div class="expanded">
+                                    <div class="line"><span class="button collapse-button"></span><span
+                                                class="html-tag">&lt;Availability&gt;</span></div>
+                                    <div class="collapsible-content"><span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;Available&gt;</span><span
+                                                    class="text">true</span><span
+                                                    class="html-tag">&lt;/Available&gt;</span></div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;Quantity&gt;</span><span
+                                                    class="text">13</span><span
+                                                    class="html-tag">&lt;/Quantity&gt;</span></div>
+                                        <span class="text"></span>
+                                        <div class="line"></div>
+                                    </div>
+                                    <div class="line"><span class="html-tag">&lt;/Availability&gt;</span></div>
+                                </div>
+                                <div class="collapsed hidden">
+                                    <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Availability&gt;</span><span
+                                                class="text">...</span><span
+                                                class="html-tag">&lt;/Availability&gt;</span></div>
+                                </div>
+                            </div>
+                            <span class="text"></span>
+                            <div class="line"><span class="comment html-comment">&lt;!--  A készlet mellett az ár is frissíthető, a blokk elhagyható  --&gt;</span>
+                            </div>
+                            <span class="text"></span>
+                            <div class="collapsible" id="collapsible33">
+                                <div class="expanded">
+                                    <div class="line"><span class="button collapse-button"></span><span
+                                                class="html-tag">&lt;Prices&gt;</span></div>
+                                    <div class="collapsible-content"><span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;Currency&gt;</span><span
+                                                    class="text">HUF</span><span
+                                                    class="html-tag">&lt;/Currency&gt;</span></div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;Price&gt;</span><span
+                                                    class="text">1500</span><span
+                                                    class="html-tag">&lt;/Price&gt;</span></div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;DiscountedPrice&gt;</span><span
+                                                    class="text">1200</span><span
+                                                    class="html-tag">&lt;/DiscountedPrice&gt;</span></div>
+                                        <span class="text"></span>
+                                        <div class="line"></div>
+                                    </div>
+                                    <div class="line"><span class="html-tag">&lt;/Prices&gt;</span></div>
+                                </div>
+                                <div class="collapsed hidden">
+                                    <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Prices&gt;</span><span
+                                                class="text">...</span><span
+                                                class="html-tag">&lt;/Prices&gt;</span></div>
+                                </div>
+                            </div>
+                            <span class="text"></span></div>
+                        <div class="line"><span class="html-tag">&lt;/Product&gt;</span></div>
+                    </div>
+                    <div class="collapsed hidden">
+                        <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Product&gt;</span><span
+                                    class="text">...</span><span class="html-tag">&lt;/Product&gt;</span></div>
+                    </div>
+                </div>
+                <span class="text"></span>
+                <div class="line"><span class="comment html-comment">&lt;!--  Példa több változattal rendelkező termékre  --&gt;</span>
+                </div>
+                <span class="text"></span>
+                <div class="collapsible" id="collapsible14">
+                    <div class="expanded">
+                        <div class="line"><span class="button collapse-button"></span><span class="html-tag">&lt;Product&gt;</span>
+                        </div>
+                        <div class="collapsible-content"><span class="text"></span>
+                            <div class="line"><span class="html-tag">&lt;Id&gt;</span><span
+                                        class="text">1235</span><span class="html-tag">&lt;/Id&gt;</span></div>
+                            <span class="text"></span>
+                            <div class="line"><span class="comment html-comment">&lt;!--  Termék változatok megadása  --&gt;</span>
+                            </div>
+                            <span class="text"></span>
+                            <div class="collapsible" id="collapsible26">
+                                <div class="expanded">
+                                    <div class="line"><span class="button collapse-button"></span><span
+                                                class="html-tag">&lt;Variations&gt;</span></div>
+                                    <div class="collapsible-content"><span class="text"></span>
+                                        <div class="collapsible" id="collapsible27">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="comment html-comment">&lt;!--</span></div>
+                                                <div class="collapsible-content"><span class="comment html-comment">
+                Megadja, hogy milyen tulajdonság alapján vannak megkülönböztetve a variációk.
+                pl. ha egy babakocsi 3 színben elérhető, akkor az elsődleges tulajdonság a szín lesz.
+                Ha egy póló 2 színben és 4 méretben elérhető, akkor az elsődleges tulajdonság a szín,
+                a másodlagos tulajdonság a méret lesz.
+            </span></div>
+                                                <div class="line"><span class="comment html-comment">--&gt;</span></div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="comment html-comment">&lt;!--</span><span
+                                                            class="comment html-comment">...</span><span
+                                                            class="comment html-comment">--&gt;</span></div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="html-tag">&lt;PrimaryAttribute&gt;</span><span
+                                                    class="text">color</span><span class="html-tag">&lt;/PrimaryAttribute&gt;</span>
+                                        </div>
+                                        <span class="text"></span>
+                                        <div class="line"><span class="comment html-comment">&lt;!--  Első termék variáció  --&gt;</span>
+                                        </div>
+                                        <span class="text"></span>
+                                        <div class="collapsible" id="collapsible28">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="html-tag">&lt;Variation&gt;</span></div>
+                                                <div class="collapsible-content"><span class="text"></span>
+                                                    <div class="line"><span class="comment html-comment">&lt;!--  Elsődleges tulajdonság értéke - vörös szín  --&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="line"><span
+                                                                class="html-tag">&lt;PrimaryVariation&gt;</span><span
+                                                                class="text">red</span><span class="html-tag">&lt;/PrimaryVariation&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="collapsible" id="collapsible34">
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="comment html-comment">&lt;!--</span>
+                                                            </div>
+                                                            <div class="collapsible-content"><span
+                                                                        class="comment html-comment">
+                    Ha a termék változatai eltérő árúak, az ár a variációnál is megadható.
+                    Ilyenkor a Price értéket is add meg, különben a termék szintű ár nem érvényesül a változatra.
+                </span></div>
+                                                            <div class="line"><span
+                                                                        class="comment html-comment">--&gt;</span></div>
+                                                        </div>
+                                                        <div class="collapsed hidden">
+                                                            <div class="line"><span class="button expand-button"></span><span
+                                                                        class="comment html-comment">&lt;!--</span><span
+                                                                        class="comment html-comment">...</span><span
+                                                                        class="comment html-comment">--&gt;</span></div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="collapsible" id="collapsible35">
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="html-tag">&lt;Prices&gt;</span>
+                                                            </div>
+                                                            <div class="collapsible-content"><span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Currency&gt;</span><span
+                                                                            class="text">HUF</span><span
+                                                                            class="html-tag">&lt;/Currency&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Price&gt;</span><span
+                                                                            class="text">19900</span><span
+                                                                            class="html-tag">&lt;/Price&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span></div>
+                                                            <div class="line"><span class="html-tag">&lt;/Prices&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="collapsed hidden">
+                                                            <div class="line"><span class="button expand-button"></span><span
+                                                                        class="html-tag">&lt;Prices&gt;</span><span
+                                                                        class="text">...</span><span class="html-tag">&lt;/Prices&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="collapsible" id="collapsible29">
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="comment html-comment">&lt;!--</span>
+                                                            </div>
+                                                            <div class="collapsible-content"><span
+                                                                        class="comment html-comment">
+                    Ha egy termék több variációval rendelkezik, a készletet külön kell megadni minden variációnál
+                </span></div>
+                                                            <div class="line"><span
+                                                                        class="comment html-comment">--&gt;</span></div>
+                                                        </div>
+                                                        <div class="collapsed hidden">
+                                                            <div class="line"><span class="button expand-button"></span><span
+                                                                        class="comment html-comment">&lt;!--</span><span
+                                                                        class="comment html-comment">...</span><span
+                                                                        class="comment html-comment">--&gt;</span></div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="collapsible" id="collapsible30">
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="html-tag">&lt;Availability&gt;</span>
+                                                            </div>
+                                                            <div class="collapsible-content"><span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Available&gt;</span><span
+                                                                            class="text">true</span><span
+                                                                            class="html-tag">&lt;/Available&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Quantity&gt;</span><span
+                                                                            class="text">3</span><span class="html-tag">&lt;/Quantity&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span></div>
+                                                            <div class="line"><span class="html-tag">&lt;/Availability&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="collapsed hidden">
+                                                            <div class="line"><span class="button expand-button"></span><span
+                                                                        class="html-tag">&lt;Availability&gt;</span><span
+                                                                        class="text">...</span><span class="html-tag">&lt;/Availability&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="text"></span></div>
+                                                <div class="line"><span class="html-tag">&lt;/Variation&gt;</span></div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="html-tag">&lt;Variation&gt;</span><span class="text">...</span><span
+                                                            class="html-tag">&lt;/Variation&gt;</span></div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span>
+                                        <div class="collapsible" id="collapsible31">
+                                            <div class="expanded">
+                                                <div class="line"><span class="button collapse-button"></span><span
+                                                            class="html-tag">&lt;Variation&gt;</span></div>
+                                                <div class="collapsible-content"><span class="text"></span>
+                                                    <div class="line"><span class="comment html-comment">&lt;!--  Elsődleges tulajdonság értéke - zöld szín  --&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="line"><span
+                                                                class="html-tag">&lt;PrimaryVariation&gt;</span><span
+                                                                class="text">green</span><span class="html-tag">&lt;/PrimaryVariation&gt;</span>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="collapsible" id="collapsible36">
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="html-tag">&lt;Prices&gt;</span>
+                                                            </div>
+                                                            <div class="collapsible-content"><span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Currency&gt;</span><span
+                                                                            class="text">HUF</span><span
+                                                                            class="html-tag">&lt;/Currency&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Price&gt;</span><span
+                                                                            class="text">19900</span><span
+                                                                            class="html-tag">&lt;/Price&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;DiscountedPrice&gt;</span><span
+                                                                            class="text">17900</span><span
+                                                                            class="html-tag">&lt;/DiscountedPrice&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span></div>
+                                                            <div class="line"><span class="html-tag">&lt;/Prices&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="collapsed hidden">
+                                                            <div class="line"><span class="button expand-button"></span><span
+                                                                        class="html-tag">&lt;Prices&gt;</span><span
+                                                                        class="text">...</span><span class="html-tag">&lt;/Prices&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="text"></span>
+                                                    <div class="collapsible" id="collapsible32">
+                                                        <div class="expanded">
+                                                            <div class="line"><span
+                                                                        class="button collapse-button"></span><span
+                                                                        class="html-tag">&lt;Availability&gt;</span>
+                                                            </div>
+                                                            <div class="collapsible-content"><span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Available&gt;</span><span
+                                                                            class="text">false</span><span
+                                                                            class="html-tag">&lt;/Available&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span>
+                                                                <div class="line"><span class="html-tag">&lt;Quantity&gt;</span><span
+                                                                            class="text">0</span><span class="html-tag">&lt;/Quantity&gt;</span>
+                                                                </div>
+                                                                <span class="text"></span></div>
+                                                            <div class="line"><span class="html-tag">&lt;/Availability&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="collapsed hidden">
+                                                            <div class="line"><span class="button expand-button"></span><span
+                                                                        class="html-tag">&lt;Availability&gt;</span><span
+                                                                        class="text">...</span><span class="html-tag">&lt;/Availability&gt;</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="text"></span></div>
+                                                <div class="line"><span class="html-tag">&lt;/Variation&gt;</span></div>
+                                            </div>
+                                            <div class="collapsed hidden">
+                                                <div class="line"><span class="button expand-button"></span><span
+                                                            class="html-tag">&lt;Variation&gt;</span><span class="text">...</span><span
+                                                            class="html-tag">&lt;/Variation&gt;</span></div>
+                                            </div>
+                                        </div>
+                                        <span class="text"></span></div>
+                                    <div class="line"><span class="html-tag">&lt;/Variations&gt;</span></div>
+                                </div>
+                                <div class="collapsed hidden">
+                                    <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Variations&gt;</span><span
+                                                class="text">...</span><span class="html-tag">&lt;/Variations&gt;</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <span class="text"></span></div>
+                        <div class="line"><span class="html-tag">&lt;/Product&gt;</span></div>
+                    </div>
+                    <div class="collapsed hidden">
+                        <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Product&gt;</span><span
+                                    class="text">...</span><span class="html-tag">&lt;/Product&gt;</span></div>
+                    </div>
+                </div>
+                <span class="text"></span></div>
+            <div class="line"><span class="html-tag">&lt;/Catalog&gt;</span></div>
+        </div>
+        <div class="collapsed hidden">
+            <div class="line"><span class="button expand-button"></span><span class="html-tag">&lt;Catalog<span
+                            class="html-attribute"> <span class="html-attribute-name">xmlns</span>="<span
+                                class="html-attribute-value">https://pepita.hu/feed/1.0</span>"</span>&gt;</span><span
+                        class="text">...</span><span class="html-tag">&lt;/Catalog&gt;</span></div>
+        </div>
+    </div>
+</div>        </div>
+    

@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Catalog xmlns="https://pepita.hu/feed/1.0">
+  <Product>
+    <Id>PROD-101</Id>
+    <LastMod>1731518400</LastMod>
+    <StructuredId>5991234567890</StructuredId>
+    <ProductNumber>EC-MESH-2026</ProductNumber>
+    <Descriptions>
+      <Name>Ergonomikus Irodai Szék Mesh Hálóval</Name>
+      <Description>&lt;p&gt;Prémium minőségű légáteresztő hálós irodai forgószék deréktámasszal és állítható kartámasszal.&lt;/p&gt;</Description>
+      <Brand>ErgoComfort</Brand>
+      <Manufacturer>ErgoComfort Hungary Kft.</Manufacturer>
+    </Descriptions>
+    <Prices>
+      <Currency>HUF</Currency>
+      <Price>49990</Price>
+      <VatPercent>27</VatPercent>
+      <DiscountedPrice>42990</DiscountedPrice>
+      <PurchaseNetPrice>25000</PurchaseNetPrice>
+      <ShippingPrice>1990</ShippingPrice>
+    </Prices>
+    <Warranty>
+      <Type>Year</Type>
+      <Duration>3</Duration>
+    </Warranty>
+    <Categories>
+      <Category>
+        <Id>10</Id>
+        <Name>Bútor</Name>
+      </Category>
+      <Category>
+        <Id>105</Id>
+        <Name>Irodabútor</Name>
+      </Category>
+      <Category>
+        <Id>1052</Id>
+        <Name>Irodaszékek</Name>
+      </Category>
+    </Categories>
+    <Photos>
+      <Photo>
+        <Url>https://example.com/wp-content/uploads/szek-front.jpg</Url>
+        <IsPrimary>true</IsPrimary>
+        <Title>ErgoComfort szék elölnézet</Title>
+      </Photo>
+      <Photo>
+        <Url>https://example.com/wp-content/uploads/szek-side.jpg</Url>
+        <IsPrimary>false</IsPrimary>
+        <Title>ErgoComfort szék oldalnézet</Title>
+      </Photo>
+    </Photos>
+    <VideoLinks>https://www.youtube.com/watch?v=example123</VideoLinks>
+    <ProductUrl>https://example.com/termek/ergonomikus-irodai-szek</ProductUrl>
+    <Availability>
+      <Available>true</Available>
+      <Quantity>15</Quantity>
+      <RestockDate>2026-11-20</RestockDate>
+      <ShippingDelay>2</ShippingDelay>
+    </Availability>
+    <Attributes>
+      <Attribute>
+        <AttributeName>Szín</AttributeName>
+        <AttributeValue>Fekete</AttributeValue>
+      </Attribute>
+      <Attribute>
+        <AttributeName>Anyag</AttributeName>
+        <AttributeValue>Légáteresztő háló, acél váz</AttributeValue>
+      </Attribute>
+      <Attribute>
+        <AttributeName>Teherbírás</AttributeName>
+        <AttributeValue>130 kg</AttributeValue>
+      </Attribute>
+    </Attributes>
+    <VolumeDimensions>
+      <Width>65</Width>
+      <Height>115</Height>
+      <Length>65</Length>
+      <Weight>14.5</Weight>
+    </VolumeDimensions>
+  </Product>
+  <Product>
+    <Id>DIGI-102</Id>
+    <LastMod>1731518400</LastMod>
+    <ProductNumber>DA-EBK-01</ProductNumber>
+    <EmailDelivery>true</EmailDelivery>
+    <Descriptions>
+      <Name>Digitális Időgazdálkodás E-könyv és Tanfolyam</Name>
+      <Description>&lt;p&gt;Gyakorlati útmutató a produktivitás növeléséhez digitális munkaeszközökkel. PDF és EPUB formátum.&lt;/p&gt;</Description>
+      <Brand>DigitalAcademy</Brand>
+      <Manufacturer>DigitalAcademy Bt.</Manufacturer>
+      <Author>Kovács Péter</Author>
+      <Publisher>DigitalAcademy Press</Publisher>
+    </Descriptions>
+    <Prices>
+      <Currency>HUF</Currency>
+      <Price>4990</Price>
+      <VatPercent>27</VatPercent>
+      <ShippingPrice>0</ShippingPrice>
+    </Prices>
+    <Categories>
+      <Category>
+        <Id>20</Id>
+        <Name>Könyvek</Name>
+      </Category>
+      <Category>
+        <Id>201</Id>
+        <Name>E-könyvek</Name>
+      </Category>
+    </Categories>
+    <Photos>
+      <Photo>
+        <Url>https://example.com/wp-content/uploads/ekonyv-borito.jpg</Url>
+        <IsPrimary>true</IsPrimary>
+        <Title>Digitális Időgazdálkodás borító</Title>
+      </Photo>
+    </Photos>
+    <ProductUrl>https://example.com/termek/digitalis-idogazdalkodas</ProductUrl>
+    <Availability>
+      <Available>true</Available>
+      <Quantity>999</Quantity>
+      <ShippingDelay>0</ShippingDelay>
+    </Availability>
+    <Attributes>
+      <Attribute>
+        <AttributeName>Nyelv</AttributeName>
+        <AttributeValue>Magyar</AttributeValue>
+      </Attribute>
+      <Attribute>
+        <AttributeName>Oldalszám</AttributeName>
+        <AttributeValue>184</AttributeValue>
+      </Attribute>
+    </Attributes>
+  </Product>
+  <Product>
+    <Id>VAR-103</Id>
+    <LastMod>1731518400</LastMod>
+    <ProductNumber>NW-HD-001</ProductNumber>
+    <Descriptions>
+      <Name>Prémium Pamut Pulóver Kapucnival</Name>
+      <Description>&lt;p&gt;Magas minőségű, meleg fésült pamut pulóver választható színekben, méretekben és béléssel.&lt;/p&gt;</Description>
+      <Brand>NordicWear</Brand>
+      <Manufacturer>NordicWear Textil Kft.</Manufacturer>
+    </Descriptions>
+    <Prices>
+      <Currency>HUF</Currency>
+      <Price>16990</Price>
+      <VatPercent>27</VatPercent>
+      <PurchaseNetPrice>8500</PurchaseNetPrice>
+      <ShippingPrice>1290</ShippingPrice>
+    </Prices>
+    <Warranty>
+      <Type>Year</Type>
+      <Duration>1</Duration>
+    </Warranty>
+    <Categories>
+      <Category>
+        <Id>30</Id>
+        <Name>Ruházat</Name>
+      </Category>
+      <Category>
+        <Id>301</Id>
+        <Name>Férfi ruházat</Name>
+      </Category>
+      <Category>
+        <Id>3011</Id>
+        <Name>Pulóverek</Name>
+      </Category>
+    </Categories>
+    <Photos>
+      <Photo>
+        <Url>https://example.com/wp-content/uploads/pulover-fekete.jpg</Url>
+        <IsPrimary>true</IsPrimary>
+        <Title>Fekete pulóver</Title>
+        <PrimaryVariation>Fekete</PrimaryVariation>
+      </Photo>
+      <Photo>
+        <Url>https://example.com/wp-content/uploads/pulover-kek.jpg</Url>
+        <IsPrimary>false</IsPrimary>
+        <Title>Kék pulóver</Title>
+        <PrimaryVariation>Kék</PrimaryVariation>
+      </Photo>
+    </Photos>
+    <ProductUrl>https://example.com/termek/premium-pamut-pulover</ProductUrl>
+    <Availability>
+      <Available>true</Available>
+      <Quantity>28</Quantity>
+      <ShippingDelay>1</ShippingDelay>
+    </Availability>
+    <Attributes>
+      <Attribute>
+        <AttributeName>Szabás</AttributeName>
+        <AttributeValue>Regular fit</AttributeValue>
+      </Attribute>
+    </Attributes>
+    <VolumeDimensions>
+      <Width>25</Width>
+      <Height>5</Height>
+      <Length>30</Length>
+      <Weight>0.65</Weight>
+    </VolumeDimensions>
+    <Variations>
+      <PrimaryAttribute>Szín</PrimaryAttribute>
+      <SecondaryAttribute>Méret</SecondaryAttribute>
+      <TertiaryAttribute>Bélés</TertiaryAttribute>
+      <Variation>
+        <PrimaryVariation>Fekete</PrimaryVariation>
+        <SecondaryVariation>M</SecondaryVariation>
+        <TertiaryVariation>Normál bélés</TertiaryVariation>
+        <Prices>
+          <Currency>HUF</Currency>
+          <Price>16990</Price>
+          <VatPercent>27</VatPercent>
+          <DiscountedPrice>14990</DiscountedPrice>
+          <PurchaseNetPrice>8000</PurchaseNetPrice>
+          <ShippingPrice>1290</ShippingPrice>
+        </Prices>
+        <Availability>
+          <Available>true</Available>
+          <Quantity>12</Quantity>
+          <ShippingDelay>1</ShippingDelay>
+        </Availability>
+      </Variation>
+      <Variation>
+        <PrimaryVariation>Fekete</PrimaryVariation>
+        <SecondaryVariation>L</SecondaryVariation>
+        <TertiaryVariation>Normál bélés</TertiaryVariation>
+        <Prices>
+          <Currency>HUF</Currency>
+          <Price>16990</Price>
+          <VatPercent>27</VatPercent>
+          <PurchaseNetPrice>8000</PurchaseNetPrice>
+          <ShippingPrice>1290</ShippingPrice>
+        </Prices>
+        <Availability>
+          <Available>true</Available>
+          <Quantity>8</Quantity>
+          <ShippingDelay>1</ShippingDelay>
+        </Availability>
+      </Variation>
+      <Variation>
+        <PrimaryVariation>Kék</PrimaryVariation>
+        <SecondaryVariation>M</SecondaryVariation>
+        <TertiaryVariation>Vastag polár bélés</TertiaryVariation>
+        <Prices>
+          <Currency>HUF</Currency>
+          <Price>18990</Price>
+          <VatPercent>27</VatPercent>
+          <PurchaseNetPrice>9500</PurchaseNetPrice>
+          <ShippingPrice>1290</ShippingPrice>
+        </Prices>
+        <Availability>
+          <Available>false</Available>
+          <Quantity>0</Quantity>
+          <RestockDate>2026-11-25</RestockDate>
+          <ShippingDelay>3</ShippingDelay>
+        </Availability>
+      </Variation>
+    </Variations>
+  </Product>
+</Catalog>

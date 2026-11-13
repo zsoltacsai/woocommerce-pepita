@@ -19,6 +19,7 @@ Overall state: **feature-complete, unit- and integration-tested locally, live Pe
 | M9 | Live Pepita staging validation | ⛔ Blocked — needs a seller staging account |
 | M9-B | RR20 order finalization fencing and recovery | ✅ Complete |
 | M9-C | Feed safety, diff reporting, stock health & secure CSV log export | ✅ Complete |
+| M9-D | Official XML contract compliance (1–3 axes, email delivery, books, safe publish) | ✅ Complete |
 
 ## 2. What was built
 
@@ -93,6 +94,17 @@ Overall state: **feature-complete, unit- and integration-tested locally, live Pe
 - **Stock Feed Health Monitoring** (`WPS\Pepita\Health::stock_feed_check`): Read-only diagnostic check comparing stock feed age against configured interval (OK / WARN / FAIL), alerting on delayed runs or missing cron/Action Scheduler hooks without triggering side-effects during render.
 - **Secure CSV Log Export**: Streaming chunked export via `admin_post_wps_pepita_export_logs` guarded by `manage_woocommerce` capability and nonces, with formula injection neutralization (`=, +, -, @, \t, \r` escaping via `Logger::sanitize_csv_field`) and UTF-8 BOM.
 - **Declared Minimum Compatibility**: PHP >= 8.1, WordPress >= 6.4, WooCommerce >= 8.2 (HPOS compatible).
+
+### M9-D — Official XML contract compliance
+
+- **Official Specification Audit**: Documented in `docs/m9d/PEPITA-XML-CONTRACT-MATRIX.md` covering 97 XML elements and paths against `https://pepita.hu/partners/xml-format`.
+- **Digital / Email Delivery**: `<EmailDelivery>true</EmailDelivery>` flag for digital items via `_wps_pepita_email_delivery` meta.
+- **Book Metadata**: `<Descriptions><Author>` and `<Descriptions><Publisher>` via `_wps_pepita_author` and `_wps_pepita_publisher` meta.
+- **Variation Pricing & Delivery**: Output of `<Prices><VatPercent>`, `<PurchaseNetPrice>`, and `<ShippingPrice>` under `<Variation>/<Prices>`, and `<RestockDate>` per variation.
+- **1–3 Axes Enforcement**: Transformed attribute mapping for 1, 2, or 3 variation axes (`PrimaryAttribute`, `SecondaryAttribute`, `TertiaryAttribute`), with deterministic error and rejection for 4+ axes.
+- **Atomic Full Publication**: `Storage::publish_full()` for coordinated atomic publication of `feed.xml` and `catalog.jsonl` with automatic rollback from `.prev` backups if either step fails.
+- **Synthetic Fixtures**: Authored `docs/m9d/synthetic-full-feed.xml` and `docs/m9d/synthetic-stock-feed.xml`.
+- **Unit Suite Expansion**: Added `180-xml-contract-compliance-test.php` and `185-feed-publication-safety-test.php` expanding unit test coverage to 219 tests.
 
 ## 3. Test results (actual)
 

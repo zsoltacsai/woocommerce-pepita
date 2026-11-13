@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Catalog xmlns="https://pepita.hu/feed/1.0">
+    <!-- Példa normál termékre -->
+    <Product>
+        <Id>1234</Id>
+        <Availability>
+            <Available>true</Available>
+            <Quantity>13</Quantity>
+        </Availability>
+        <!-- A készlet mellett az ár is frissíthető, a blokk elhagyható -->
+        <Prices>
+            <Currency>HUF</Currency>
+            <Price>1500</Price>
+            <DiscountedPrice>1200</DiscountedPrice>
+        </Prices>
+    </Product>
+
+    <!-- Példa több változattal rendelkező termékre -->
+    <Product>
+        <Id>1235</Id>
+        <!-- Termék változatok megadása -->
+        <Variations>
+<!--
+    Megadja, hogy milyen tulajdonság alapján vannak megkülönböztetve a variációk.
+    pl. ha egy babakocsi 3 színben elérhető, akkor az elsődleges tulajdonság a szín lesz.
+    Ha egy póló 2 színben és 4 méretben elérhető, akkor az elsődleges tulajdonság a szín,
+    a másodlagos tulajdonság a méret lesz.
+-->
+            <PrimaryAttribute>color</PrimaryAttribute>
+            <!-- Első termék variáció -->
+            <Variation>
+                <!-- Elsődleges tulajdonság értéke - vörös szín -->
+                <PrimaryVariation>red</PrimaryVariation>
+<!--
+    Ha a termék változatai eltérő árúak, az ár a variációnál is megadható.
+    Ilyenkor a Price értéket is add meg, különben a termék szintű ár nem érvényesül a változatra.
+-->
+                <Prices>
+                    <Currency>HUF</Currency>
+                    <Price>19900</Price>
+                </Prices>
+<!--
+    Ha egy termék több variációval rendelkezik, a készletet külön kell megadni minden variációnál
+-->
+                <Availability>
+                    <Available>true</Available>
+                    <Quantity>3</Quantity>
+                </Availability>
+            </Variation>
+            <Variation>
+                <!-- Elsődleges tulajdonság értéke - zöld szín -->
+                <PrimaryVariation>green</PrimaryVariation>
+                <Prices>
+                    <Currency>HUF</Currency>
+                    <Price>19900</Price>
+                    <DiscountedPrice>17900</DiscountedPrice>
+                </Prices>
+                <Availability>
+                    <Available>false</Available>
+                    <Quantity>0</Quantity>
+                </Availability>
+            </Variation>
+        </Variations>
+    </Product>
+</Catalog>

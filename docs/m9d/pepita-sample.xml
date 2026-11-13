@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Catalog xmlns="https://pepita.hu/feed/1.0">
+    <!-- Példa normál termékre -->
+    <Product>
+        <Id>1234</Id>
+        <LastMod>1583996473</LastMod>
+        <StructuredId>9789633736579</StructuredId>
+        <Descriptions>
+            <Name>Játékos babafejlesztés</Name>
+            <Description>Ez az ellenállhatatlan könyv, a baba életkorához igazodó, inspiráló tevékenységeket soroltat fel az első 12 hónap minden egyes napjára, az újszülött kortól egészen a 12 hónapos korig. Játékok és programok a babával, megspékelve sok-sok remek tanáccsal és ötlettel az újdonsült anyukák és apukák számára. A kicsi fejlődését elősegítő játékokkal feldobhatod a mindennapi szülői rutinteendőket, és stimuláló, fejlesztő közeget biztosíthatsz a babádnak. </Description>
+            <Author>Susannah Steel</Author>
+            <Publisher>Central Médiacsoport Zrt.</Publisher>
+        </Descriptions>
+        <Prices>
+            <Currency>HUF</Currency>
+            <Price>1500</Price>
+            <VatPercent>27</VatPercent>
+            <DiscountedPrice>1200</DiscountedPrice>
+            <PurchaseNetPrice>800</PurchaseNetPrice>
+        </Prices>
+        <Categories>
+            <Category>
+                <Id>674</Id>
+                <Name>Könyvek</Name>
+            </Category>
+            <Category>
+                <Id>1087</Id>
+                <Name>Család és szülők</Name>
+            </Category>
+        </Categories>
+        <Photos>
+            <Photo>
+                <Url>http://i.pepita.hu/images/product/147925/30150920_original.jpg</Url>
+                <IsPrimary>true</IsPrimary>
+            </Photo>
+            <Photo>
+                <Url>http://i.pepita.hu/images/product/145293/30145188_original.jpg</Url>
+                <IsPrimary>false</IsPrimary>
+            </Photo>
+        </Photos>
+        <VideoLinks>https://www.youtube.com/watch?v=npMXbz3r218,https://www.youtube.com/watch?v=zXQ7JFOgEmc</VideoLinks>
+        <ProductUrl>https://pepita.hu/gyerekulesek-c1170/summer-baby-berton-sps-isofix-gyerekules-0-36kg-ajandek-fekete-szurke-p275589</ProductUrl>
+        <Availability>
+            <Available>true</Available>
+            <Quantity>13</Quantity>
+            <ShippingDelay>3</ShippingDelay>
+        </Availability>
+        <Attributes>
+            <Attribute>
+                <AttributeName>Memória</AttributeName>
+                <AttributeValue>8 GB</AttributeValue>
+            </Attribute>
+            <Attribute>
+                <AttributeName>Processzor</AttributeName>
+                <AttributeValue>3 Ghz</AttributeValue>
+            </Attribute>
+            <Attribute>
+                <AttributeName>SSD</AttributeName>
+                <AttributeValue>igen</AttributeValue>
+            </Attribute>
+        </Attributes>
+        <VolumeDimensions>
+            <Length>20.3</Length>
+            <Width>15.6</Width>
+            <Height>8.5</Height>
+            <Weight>10.3</Weight>
+        </VolumeDimensions>
+    </Product>
+
+    <!-- Példa több változattal rendelkező termékre -->
+    <Product>
+        <Id>1235</Id>
+        <StructuredId>9789633736586</StructuredId>
+        <Descriptions>
+            <Name>CAM Agile babakocsi 2017</Name>
+            <Description>Könnyű (5,6 kg) fémvázas babakocsi különálló tolókarokkal, 2 pozíciós háttámlával, levehető kapaszkodóval.</Description>
+        </Descriptions>
+        <Prices>
+            <Currency>HUF</Currency>
+            <Price>19900</Price>
+            <VatPercent>27</VatPercent>
+        </Prices>
+        <Categories>
+            <Category>
+                <Id>1207</Id>
+                <Name>Babakocsik</Name>
+            </Category>
+        </Categories>
+        <Photos>
+            <Photo>
+                <Url>http://i.pepita.hu/images/product/153024/30205902_original.jpg</Url>
+                <IsPrimary>true</IsPrimary>
+<!--
+    Ha egy kép nem a termékhez tartozik általánosan, hanem egy adott variációval,
+    azt a PrimaryVariation/SecondaryVariation tulajdonságokkal kell jelezni.
+    Ha a kép nem variációhoz kötött, akkor ezt a taget el kell hagyni.
+-->
+                <PrimaryVariation>red</PrimaryVariation>
+            </Photo>
+            <Photo>
+                <Url>http://i.pepita.hu/images/product/153025/30205903_original.jpg</Url>
+                <IsPrimary>true</IsPrimary>
+                <PrimaryVariation>green</PrimaryVariation>
+            </Photo>
+        </Photos>
+        <VideoLinks>https://www.youtube.com/watch?v=npMXbz3r218,https://www.youtube.com/watch?v=zXQ7JFOgEmc</VideoLinks>
+        <ProductUrl>https://pepita.hu/gyerekulesek-c1170/summer-baby-berton-sps-isofix-gyerekules-0-36kg-ajandek-fekete-szurke-p275589</ProductUrl>
+        <!-- Termék változatok megadása -->
+        <Variations>
+<!--
+    Megadja, hogy milyen tulajdonság alapján vannak megkülönböztetve a variációk.
+    pl. ha egy babakocsi 3 színben elérhető, akkor az elsődleges tulajdonság a szín lesz.
+    Ha egy póló 2 színben és 4 méretben elérhető, akkor az elsődleges tulajdonság a szín,
+    a másodlagos tulajdonság a méret lesz.
+-->
+            <PrimaryAttribute>color</PrimaryAttribute>
+            <!-- Első termék variáció -->
+            <Variation>
+                <!-- Elsődleges tulajdonság értéke - vörös szín -->
+                <PrimaryVariation>red</PrimaryVariation>
+<!--
+    Ha egy termék több variációval rendelkezik, a készletet külön kell megadni minden variációnál
+-->
+                <Availability>
+                    <Available>true</Available>
+                    <Quantity>3</Quantity>
+                </Availability>
+                <Prices>
+                    <Currency>HUF</Currency>
+                    <Price>15990</Price>
+                    <VatPercent>27</VatPercent>
+                </Prices>
+            </Variation>
+            <Variation>
+                <!-- Elsődleges tulajdonság értéke - zöld szín -->
+                <PrimaryVariation>green</PrimaryVariation>
+                <Availability>
+                    <Available>false</Available>
+                    <Quantity>0</Quantity>
+                </Availability>
+                <Prices>
+                    <Currency>HUF</Currency>
+                    <Price>13990</Price>
+                    <VatPercent>27</VatPercent>
+                </Prices>
+            </Variation>
+        </Variations>
+    </Product>
+</Catalog>

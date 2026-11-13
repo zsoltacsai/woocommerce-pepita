@@ -4,6 +4,18 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased — M9-D Official XML Contract Compliance
+
+### Added (M9-D)
+- **Official XML Contract Compliance**: Comprehensive alignment of full and stock feeds with Pepita's official published specification ([https://pepita.hu/partners/xml-format](https://pepita.hu/partners/xml-format)).
+- **Contract Matrix & Audit**: Complete audit of 97 XML elements and paths documented in `docs/m9d/PEPITA-XML-CONTRACT-MATRIX.md`.
+- **Digital / Email Delivery**: Support for `<EmailDelivery>true</EmailDelivery>` for digital products mapped from `_wps_pepita_email_delivery` product meta.
+- **Book Metadata**: Support for `<Descriptions><Author>` and `<Descriptions><Publisher>` mapped from `_wps_pepita_author` and `_wps_pepita_publisher` product meta.
+- **Variation Pricing & Delivery**: Concrete variation level mapping for `<VatPercent>`, `<PurchaseNetPrice>`, and `<ShippingPrice>` under `<Variation>/<Prices>`, and `<RestockDate>` on variations.
+- **Atomic Full Publication**: `Storage::publish_full()` for coordinated atomic publication of `feed.xml` and `catalog.jsonl` with automatic rollback from `.prev` backups if either step fails.
+- **Compliance & Safety Tests**: Added `tests/cases/180-xml-contract-compliance-test.php` and `tests/cases/185-feed-publication-safety-test.php` covering 1-3 variation axes, 4th axis rejection, Hungarian diacritics, and atomic publication safety.
+- **Synthetic Feed Deliverables**: Generated sample XML feeds `docs/m9d/synthetic-full-feed.xml` and `docs/m9d/synthetic-stock-feed.xml`.
+
 ## Unreleased — M9-C Feed Safety & Operational Monitoring
 
 ### Added (M9-C)
