@@ -1,0 +1,119 @@
+name: CI
+
+# Verification for every change to main and every pull request.
+#
+# Isolation: every job runs on a disposable GitHub-hosted runner. The
+# integration jobs use the repository's Docker Compose stack, the test-only
+# credentials from integration/.env.example, and no repository or environment
+# secrets. Nothing in this workflow can reach a production store.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+# Least privilege: every job only reads the repository. Artifact upload uses
+# the runner's runtime token, not the workflow token.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint (PHP 8.5)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up PHP 8.5
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.5'
+          coverage: none
+
+      - name: PHP syntax check
+        run: |
+          git ls-files -z '*.php' | xargs -0 -n1 -P "$(nproc)" php -l
+
+  unit:
+    name: unit (PHP ${{ matrix.php }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # The plugin declares PHP 8.1+; 8.5 is the primary supported runtime.
+        php: [ '8.1', '8.2', '8.3', '8.4', '8.5' ]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      - name: Run unit suite
+        run: php tests/run.php
+
+  integration:
+    name: integration-${{ matrix.store }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - store: hpos
+            host: http://wordpress-hpos
+            expected_hpos: 'yes'
+            service: cli-hpos
+          - store: legacy
+            host: http://wordpress-legacy
+            expected_hpos: 'no'
+            service: cli-legacy
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Provision isolated WordPress/WooCommerce stores
+        run: |
+          set -o pipefail
+          mkdir -p integration/results
+          integration/scripts/setup.sh 2>&1 | tee "integration/results/ci-setup-${{ matrix.store }}.log"
+
+      - name: Run ${{ matrix.store }} integration cases
+        run: |
+          set -o pipefail
+          log="integration/results/ci-${{ matrix.store }}.log"
+          {
+            echo "=== $(date -u +%FT%TZ) ${{ matrix.store }} (expected HPOS=${{ matrix.expected_hpos }}) ==="
+            docker compose --env-file integration/.env -f integration/docker-compose.yml exec -T \
+              -e "WPS_IT_SITE_URL=${{ matrix.host }}" \
+              "${{ matrix.service }}" wp --path=/var/www/html eval-file /integration/tests/seed.php
+            docker compose --env-file integration/.env -f integration/docker-compose.yml exec -T \
+              -e "WPS_IT_BASE_URL=${{ matrix.host }}" \
+              -e "WPS_IT_EXPECT_HPOS=${{ matrix.expected_hpos }}" \
+              "${{ matrix.service }}" wp --path=/var/www/html eval-file /integration/tests/run.php
+          } 2>&1 | tee "$log"
+
+      - name: Upload integration logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: integration-${{ matrix.store }}-logs
+          path: integration/results/*.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Stop services
+        if: always()
+        run: docker compose --env-file integration/.env -f integration/docker-compose.yml down -v
