@@ -3,7 +3,7 @@
 **Decision:** GO — Staging Preparation Only  
 **Production Gate:** STRICT NO-GO (HOLD)  
 **Repository:** `zsoltacsai/woocommerce-pepita`  
-**Candidate Release Commit:** `a9d0bfb1e45217d283bf2e25df4a168afd08277f`  
+**Candidate Release Commit:** `e28b7ed175da236ff3416a4102c2e8920eb3cbe2`  
 **Branch:** `security/m9-staging-readiness`  
 **Base Commit:** `a37099bbac334480d7bd943243e3696186aa4ab1` (PR #2 remediation HEAD)  
 **Date:** 2026-11-13  
