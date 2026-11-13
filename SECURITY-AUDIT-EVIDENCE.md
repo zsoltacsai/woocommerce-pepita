@@ -77,8 +77,8 @@ pending) and PV-01 (fixed).
 | No private vulnerability channel | Single maintainer; owner decision | Before public distribution |
 | Live staging validation pending | Environment lacks Docker/MySQL | Mandatory M9 gate |
 | XML parser hardening vs SSRF | `LIBXML_NONET` in `class-validator.php:200` blocks network access during parsing, closing the XXE-to-network/SSRF exfiltration path (entity substitution is off since `LIBXML_NOENT` is unset, and expansion limits rely on libxml2 defaults); the plugin makes no outbound HTTP requests for XML feeds | If outbound XML fetchers are introduced |
-| Pre-save crash recovery orphan window | If PHP crashes after `wc_create_order()` but before metadata save, an order exists without `_wps_pepita_order_id` | If persistent unhandled process crashes occur during order creation |
-| Legacy orders without payload hash | Existing WooCommerce orders created before 1.1.0 lack `_wps_pepita_payload_hash` meta; crash-recovery adopts them with duplicate 200 without payload comparison | Pre-1.1.0 historical data |
+| Pre-save crash recovery orphan window | **Closed in M9** — `Order_Repository::associate()` and `save_meta_data()` link the order ID immediately upon `wc_create_order()`; on recovery, `is_order_complete()` detects incomplete shells, purges them (`delete(true)`), and rebuilds complete orders cleanly | N/A — resolved with unit test 106 and integration test 07 |
+| Legacy orders without payload hash | **Closed in M9** — historical orders lacking `_wps_pepita_payload_hash` are checked for business invariants (currency, total, line count); matching data backfills the hash (200), altered data is rejected (409 Conflict) | N/A — resolved with unit test 106 and integration test 07 |
 
 ## 6. Independent re-review at remediation HEAD
 

@@ -694,6 +694,21 @@ class WC_Order {
 		unset( $this->meta[ $key ] );
 	}
 
+	public function save_meta_data(): void {
+		if ( $this->id > 0 && isset( WPS_Test_State::$orders[ $this->id ] ) ) {
+			WPS_Test_State::$orders[ $this->id ]->meta = $this->meta;
+		}
+	}
+
+	public function delete( bool $force_delete = false ): bool {
+		if ( $this->id > 0 && isset( WPS_Test_State::$orders[ $this->id ] ) ) {
+			unset( WPS_Test_State::$orders[ $this->id ] );
+			return true;
+		}
+
+		return false;
+	}
+
 	/**
 	 * @return mixed
 	 */
@@ -1175,7 +1190,10 @@ function wc_get_product_id_by_sku( string $sku ): int {
  * @return WC_Order|WP_Error
  */
 function wc_create_order( array $args = array() ) {
-	return new WC_Order( $args );
+	$order = new WC_Order( $args );
+	$order->save();
+
+	return $order;
 }
 
 /**

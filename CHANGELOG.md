@@ -105,6 +105,12 @@ and the M9 Pepita staging validation pass.
   log redacted reconciliation events, and record operator order notes in WooCommerce.
   Clarification questions for Pepita lifecycle contract documented.
 
+#### M9 Risk Closure (Staging Readiness)
+- **Crash Recovery & Orphan Order Prevention**: Immediate order ID association on claim (`Order_Repository::associate()`) and metadata write (`save_meta_data()`) upon `wc_create_order()`. Incomplete shells left by unexpected mid-creation process termination are detected (`is_order_complete()`), purged, and cleanly recreated, completely eliminating duplicate or orphan shell orders.
+- **Historical Order Replay Protection**: Replays of pre-1.1.0 orders lacking `_wps_pepita_payload_hash` are validated against invariant business fields (currency, total amount, line item count). Matching replays safely backfill the hash in WooCommerce metadata and claims table (returning 200); altered replays are rejected with 409 Conflict, an operator note, and warning log.
+- **Concurrent & Process Termination Safety**: Claims transitions verified under concurrency and process failure, ensuring strict idempotency and zero duplicate creation.
+- **Deterministic Test Suites**: Added comprehensive unit suite `tests/cases/106-recovery-and-replay-test.php` (6 tests) and real integration test suite in `integration/tests/cases/07-idempotency.php`.
+
 #### Deferred / accepted residual risk
 - **PV-06** (`manage_woocommerce` includes Shop Manager) — accepted as a
   deliberate store-operator role.

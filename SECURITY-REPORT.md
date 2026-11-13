@@ -226,6 +226,16 @@ not a substitute for the live M9 staging validation.
     Labels are deleted only for the known-closed statuses `completed`,
     `cancelled`, `refunded`, `failed` and `trash`. Custom statuses are treated as
     open and retained, which is the safe default.
+17. **Crash recovery & orphan window closure (M9 Risk Closure — RESOLVED).** Immediate order
+    ID association on claim (`Order_Repository::associate()`) and metadata write (`save_meta_data()`)
+    occur immediately upon `wc_create_order()`. On recovery, `is_order_complete()` checks for
+    line items or completion timestamp; incomplete shells left by a terminated process are cleanly
+    purged (`delete(true)`) and recreated from scratch, eliminating orphan orders and duplicates.
+18. **Historical order replay without payload hash (M9 Risk Closure — RESOLVED).** Replays of
+    pre-1.1.0 orders lacking `_wps_pepita_payload_hash` are validated against invariant business
+    fields (currency, total amount, line item count). Mismatches are rejected with 409 Conflict,
+    an operator note, and warning log; matching replays safely backfill the hash in WooCommerce
+    metadata and claims table.
 
 ## 10. Recommendations
 

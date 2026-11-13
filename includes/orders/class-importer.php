@@ -69,16 +69,39 @@ final class Importer {
 		}
 
 		// Durable fallback: an order may already exist if a previous attempt
-		// crashed after the WooCommerce order was saved.
+		// crashed after the WooCommerce order was initiated.
 		$existing = $this->find_order_by_external_id( $external_id );
 
 		if ( $existing > 0 ) {
 			$existing_order = wc_get_order( $existing );
-			$stored_hash    = $existing_order instanceof \WC_Order
-				? (string) $existing_order->get_meta( self::META_PAYLOAD_HASH )
-				: (string) ( $claim['row']['payload_hash'] ?? '' );
 
-			return $this->handle_existing_order( $external_id, $existing, $stored_hash, $payload_hash, $payload, true );
+			if ( $existing_order instanceof \WC_Order ) {
+				if ( ! $this->is_order_complete( $existing_order ) ) {
+					// Incomplete order left by a mid-creation process termination.
+					// Discard the broken shell and rebuild cleanly without duplicates.
+					Logger::warning(
+						'order_recovery',
+						'Félbehagyott Pepita rendelés észlelve korábbi összeomlás után; a csonka rendelést töröltük és újra létrehozzuk.',
+						array(
+							'external_id' => $external_id,
+							'orphan_id'   => $existing,
+						),
+						'order',
+						$existing
+					);
+
+					$existing_order->delete( true );
+					Order_Repository::associate( $external_id, 0 );
+					$existing = 0;
+				} else {
+					$stored_hash = (string) $existing_order->get_meta( self::META_PAYLOAD_HASH );
+					if ( '' === $stored_hash ) {
+						$stored_hash = (string) ( $claim['row']['payload_hash'] ?? '' );
+					}
+
+					return $this->handle_existing_order( $external_id, $existing, $stored_hash, $payload_hash, $payload, true );
+				}
+			}
 		}
 
 		try {
@@ -468,6 +491,16 @@ final class Importer {
 
 		if ( ! $order instanceof \WC_Order ) {
 			return new \WP_Error( 'wps_order_failed', 'A WooCommerce nem adott vissza rendelést.' );
+		}
+
+		$order_id = $order->get_id();
+		if ( $order_id > 0 ) {
+			Order_Repository::associate( $external_id, $order_id );
+			$order->update_meta_data( self::META_ORDER_ID, $external_id );
+			$order->update_meta_data( self::META_PAYLOAD_HASH, (string) ( $payload['__hash'] ?? '' ) );
+			if ( method_exists( $order, 'save_meta_data' ) ) {
+				$order->save_meta_data();
+			}
 		}
 
 		try {
@@ -1058,23 +1091,81 @@ final class Importer {
 			)
 		);
 
-		if ( ! is_array( $orders ) || ! isset( $orders[0] ) ) {
-			return 0;
-		}
+		if ( is_array( $orders ) && isset( $orders[0] ) ) {
+			// The meta_value column collation may be case-insensitive, so verify
+			// the identifier exactly before treating the order as the same one.
+			$order = wc_get_order( (int) $orders[0] );
 
-		// The meta_value column collation may be case-insensitive, so verify
-		// the identifier exactly before treating the order as the same one.
-		$order = wc_get_order( (int) $orders[0] );
+			if ( $order instanceof \WC_Order ) {
+				$stored = (string) $order->get_meta( self::META_ORDER_ID );
 
-		if ( $order instanceof \WC_Order ) {
-			$stored = (string) $order->get_meta( self::META_ORDER_ID );
-
-			if ( '' !== $stored && ! hash_equals( $stored, $external_id ) ) {
-				return 0;
+				if ( '' === $stored || hash_equals( $stored, $external_id ) ) {
+					return (int) $orders[0];
+				}
 			}
 		}
 
-		return (int) $orders[0];
+		// Fallback: check if the claim row already associates an order ID
+		// (e.g. if the process died before metadata was indexed or if object cache missed).
+		$claim = Order_Repository::get( $external_id );
+		$claimed_order_id = (int) ( $claim['wc_order_id'] ?? 0 );
+		if ( $claimed_order_id > 0 ) {
+			$order = wc_get_order( $claimed_order_id );
+
+			if ( $order instanceof \WC_Order ) {
+				$stored = (string) $order->get_meta( self::META_ORDER_ID );
+
+				if ( '' === $stored || hash_equals( $stored, $external_id ) ) {
+					return $claimed_order_id;
+				}
+			}
+		}
+
+		return 0;
+	}
+
+	/**
+	 * Check whether an existing order was fully imported or left incomplete by a crash.
+	 */
+	private function is_order_complete( \WC_Order $order ): bool {
+		$imported_at = (string) $order->get_meta( '_wps_pepita_imported_at' );
+		$items_count = count( $order->get_items( 'line_item' ) );
+
+		return '' !== $imported_at || $items_count > 0;
+	}
+
+	/**
+	 * Calculate total payable amount directly from an incoming payload.
+	 *
+	 * @param array<string, mixed> $payload
+	 * @return float|null
+	 */
+	private function calculate_payload_total( array $payload ): ?float {
+		if ( ! isset( $payload['products'] ) || ! is_array( $payload['products'] ) ) {
+			return null;
+		}
+
+		$total = 0.0;
+		foreach ( $payload['products'] as $item ) {
+			$price = Money::parse( $item['price'] ?? null );
+			$qty   = Money::parse_quantity( $item['quantity'] ?? null );
+			if ( null === $price || null === $qty ) {
+				return null;
+			}
+			$total += round( $price * $qty, 2 );
+		}
+
+		$shipping = Money::parse( $payload['total_shipping_price'] ?? 0 );
+		if ( null !== $shipping && $shipping > 0 ) {
+			$total += $shipping;
+		}
+
+		$voucher = Money::parse( $payload['voucher'] ?? 0 );
+		if ( null !== $voucher && $voucher > 0 ) {
+			$total -= $voucher;
+		}
+
+		return round( $total, 2 );
 	}
 
 	/**
@@ -1145,6 +1236,79 @@ final class Importer {
 
 		if ( '' === $stored_hash && $existing_order instanceof \WC_Order ) {
 			$stored_hash = (string) $existing_order->get_meta( self::META_PAYLOAD_HASH );
+		}
+
+		// Replay handling for historical orders without a stored payload hash (e.g. pre-1.1.0).
+		// We verify structural and financial invariants to refuse altered data.
+		if ( '' === $stored_hash && $existing_order instanceof \WC_Order ) {
+			$conflict = false;
+			$reasons  = array();
+
+			$order_currency   = (string) $existing_order->get_currency();
+			$payload_currency = (string) ( $payload['products'][0]['currency'] ?? $order_currency );
+			if ( '' !== $order_currency && '' !== $payload_currency && 0 !== strcasecmp( $order_currency, $payload_currency ) ) {
+				$conflict  = true;
+				$reasons[] = sprintf( 'eltérő pénznem (tárolt: %s, új: %s)', $order_currency, $payload_currency );
+			}
+
+			$order_total   = round( (float) $existing_order->get_total(), 2 );
+			$payload_total = $this->calculate_payload_total( $payload );
+			if ( null !== $payload_total && abs( $order_total - $payload_total ) > 0.05 ) {
+				$conflict  = true;
+				$reasons[] = sprintf( 'eltérő végösszeg (tárolt: %s, új: %s)', $order_total, $payload_total );
+			}
+
+			$order_item_count   = count( $existing_order->get_items( 'line_item' ) );
+			$payload_item_count = isset( $payload['products'] ) && is_array( $payload['products'] ) ? count( $payload['products'] ) : 0;
+			if ( $order_item_count > 0 && $payload_item_count > 0 && $order_item_count !== $payload_item_count ) {
+				$conflict  = true;
+				$reasons[] = sprintf( 'eltérő tételszám (tárolt: %d, új: %d)', $order_item_count, $payload_item_count );
+			}
+
+			if ( $conflict ) {
+				$existing_order->add_order_note(
+					sprintf(
+						'Figyelem: Ismételt Pepita rendelésértesítés érkezett korábbi (hash nélküli) rendeléshez eltérő tartalommal (%s). A meglévő rendelést a rendszer nem módosította a rendelés integritásának védelmében (NEW-2). Új hash: %s, státusz: %s, fizetési státusz: %s.',
+						implode( ', ', $reasons ),
+						substr( $payload_hash, 0, 12 ),
+						(string) ( $payload['status'] ?? 'n/a' ),
+						(string) ( $payload['payment_status'] ?? 'n/a' )
+					)
+				);
+
+				Logger::warning(
+					'order_duplicate',
+					'Ismételt Pepita rendelésértesítés korábbi rendeléshez eltérő tartalommal: a rendelést nem módosítottuk.',
+					array(
+						'external_id'           => $external_id,
+						'order_id'              => $order_id,
+						'reasons'               => $reasons,
+						'new_hash'              => substr( $payload_hash, 0, 16 ),
+						'reconciliation_event'  => 'changed_payload_refused',
+						'pepita_status'         => (string) ( $payload['status'] ?? '' ),
+						'pepita_payment_status' => (string) ( $payload['payment_status'] ?? '' ),
+						'redacted_new_payload'  => Redactor::redact( $payload ),
+					),
+					'order',
+					$order_id
+				);
+
+				return $this->result( 'conflict', 409, 'A rendelés már korábban importálásra került, de az új értesítés tartalma eltér. Kérjük, ellenőrizze a rendelést a WooCommerce-ben.' );
+			}
+
+			// Invariants match: securely backfill the hash for future verification
+			$existing_order->update_meta_data( self::META_PAYLOAD_HASH, $payload_hash );
+			if ( method_exists( $existing_order, 'save_meta_data' ) ) {
+				$existing_order->save_meta_data();
+			}
+			Order_Repository::backfill_hash( $external_id, $payload_hash );
+
+			$existing_order->add_order_note(
+				sprintf(
+					'Meglévő korábbi Pepita rendelés megerősítve és hash rögzítve (hash: %s).',
+					substr( $payload_hash, 0, 12 )
+				)
+			);
 		}
 
 		if ( '' !== $stored_hash && ! hash_equals( $stored_hash, $payload_hash ) ) {

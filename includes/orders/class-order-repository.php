@@ -223,6 +223,53 @@ final class Order_Repository {
 		);
 	}
 
+	/**
+	 * Associate an in-progress WooCommerce order ID with an active claim.
+	 *
+	 * Ensures crash recovery can locate the order even if the process is killed
+	 * before final metadata persistence or completion.
+	 */
+	public static function associate( string $external_id, int $order_id ): void {
+		global $wpdb;
+
+		$table = self::table();
+
+		$wpdb->update(
+			$table,
+			array(
+				'wc_order_id' => max( 0, $order_id ),
+				'updated_at'  => current_time( 'mysql', true ),
+			),
+			array( 'external_id' => $external_id ),
+			array( '%d', '%s' ),
+			array( '%s' )
+		);
+	}
+
+	/**
+	 * Backfill payload hash for historical claims where it was missing.
+	 */
+	public static function backfill_hash( string $external_id, string $payload_hash ): void {
+		global $wpdb;
+
+		if ( '' === $payload_hash ) {
+			return;
+		}
+
+		$table = self::table();
+
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table}
+				 SET payload_hash = %s, updated_at = %s
+				 WHERE external_id = %s AND (payload_hash IS NULL OR payload_hash = '')", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$payload_hash,
+				current_time( 'mysql', true ),
+				$external_id
+			)
+		);
+	}
+
 	public static function fail( string $external_id, string $error ): void {
 		global $wpdb;
 
