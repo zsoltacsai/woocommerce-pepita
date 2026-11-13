@@ -916,6 +916,13 @@ $suite->add(
 		WPS_Assert::same( '', (string) $order->get_meta( '_wps_pepita_in_progress' ) );
 
 		// Simulate Worker B or next retry adopting the completed order
+		global $wpdb;
+		$wpdb->update(
+			Order_Repository::table(),
+			array( 'updated_at' => gmdate( 'Y-m-d H:i:s', time() - 2000 ) ),
+			array( 'external_id' => $external_id )
+		);
+
 		$retry_result = $importer->import( $payload );
 		WPS_Assert::same( 200, $retry_result['http'] );
 		WPS_Assert::same( 'duplicate', $retry_result['status'] );
@@ -964,11 +971,11 @@ $suite->add(
 			array( 'external_id' => $external_id )
 		);
 
-		// During replay, backfill will trigger $order->save(), bumping attempts before complete()
-		$filter_fired = false;
-		$filter       = static function ( $enabled ) use ( &$filter_fired, $external_id ) {
-			if ( ! $filter_fired ) {
-				$filter_fired = true;
+		// During replay, backfill records an order note, bumping attempts before complete()
+		$action_fired = false;
+		$action       = static function ( $note_id, $order ) use ( &$action_fired, $external_id ) {
+			if ( ! $action_fired ) {
+				$action_fired = true;
 				global $wpdb;
 				$wpdb->update(
 					Order_Repository::table(),
@@ -976,14 +983,13 @@ $suite->add(
 					array( 'external_id' => $external_id )
 				);
 			}
-			return $enabled;
 		};
 
-		add_filter( 'woocommerce_email_enabled_new_order', $filter );
+		add_action( 'woocommerce_order_note_added', $action, 10, 2 );
 		$replay_result = $importer->import( $payload );
-		remove_filter( 'woocommerce_email_enabled_new_order', $filter );
+		remove_action( 'woocommerce_order_note_added', $action, 10 );
 
-		WPS_Assert::true( $filter_fired );
+		WPS_Assert::true( $action_fired );
 		WPS_Assert::same( 409, $replay_result['http'] );
 		WPS_Assert::same( 'retry', $replay_result['status'] );
 	}
@@ -1078,7 +1084,7 @@ $suite->add(
 		$result = $importer->import( $payload );
 
 		// Restore table
-		\WPS\Pepita\Installer::install();
+		$GLOBALS['wpdb'] = wps_test_new_wpdb();
 		Order_Repository::reset_table_cache();
 
 		WPS_Assert::same( 500, $result['http'] );

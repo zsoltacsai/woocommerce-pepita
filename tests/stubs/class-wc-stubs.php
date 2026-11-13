@@ -918,7 +918,10 @@ class WC_Order {
 		);
 		$this->notes[] = $note;
 
-		return count( $this->order_notes );
+		$note_id = count( $this->order_notes );
+		do_action( 'woocommerce_order_note_added', $note_id, $this );
+
+		return $note_id;
 	}
 
 	/**
