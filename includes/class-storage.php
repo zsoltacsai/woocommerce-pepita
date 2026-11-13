@@ -15,6 +15,8 @@
 
 namespace WPS\Pepita;
 
+use WPS\Pepita\Feed\Catalog_Index;
+
 defined( 'ABSPATH' ) || exit;
 
 final class Storage {

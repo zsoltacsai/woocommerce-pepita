@@ -426,11 +426,11 @@ $suite->add(
 			return;
 		}
 
-		$bootstrap = WPS_PEPITA_DIR . 'tests/bootstrap.php';
+		$lock_file = Storage::lock_path();
 
 		$worker_code = sprintf(
-			'require "%s"; WPS\Pepita\Storage::ensure_directory(); $l = WPS\Pepita\Storage::acquire_lock(true); usleep(300000); WPS\Pepita\Storage::release_lock($l);',
-			addslashes( $bootstrap )
+			'$h = fopen("%s", "c+"); if ($h) { flock($h, LOCK_EX); usleep(300000); flock($h, LOCK_UN); fclose($h); }',
+			addslashes( $lock_file )
 		);
 
 		$spec = array(
