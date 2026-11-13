@@ -396,10 +396,24 @@ $suite->add(
 		WPS_Assert::same( 401, $response->get_status() );
 		WPS_Assert::contains( 'IP', $response->get_data()['message'] );
 
-		// A well-formed ip:port hop is normalised and evaluated normally.
+		// A well-formed ip:port hop is normalised and then evaluated by the
+		// allowlist. Allowlisting that exact address proves normalisation
+		// happened (a fail-closed result would be 401, not 200).
+		Settings::update( array( 'order_api_allowed_ips' => '203.0.113.9' ) );
 		$_SERVER['HTTP_X_FORWARDED_FOR'] = '203.0.113.9:4321';
 
-		WPS_Assert::same( 401, $call( $payload( array( 'id' => 'PEP-API-PORT' ) ), array( 'apikey' => 'secret-key' ) )->get_status() );
+		WPS_Assert::same( 200, $call( $payload( array( 'id' => 'PEP-API-PORT' ) ), array( 'apikey' => 'secret-key' ) )->get_status() );
+
+		// A /0 trusted range must never be accepted: it would trust everyone.
+		Settings::update(
+			array(
+				'order_api_allowed_ips'     => '203.0.113.9',
+				'order_api_trusted_proxies' => '0.0.0.0/0',
+			)
+		);
+		$_SERVER['HTTP_X_FORWARDED_FOR'] = '203.0.113.9';
+
+		WPS_Assert::same( 401, $call( $payload( array( 'id' => 'PEP-API-SLASH0' ) ), array( 'apikey' => 'secret-key' ) )->get_status() );
 
 		unset( $_SERVER['HTTP_X_FORWARDED_FOR'] );
 		$_SERVER['REMOTE_ADDR'] = '127.0.0.1';

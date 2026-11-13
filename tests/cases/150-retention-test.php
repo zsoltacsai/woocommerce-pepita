@@ -99,3 +99,26 @@ $suite->add(
 		@unlink( $file );
 	}
 );
+
+$suite->add(
+	'retention: a custom order status is treated as open and keeps its label',
+	static function () use ( $payload, $seed ): void {
+		$seed();
+		Settings::update( array( 'order_api_save_label' => true ) );
+
+		$result = ( new Importer() )->import( $payload( 'PEP-LABEL-CUSTOM', "%PDF-1.4\ncustom\n" ) );
+
+		$order = WPS_Test_State::$orders[ $result['order_id'] ];
+		$file  = (string) $order->get_meta( Importer::META_PACKAGE_LABEL );
+
+		$order->set_status( 'packed' );
+		$order->save();
+
+		touch( $file, time() - 40 * DAY_IN_SECONDS );
+
+		WPS_Assert::same( 0, Order_Repository::purge_labels( 30 ) );
+		WPS_Assert::true( is_file( $file ) );
+
+		@unlink( $file );
+	}
+);

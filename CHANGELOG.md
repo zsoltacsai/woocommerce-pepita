@@ -83,11 +83,13 @@ and the M9 Pepita staging validation pass.
 #### Fixed (independent re-review follow-ups)
 
 - Redact `billing_street_address` / `shipping_street_address` in logs.
-- Run the `utf8mb4_bin` migration on activation and check the ALTER result.
+- Run the `utf8mb4_bin` migration on activation, record the outcome and retry a
+  failed ALTER on later requests instead of silently stamping the new version.
 - Fail closed when a forwarding hop is unparseable; normalise `ip:port`;
   reject `/0` trusted-proxy entries.
 - Round line and grand totals to cents.
-- Only release package labels for known-closed order statuses.
+- Only release package labels for known-closed order statuses; custom statuses
+  are treated as open.
 
 #### Deferred / accepted residual risk
 

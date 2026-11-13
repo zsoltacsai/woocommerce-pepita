@@ -17,7 +17,7 @@ final class Installer {
 
 	public static function activate(): void {
 		self::create_tables();
-		self::migrate_external_id_collation();
+		self::record_collation_migration();
 		Settings::install_defaults();
 		Settings::ensure_tokens();
 		Storage::ensure_directory();
@@ -37,14 +37,28 @@ final class Installer {
 	}
 
 	public static function maybe_upgrade(): void {
-		$installed = (string) get_option( 'wps_pepita_db_version', '' );
+		$installed    = (string) get_option( 'wps_pepita_db_version', '' );
+		$collation_ok = '1' === (string) get_option( 'wps_pepita_collation_ok', '' );
 
+		if ( WPS_PEPITA_DB_VERSION === $installed && $collation_ok ) {
+			return;
+		}
+
+		// The schema version is already current but a previous collation
+		// migration failed: retry it, throttled so a persistent DB error does
+		// not run an ALTER on every request.
 		if ( WPS_PEPITA_DB_VERSION === $installed ) {
+			if ( false !== get_transient( 'wps_pepita_collation_retry' ) ) {
+				return;
+			}
+
+			self::record_collation_migration();
+
 			return;
 		}
 
 		self::create_tables();
-		self::migrate_external_id_collation();
+		self::record_collation_migration();
 		Settings::install_defaults();
 		Settings::ensure_tokens();
 		Storage::ensure_directory();
@@ -108,6 +122,21 @@ final class Installer {
 
 		Logger::reset_table_cache();
 		Order_Repository::reset_table_cache();
+	}
+
+	/**
+	 * Run the collation migration and remember the outcome. A failed ALTER is
+	 * retried on a later request instead of being silently forgotten.
+	 */
+	private static function record_collation_migration(): void {
+		if ( self::migrate_external_id_collation() ) {
+			update_option( 'wps_pepita_collation_ok', '1', false );
+			delete_transient( 'wps_pepita_collation_retry' );
+
+			return;
+		}
+
+		set_transient( 'wps_pepita_collation_retry', 1, 5 * MINUTE_IN_SECONDS );
 	}
 
 	/**

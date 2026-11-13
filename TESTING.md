@@ -4,7 +4,7 @@
 
 ```
 $ php tests/run.php
-157 passed, 0 failed, 0 skipped in 6.41s
+158 passed, 0 failed, 0 skipped in 7.36s
 ```
 
 PHP 8.5 CLI, no WordPress installation required.
@@ -106,7 +106,7 @@ php tests/run.php validator
 | `120-prefix-test.php` | 8 | No Allegro symbols, namespaces, constants, hooks, options, meta, tables, text domain |
 | `130-performance-test.php` | 5 | 1000 products, bounded runs, memory, stock consistency, idempotency, bulk exclusion |
 | `140-bootstrap-test.php` | 7 | Front-end/admin wiring, all eight admin screens render, activation/deactivation, health checks, missing-WooCommerce notice |
-| `150-retention-test.php` | 2 | Package-label retention for open vs closed orders |
+| `150-retention-test.php` | 3 | Package-label retention for open, closed and custom-status orders |
 
 ### Key behaviours proven
 

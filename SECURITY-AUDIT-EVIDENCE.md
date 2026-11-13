@@ -89,10 +89,10 @@ PV-07, PV-10) and raised ten follow-ups:
 | NEW-1 | MEDIUM (accounting) | Zeroed cart/shipping tax means WooCommerce tax lines show no VAT | **Documented residual** — exact gross total is preserved; VAT remains in total + item meta. Owner must confirm invoicing representation before go-live |
 | NEW-2 | MEDIUM (functional) | Changed-content duplicate returns 409 forever, so later status updates are refused | **Documented residual** — this is the audit-recommended CF-10 behaviour; confirm Pepita's contract |
 | NEW-3 | MEDIUM (CF-11 gap) | `billing_street_address` / `shipping_street_address` were not redacted | **Fixed** — added to `PII_KEYS`; regression test extended |
-| NEW-4 | LOW (migration) | `activate()` skipped the collation migration; ALTER result unchecked | **Fixed** — migration runs on activation; result checked and logged |
-| NEW-5 | LOW (client IP) | An unparseable forwarding hop fell back to the proxy address | **Fixed** — chain now fails closed (`0.0.0.0`); `ip:port` normalised; `/0` rejected |
+| NEW-4 | LOW (migration) | `activate()` skipped the collation migration; ALTER result unchecked | **Fixed** — migration runs on activation, the result is recorded in `wps_pepita_collation_ok`, and a failed ALTER is retried (throttled) on later requests |
+| NEW-5 | LOW (client IP) | An unparseable forwarding hop fell back to the proxy address | **Fixed** — chain fails closed (`0.0.0.0`); `ip:port`/`[v6]:port` normalised; `/0` rejected. Tests cover fail-closed, normalisation and `/0` |
 | NEW-6 | LOW (money) | Float sums could leak binary artefacts | **Fixed** — line and grand totals rounded to cents |
-| NEW-7 | LOW (retention) | Custom open statuses were treated as closed | **Fixed** — only known-closed statuses release a label |
+| NEW-7 | LOW (retention) | Custom open statuses were treated as closed | **Fixed** — only known-closed statuses release a label; custom-status retention test added |
 | NEW-8 | LOW (logging) | Masked `ip` reduces rejection-log forensics | **Accepted** — access logs carry the source; log rows stay PII-free |
 | NEW-9 | LOW (tests) | Some tests were sequential/weak (lock, log bound) | **Partially fixed** — log-bound assertion tightened; concurrency remains runtime-only |
 | NEW-10 | INFO | IPv4-mapped IPv6, `/0`, query-string key, empty optional amounts | **Partially fixed** — `/0` rejected; others documented as residual |
