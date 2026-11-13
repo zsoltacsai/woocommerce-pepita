@@ -61,6 +61,16 @@ WPS_IT::test(
 
 		WPS_IT::same( 'on-hold', $reloaded->get_status(), 'A changed duplicate modified the existing order.' );
 		WPS_IT::close( $total_before, (float) $reloaded->get_total(), 0.01, 'A changed duplicate modified the total.' );
+
+		$notes             = wc_get_order_notes( array( 'order_id' => $order_id ) );
+		$has_conflict_note = false;
+		foreach ( $notes as $n ) {
+			if ( str_contains( (string) $n->content, 'NEW-2' ) || str_contains( (string) $n->content, 'eltérő tartalommal' ) ) {
+				$has_conflict_note = true;
+				break;
+			}
+		}
+		WPS_IT::true( $has_conflict_note, 'Expected operator reconciliation note on existing order.' );
 	}
 );
 

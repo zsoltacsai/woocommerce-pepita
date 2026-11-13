@@ -336,6 +336,44 @@ class WC_Order_Item {
 		$this->data['quantity'] = $quantity;
 	}
 
+	public function get_subtotal(): float {
+		return (float) ( $this->data['subtotal'] ?? $this->data['total'] ?? 0 );
+	}
+
+	public function set_subtotal( float $subtotal ): void {
+		$this->data['subtotal'] = $subtotal;
+	}
+
+	public function get_total_tax(): float {
+		return (float) ( $this->data['total_tax'] ?? 0 );
+	}
+
+	public function set_total_tax( float $tax ): void {
+		$this->data['total_tax'] = $tax;
+	}
+
+	public function get_subtotal_tax(): float {
+		return (float) ( $this->data['subtotal_tax'] ?? 0 );
+	}
+
+	public function set_subtotal_tax( float $tax ): void {
+		$this->data['subtotal_tax'] = $tax;
+	}
+
+	/**
+	 * @return array<string, mixed>
+	 */
+	public function get_taxes(): array {
+		return (array) ( $this->data['taxes'] ?? array() );
+	}
+
+	/**
+	 * @param array<string, mixed> $taxes
+	 */
+	public function set_taxes( array $taxes ): void {
+		$this->data['taxes'] = $taxes;
+	}
+
 	public function add_meta_data( string $key, $value, bool $unique = false ): void {
 		$this->meta[ $key ] = $value;
 	}
@@ -408,6 +446,71 @@ class WC_Order_Item_Fee extends WC_Order_Item {
 
 	public function get_amount(): float {
 		return (float) ( $this->data['amount'] ?? 0 );
+	}
+
+	public function set_tax_status( string $status ): void {
+		$this->data['tax_status'] = $status;
+	}
+
+	public function get_tax_status(): string {
+		return (string) ( $this->data['tax_status'] ?? 'taxable' );
+	}
+}
+
+class WC_Order_Item_Tax extends WC_Order_Item {
+
+	public function set_rate_id( int $id ): void {
+		$this->data['rate_id'] = $id;
+	}
+
+	public function get_rate_id(): int {
+		return (int) ( $this->data['rate_id'] ?? 0 );
+	}
+
+	public function set_rate( $id ): void {
+		$this->set_rate_id( (int) $id );
+	}
+
+	public function set_label( string $label ): void {
+		$this->data['label'] = $label;
+		$this->set_name( $label );
+	}
+
+	public function get_label(): string {
+		return (string) ( $this->data['label'] ?? '' );
+	}
+
+	public function set_compound( bool $compound ): void {
+		$this->data['compound'] = $compound;
+	}
+
+	public function set_tax_total( float $total ): void {
+		$this->data['tax_total'] = $total;
+		$this->set_total( $total );
+	}
+
+	public function get_tax_total(): float {
+		return (float) ( $this->data['tax_total'] ?? $this->get_total() );
+	}
+
+	public function set_shipping_tax_total( float $total ): void {
+		$this->data['shipping_tax_total'] = $total;
+	}
+
+	public function get_shipping_tax_total(): float {
+		return (float) ( $this->data['shipping_tax_total'] ?? 0 );
+	}
+
+	public function set_rate_code( string $code ): void {
+		$this->data['rate_code'] = $code;
+	}
+
+	public function get_rate_code(): string {
+		return (string) ( $this->data['rate_code'] ?? '' );
+	}
+
+	public function set_order_id( int $id ): void {
+		$this->data['order_id'] = $id;
 	}
 }
 
@@ -538,6 +641,10 @@ class WC_Order {
 
 	public function set_prices_include_tax( bool $include ): void {
 		$this->prices_include_tax = $include;
+	}
+
+	public function get_total_tax(): float {
+		return (float) round( $this->cart_tax + $this->shipping_tax, 2 );
 	}
 
 	public function get_prices_include_tax(): bool {
@@ -723,6 +830,7 @@ class WC_Order {
 			'line_item' => WC_Order_Item_Product::class,
 			'shipping'  => WC_Order_Item_Shipping::class,
 			'fee'       => WC_Order_Item_Fee::class,
+			'tax'       => WC_Order_Item_Tax::class,
 		);
 
 		$class = $map[ $type ] ?? '';
@@ -789,6 +897,8 @@ class WC_Order {
 
 class WC_Tax {
 
+	protected static int $rate_seq = 0;
+
 	/**
 	 * @return array<string, array<string, mixed>>
 	 */
@@ -798,11 +908,12 @@ class WC_Tax {
 		$out   = array();
 
 		foreach ( $rates as $index => $rate ) {
-			$out[ 'rate-' . $index ] = array(
+			$rate_id = is_numeric( $index ) ? (string) $index : 'rate-' . $index;
+			$out[ $rate_id ] = array(
 				'rate'     => (float) $rate['rate'],
-				'label'    => '',
-				'shipping' => 'yes',
-				'compound' => 'no',
+				'label'    => (string) ( $rate['label'] ?? 'ÁFA' ),
+				'shipping' => (string) ( $rate['shipping'] ?? 'yes' ),
+				'compound' => (string) ( $rate['compound'] ?? 'no' ),
 			);
 		}
 
@@ -814,6 +925,95 @@ class WC_Tax {
 	 */
 	public static function get_base_tax_rates( string $tax_class = '' ): array {
 		return self::get_rates( $tax_class );
+	}
+
+	/**
+	 * @param array<string, mixed> $args
+	 * @return array<string, array<string, mixed>>
+	 */
+	public static function find_rates( array $args = array() ): array {
+		$class = (string) ( $args['tax_class'] ?? '' );
+		return self::get_rates( $class );
+	}
+
+	/**
+	 * @param array<string, mixed> $args
+	 * @return array<string, array<string, mixed>>
+	 */
+	public static function find_shipping_rates( array $args = array() ): array {
+		$rates = self::get_rates( '' );
+		$out   = array();
+
+		foreach ( $rates as $key => $rate ) {
+			if ( 'yes' === ( $rate['shipping'] ?? 'no' ) ) {
+				$out[ $key ] = $rate;
+			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * @param float $price
+	 * @param array<string, array<string, mixed>> $rates
+	 * @return array<string, float>
+	 */
+	public static function calc_inclusive_tax( float $price, array $rates ): array {
+		$total_rate = 0.0;
+		foreach ( $rates as $rate ) {
+			$total_rate += (float) ( $rate['rate'] ?? 0.0 );
+		}
+
+		if ( $total_rate <= 0.0 ) {
+			return array();
+		}
+
+		$tax = round( $price - ( $price / ( 1.0 + ( $total_rate / 100.0 ) ) ), 2 );
+		$taxes = array();
+
+		foreach ( $rates as $id => $rate ) {
+			$taxes[ (string) $id ] = round( $tax * ( (float) $rate['rate'] / $total_rate ), 2 );
+		}
+
+		return $taxes;
+	}
+
+	public static function get_rate_label( $rate_id ): string {
+		return 'ÁFA';
+	}
+
+	public static function get_rate_code( $rate_id ): string {
+		return 'AFA';
+	}
+
+	/**
+	 * @param array<string, mixed> $args
+	 * @return int
+	 */
+	public static function _insert_tax_rate( array $args ): int {
+		$id    = ++self::$rate_seq;
+		$class = (string) ( $args['tax_rate_class'] ?? '' );
+		$key   = '' === $class ? '__standard__' : $class;
+
+		WPS_Test_State::$tax_rates[ $key ][ $id ] = array(
+			'rate'     => (float) ( $args['tax_rate'] ?? 0.0 ),
+			'label'    => (string) ( $args['tax_rate_name'] ?? 'ÁFA' ),
+			'shipping' => (int) ( $args['tax_rate_shipping'] ?? 1 ) ? 'yes' : 'no',
+			'compound' => (int) ( $args['tax_rate_compound'] ?? 0 ) ? 'yes' : 'no',
+		);
+
+		return $id;
+	}
+
+	public static function _delete_tax_rate( int $id ): bool {
+		foreach ( WPS_Test_State::$tax_rates as $key => $rates ) {
+			if ( isset( $rates[ $id ] ) ) {
+				unset( WPS_Test_State::$tax_rates[ $key ][ $id ] );
+				return true;
+			}
+		}
+
+		return false;
 	}
 }
 

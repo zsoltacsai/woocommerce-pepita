@@ -93,15 +93,19 @@ and the M9 Pepita staging validation pass.
 - Only release package labels for known-closed order statuses; custom statuses
   are treated as open.
 
-#### Deferred / accepted residual risk
+#### Resolved in 1.1.0 update
 
-- **NEW-1** (tax representation) — the exact Pepita gross total is preserved and
-  VAT remains in the total and `_wps_pepita_vat` item meta, but WooCommerce tax
-  lines are zero to avoid double VAT. Confirm invoicing representation before
-  go-live.
-- **NEW-2** (changed-content duplicates) — a changed re-send returns 409 and is
-  not applied (audit-recommended CF-10 behaviour). Confirm Pepita never sends
-  post-creation status changes under the same id.
+- **NEW-1** (tax representation) — full tax-aware order creation implemented.
+  Pepita gross totals remain authoritative. In tax-enabled stores, gross prices
+  are partitioned into net totals and tax rows based on configured WooCommerce
+  tax rates. `WC_Order_Item_Tax` lines, taxable shipping, and zero-tax/exempt orders
+  are fully supported. Incompatible VAT values fail safely with HTTP 422.
+- **NEW-2** (changed-content duplicates) — non-destructive duplicate handling.
+  Different-payload duplicates return 409 Conflict, preserve original orders,
+  log redacted reconciliation events, and record operator order notes in WooCommerce.
+  Clarification questions for Pepita lifecycle contract documented.
+
+#### Deferred / accepted residual risk
 - **PV-06** (`manage_woocommerce` includes Shop Manager) — accepted as a
   deliberate store-operator role.
 - **PV-08** (stale-claim overlap for imports longer than the 15-minute window) —

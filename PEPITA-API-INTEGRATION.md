@@ -265,9 +265,10 @@ dedupe row, its hash and the WooCommerce order are never removed by this job.
 | Shipping address | `shipping_*`, falling back to the billing values |
 | Tax number | `_billing_vat_number` |
 | Customer ID | Matched WordPress user by e-mail (never an account that can manage the store), else guest |
-| Line items | `add_product()` with the payload quantity and gross price; item meta `_wps_pepita_product_id`, `_wps_pepita_sku`, `_wps_pepita_vat` |
-| Shipping | `WC_Order_Item_Shipping` when `total_shipping_price > 0` |
-| Voucher | `WC_Order_Item_Fee`, negative amount |
+| Line items | `add_product()` with the payload quantity, calculated net price, and tax lines; item meta `_wps_pepita_product_id`, `_wps_pepita_sku`, `_wps_pepita_vat`, `_wps_pepita_gross_price` |
+| Shipping | `WC_Order_Item_Shipping` with net amount and shipping tax when `total_shipping_price > 0` |
+| Voucher | `WC_Order_Item_Fee`, non-taxable negative amount |
+| Taxes | `WC_Order_Item_Tax` rows for each applied tax rate when taxes are enabled |
 | Payment method | `payment_map[payment_mode]`, title from the Hungarian label table |
 | Status | `order_api_status_paid` (`processing`) or `order_api_status_unpaid` (`on-hold`) |
 | `date_paid` | Only when `payment_status === "paid"` |
@@ -275,11 +276,59 @@ dedupe row, its hash and the WooCommerce order are never removed by this job.
 | Notes | Import summary, customer message, courier message |
 | Label | `_wps_pepita_package_label` absolute file path |
 
-Pepita prices are gross. The importer sets `prices_include_tax` on the order,
-recalculates the line totals with `calculate_totals( false )` so WooCommerce does
-not add VAT on top, clears cart/shipping tax and sets the final total to the
-validated Pepita gross total. A tax-enabled store therefore stores exactly the
-Pepita total; it never gains a second VAT layer.
+### 6.1 Tax representation (NEW-1 resolution)
+
+Pepita prices are gross and authoritative. The importer enforces correct tax-aware
+WooCommerce order creation:
+
+1. **Authoritative gross totals:** The total payable amount matches the Pepita payload
+   to the cent/fillér; WooCommerce does not add VAT a second time on top.
+2. **Net and tax partitioning:** In tax-enabled stores (`woocommerce_calc_taxes=yes`),
+   each product line item is partitioned into its net subtotal/total and tax amount based on
+   configured WooCommerce tax rates matching Pepita's VAT rate.
+3. **WooCommerce tax lines:** Supported `WC_Order_Item_Tax` rows are recorded for each
+   applicable tax rate, with cart tax and shipping tax broken down for invoicing plugins.
+4. **Taxable shipping:** If shipping is configured as taxable, gross shipping is
+   partitioned into net shipping and shipping tax.
+5. **Zero-rated & tax-exempt:** Zero-rated products (0% VAT), stores with taxes disabled,
+   and tax-exempt customer orders are cleanly supported with 0 tax lines.
+6. **Validation & fail safe:** Imported VAT rates are validated against WooCommerce tax
+   configuration. Incompatible or ambiguous VAT data is rejected with HTTP 422 before
+   creating an order. Catalog prices remain untouched.
+
+### 6.2 Duplicate and retry semantics (NEW-2 resolution)
+
+1. **Identical deliveries:** If an already completed order is received with the identical
+   payload hash, HTTP 200 is returned with the existing `orderId` (idempotent, no side effects).
+2. **Changed-payload duplicate deliveries:** If the same external ID is received with modified
+   content (different payload hash), the system behaves non-destructively:
+   - Does not overwrite or mutate the existing WooCommerce order.
+   - Does not create a duplicate order.
+   - Preserves the original order data intact.
+   - Adds an internal operator order note to the WooCommerce order informing the merchant
+     about the new payload hash and received Pepita status/payment status.
+   - Records a redacted reconciliation event in the plugin log (`reconciliation_needed`).
+   - Returns HTTP 409 Conflict.
+3. **Retry risks:** If Pepita's sender treats 409 as a retryable transient failure rather than
+   a business conflict, repetitive webhooks could cause log bloat or webhook queue backlogs.
+   Automatic order status mutations based on unconfirmed assumptions are rejected.
+
+### 6.3 Technical clarification questions for Pepita
+
+The following questions must be confirmed with the Pepita partner integration team before
+enabling automated lifecycle status mutations:
+
+1. **Modified deliveries:** Can an existing order ID ever be delivered again with modified
+   content (e.g. customer address change, item cancellation, or replacement lines)?
+2. **Status and payment forwarding:** Are post-creation payment and status updates (e.g.
+   unpaid → paid, or cancellation) forwarded through this same webhook endpoint, or via
+   a distinct callback/polling API?
+3. **Non-2xx retry policy:** What is Pepita's retry schedule and backoff policy for 4xx
+   and 5xx responses (especially 409 Conflict and 422 Unprocessable Entity)?
+4. **Expected response for imported orders:** Is HTTP 200 with `{isError: false, orderId}`
+   accepted as acknowledgement for duplicate deliveries?
+5. **Out-of-order delivery:** Can webhook deliveries occur out of order, and how are sequence
+   guarantees established?
 
 Package-label PDFs are kept for `order_api_label_retention_days` (default 30).
 The daily maintenance job deletes expired labels of closed orders and clears

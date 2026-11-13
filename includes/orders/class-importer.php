@@ -57,14 +57,31 @@ final class Importer {
 			$stored_hash = (string) ( $claim['row']['payload_hash'] ?? '' );
 
 			if ( '' !== $stored_hash && ! hash_equals( $stored_hash, $payload_hash ) ) {
+				$existing_order = wc_get_order( $order_id );
+
+				if ( $existing_order instanceof \WC_Order ) {
+					$existing_order->add_order_note(
+						sprintf(
+							'Figyelem: Ismételt Pepita rendelésértesítés érkezett eltérő tartalommal (új hash: %s). A meglévő rendelést a rendszer nem módosította a rendelés integritásának védelmében (NEW-2). Új Pepita státusz: %s, fizetési státusz: %s.',
+							substr( $payload_hash, 0, 12 ),
+							(string) ( $payload['status'] ?? 'n/a' ),
+							(string) ( $payload['payment_status'] ?? 'n/a' )
+						)
+					);
+				}
+
 				Logger::warning(
 					'order_duplicate',
 					'Ismételt Pepita rendelésértesítés eltérő tartalommal: a meglévő rendelést nem módosítottuk.',
 					array(
-						'external_id' => $external_id,
-						'order_id'    => $order_id,
-						'stored_hash' => substr( $stored_hash, 0, 16 ),
-						'new_hash'    => substr( $payload_hash, 0, 16 ),
+						'external_id'           => $external_id,
+						'order_id'              => $order_id,
+						'stored_hash'           => substr( $stored_hash, 0, 16 ),
+						'new_hash'              => substr( $payload_hash, 0, 16 ),
+						'reconciliation_event'  => 'changed_payload_refused',
+						'pepita_status'         => (string) ( $payload['status'] ?? '' ),
+						'pepita_payment_status' => (string) ( $payload['payment_status'] ?? '' ),
+						'redacted_new_payload'  => Redactor::redact( $payload ),
 					),
 					'order',
 					$order_id
@@ -273,7 +290,8 @@ final class Importer {
 			return array( 'error' => sprintf( 'Ismeretlen fizetési státusz: %s', $payment_status ) );
 		}
 
-		$resolved = $this->resolve_products( $payload['products'] );
+		$customer = is_array( $payload['customer'] ?? null ) ? $payload['customer'] : array();
+		$resolved = $this->resolve_products( $payload['products'], $customer );
 
 		if ( isset( $resolved['error'] ) ) {
 			return array( 'error' => (string) $resolved['error'] );
@@ -295,11 +313,13 @@ final class Importer {
 	/**
 	 * Resolve every payload line to a WooCommerce product before creating anything.
 	 *
-	 * @param array<int, mixed> $items
+	 * @param array<int, mixed>    $items
+	 * @param array<string, mixed> $customer
 	 * @return array<int, array<string, mixed>>|array{error: string}
 	 */
-	private function resolve_products( array $items ): array {
-		$resolved = array();
+	private function resolve_products( array $items, array $customer = array() ): array {
+		$resolved    = array();
+		$tax_enabled = function_exists( 'wc_tax_enabled' ) && wc_tax_enabled();
 
 		foreach ( $items as $index => $item ) {
 			$sku        = trim( (string) ( $item['sku'] ?? '' ) );
@@ -378,6 +398,80 @@ final class Importer {
 				return array( 'error' => sprintf( 'A(z) %d. tételhez tartozó termék nem publikált.', $index + 1 ) );
 			}
 
+			if ( $tax_enabled ) {
+				$tax_status = method_exists( $product, 'get_tax_status' ) ? $product->get_tax_status() : 'taxable';
+				$raw_vat    = $item['vat'] ?? null;
+				$vat_parsed = Money::parse_vat( $raw_vat );
+
+				if ( 'none' === $tax_status ) {
+					if ( null !== $vat_parsed && $vat_parsed > 0.0 ) {
+						return array(
+							'error' => sprintf(
+								'A(z) %d. tétel a WooCommerce-ben adómentes, de a Pepita szerint %s%% áfát tartalmaz.',
+								$index + 1,
+								$vat_parsed
+							),
+						);
+					}
+				} else {
+					$tax_class = method_exists( $product, 'get_tax_class' ) ? $product->get_tax_class() : '';
+					$country   = (string) ( $customer['shipping_country'] ?? $customer['billing_country'] ?? 'HU' );
+					$state     = (string) ( $customer['shipping_state'] ?? $customer['billing_state'] ?? '' );
+					$postcode  = (string) ( $customer['shipping_postal_code'] ?? $customer['billing_postal_code'] ?? '' );
+					$city      = (string) ( $customer['shipping_city'] ?? $customer['billing_city'] ?? '' );
+
+					$rates = array();
+					if ( class_exists( '\WC_Tax' ) ) {
+						if ( method_exists( '\WC_Tax', 'find_rates' ) ) {
+							$rates = \WC_Tax::find_rates(
+								array(
+									'country'   => $country ?: 'HU',
+									'state'     => $state,
+									'postcode'  => $postcode,
+									'city'      => $city,
+									'tax_class' => $tax_class,
+								)
+							);
+						}
+
+						if ( empty( $rates ) && method_exists( '\WC_Tax', 'get_base_tax_rates' ) ) {
+							$rates = \WC_Tax::get_base_tax_rates( $tax_class );
+						}
+
+						if ( empty( $rates ) && method_exists( '\WC_Tax', 'get_rates' ) ) {
+							$rates = \WC_Tax::get_rates( $tax_class );
+						}
+					}
+
+					$configured_percent = 0.0;
+					foreach ( $rates as $rate ) {
+						$configured_percent += (float) ( $rate['rate'] ?? 0.0 );
+					}
+
+					if ( null !== $vat_parsed ) {
+						if ( empty( $rates ) && $vat_parsed > 0.0 ) {
+							return array(
+								'error' => sprintf(
+									'A(z) %d. tételhez nem található konfigurált adókulcs a WooCommerce-ben.',
+									$index + 1
+								),
+							);
+						}
+
+						if ( ! empty( $rates ) && abs( $configured_percent - $vat_parsed ) > 0.01 ) {
+							return array(
+								'error' => sprintf(
+									'A(z) %d. tétel áfakulcsa (%s%%) nem egyezik a WooCommerce-ben beállított adókulccsal (%s%%).',
+									$index + 1,
+									$vat_parsed,
+									$configured_percent
+								),
+							);
+						}
+					}
+				}
+			}
+
 			$resolved[] = array(
 				'product'    => $product,
 				'quantity'   => (int) Money::parse_quantity( $item['quantity'] ?? null ),
@@ -416,10 +510,9 @@ final class Importer {
 		}
 
 		try {
-			// Pepita prices are gross. Tell WooCommerce so a tax-enabled store
-			// does not add VAT on top of an already gross line total.
+			$prices_include_tax = 'yes' === get_option( 'woocommerce_prices_include_tax', 'no' );
 			if ( method_exists( $order, 'set_prices_include_tax' ) ) {
-				$order->set_prices_include_tax( true );
+				$order->set_prices_include_tax( $prices_include_tax );
 			}
 
 			$order->set_created_via( 'wps-pepita' );
@@ -437,17 +530,103 @@ final class Importer {
 				$order->set_customer_id( (int) $user->ID );
 			}
 
+			$tax_enabled   = function_exists( 'wc_tax_enabled' ) && wc_tax_enabled();
+			$is_tax_exempt = (string) ( $customer['is_vat_exempt'] ?? '' ) === 'yes' || (bool) $order->get_meta( '_is_vat_exempt' );
+
+			$rate_cart_taxes     = array();
+			$rate_shipping_taxes = array();
+			$rate_objects        = array();
+			$total_cart_tax      = 0.0;
+			$total_shipping_tax  = 0.0;
+
+			$country  = (string) ( $customer['shipping_country'] ?? $customer['billing_country'] ?? 'HU' );
+			$state    = (string) ( $customer['shipping_state'] ?? $customer['billing_state'] ?? '' );
+			$postcode = (string) ( $customer['shipping_postal_code'] ?? $customer['billing_postal_code'] ?? '' );
+			$city     = (string) ( $customer['shipping_city'] ?? $customer['billing_city'] ?? '' );
+
 			foreach ( $validated['products'] as $line ) {
-				$product = $line['product'];
-				$total   = round( (float) $line['price'] * (int) $line['quantity'], 2 );
+				$product     = $line['product'];
+				$quantity    = (int) $line['quantity'];
+				$gross_price = (float) $line['price'];
+				$gross_total = round( $gross_price * $quantity, 2 );
+
+				$rates              = array();
+				$configured_percent = 0.0;
+
+				if ( $tax_enabled && ! $is_tax_exempt && 'none' !== $product->get_tax_status() ) {
+					$tax_class = method_exists( $product, 'get_tax_class' ) ? $product->get_tax_class() : '';
+
+					if ( class_exists( '\WC_Tax' ) ) {
+						if ( method_exists( '\WC_Tax', 'find_rates' ) ) {
+							$rates = \WC_Tax::find_rates(
+								array(
+									'country'   => $country ?: 'HU',
+									'state'     => $state,
+									'postcode'  => $postcode,
+									'city'      => $city,
+									'tax_class' => $tax_class,
+								)
+							);
+						}
+
+						if ( empty( $rates ) && method_exists( '\WC_Tax', 'get_base_tax_rates' ) ) {
+							$rates = \WC_Tax::get_base_tax_rates( $tax_class );
+						}
+
+						if ( empty( $rates ) && method_exists( '\WC_Tax', 'get_rates' ) ) {
+							$rates = \WC_Tax::get_rates( $tax_class );
+						}
+					}
+
+					foreach ( $rates as $r_id => $r_data ) {
+						$configured_percent += (float) ( $r_data['rate'] ?? 0.0 );
+						$rate_objects[ $r_id ] = $r_data;
+					}
+				}
+
+				if ( $configured_percent > 0.0 && ! empty( $rates ) ) {
+					$tax_factor = $configured_percent / 100.0;
+					$net_total  = round( $gross_total / ( 1.0 + $tax_factor ), 2 );
+					$line_tax   = round( $gross_total - $net_total, 2 );
+
+					$line_taxes = array();
+					if ( 1 === count( $rates ) ) {
+						$single_rate_id = (string) key( $rates );
+						$line_taxes[ $single_rate_id ] = $line_tax;
+						$rate_cart_taxes[ $single_rate_id ] = round( ( $rate_cart_taxes[ $single_rate_id ] ?? 0.0 ) + $line_tax, 2 );
+					} elseif ( class_exists( '\WC_Tax' ) && method_exists( '\WC_Tax', 'calc_inclusive_tax' ) ) {
+						$calc_taxes = \WC_Tax::calc_inclusive_tax( $gross_total, $rates );
+						$line_tax   = round( array_sum( $calc_taxes ), 2 );
+						$net_total  = round( $gross_total - $line_tax, 2 );
+						foreach ( $calc_taxes as $c_id => $c_amount ) {
+							$c_amount = round( (float) $c_amount, 2 );
+							$line_taxes[ (string) $c_id ] = $c_amount;
+							$rate_cart_taxes[ (string) $c_id ] = round( ( $rate_cart_taxes[ (string) $c_id ] ?? 0.0 ) + $c_amount, 2 );
+						}
+					} else {
+						foreach ( $rates as $r_id => $r_data ) {
+							$r_tax = round( $line_tax * ( (float) $r_data['rate'] / $configured_percent ), 2 );
+							$line_taxes[ (string) $r_id ] = $r_tax;
+							$rate_cart_taxes[ (string) $r_id ] = round( ( $rate_cart_taxes[ (string) $r_id ] ?? 0.0 ) + $r_tax, 2 );
+						}
+					}
+
+					$total_cart_tax = round( $total_cart_tax + $line_tax, 2 );
+				} else {
+					$net_total  = $gross_total;
+					$line_tax   = 0.0;
+					$line_taxes = array();
+				}
 
 				$item_id = $order->add_product(
 					$product,
-					(int) $line['quantity'],
+					$quantity,
 					array(
-						'subtotal' => $total,
-						'total'    => $total,
-						'name'     => $product->get_name(),
+						'subtotal'     => $net_total,
+						'total'        => $net_total,
+						'subtotal_tax' => $line_tax,
+						'total_tax'    => $line_tax,
+						'name'         => $product->get_name(),
 					)
 				);
 
@@ -458,20 +637,99 @@ final class Importer {
 				$item = $order->get_item( $item_id );
 
 				if ( $item instanceof \WC_Order_Item_Product ) {
+					$item->set_subtotal( $net_total );
+					$item->set_total( $net_total );
+					$item->set_subtotal_tax( $line_tax );
+					$item->set_total_tax( $line_tax );
+
+					if ( ! empty( $line_taxes ) ) {
+						$item->set_taxes(
+							array(
+								'subtotal' => $line_taxes,
+								'total'    => $line_taxes,
+							)
+						);
+					} else {
+						$item->set_taxes(
+							array(
+								'subtotal' => array(),
+								'total'    => array(),
+							)
+						);
+					}
+
 					$item->add_meta_data( '_wps_pepita_product_id', (string) $line['pepita_id'], true );
 					$item->add_meta_data( '_wps_pepita_sku', (string) $line['sku'], true );
 					$item->add_meta_data( '_wps_pepita_vat', (string) $line['vat'], true );
+					$item->add_meta_data( '_wps_pepita_gross_price', (string) $gross_price, true );
 					$item->save();
 				}
 			}
 
-			$shipping = Mapper::shipping( (string) $validated['delivery_mode'] );
+			$shipping       = Mapper::shipping( (string) $validated['delivery_mode'] );
+			$gross_shipping = (float) $validated['shipping'];
 
-			if ( (float) $validated['shipping'] > 0 ) {
+			if ( $gross_shipping > 0 ) {
 				$shipping_item = new \WC_Order_Item_Shipping();
 				$shipping_item->set_method_title( $shipping['title'] );
 				$shipping_item->set_method_id( $shipping['id'] );
-				$shipping_item->set_total( (float) $validated['shipping'] );
+
+				$shipping_rates   = array();
+				$shipping_percent = 0.0;
+
+				if ( $tax_enabled && ! $is_tax_exempt && class_exists( '\WC_Tax' ) ) {
+					if ( method_exists( '\WC_Tax', 'find_shipping_rates' ) ) {
+						$shipping_rates = \WC_Tax::find_shipping_rates(
+							array(
+								'country'   => $country ?: 'HU',
+								'state'     => $state,
+								'postcode'  => $postcode,
+								'city'      => $city,
+							)
+						);
+					}
+
+					foreach ( $shipping_rates as $sr_id => $sr_data ) {
+						$shipping_percent += (float) ( $sr_data['rate'] ?? 0.0 );
+						$rate_objects[ $sr_id ] = $sr_data;
+					}
+				}
+
+				if ( $shipping_percent > 0.0 && ! empty( $shipping_rates ) ) {
+					$s_factor     = $shipping_percent / 100.0;
+					$net_shipping = round( $gross_shipping / ( 1.0 + $s_factor ), 2 );
+					$shipping_tax = round( $gross_shipping - $net_shipping, 2 );
+
+					$shipping_taxes = array();
+					if ( 1 === count( $shipping_rates ) ) {
+						$s_rate_id = (string) key( $shipping_rates );
+						$shipping_taxes[ $s_rate_id ] = $shipping_tax;
+						$rate_shipping_taxes[ $s_rate_id ] = round( ( $rate_shipping_taxes[ $s_rate_id ] ?? 0.0 ) + $shipping_tax, 2 );
+					} elseif ( class_exists( '\WC_Tax' ) && method_exists( '\WC_Tax', 'calc_inclusive_tax' ) ) {
+						$calc_s_taxes = \WC_Tax::calc_inclusive_tax( $gross_shipping, $shipping_rates );
+						$shipping_tax = round( array_sum( $calc_s_taxes ), 2 );
+						$net_shipping = round( $gross_shipping - $shipping_tax, 2 );
+						foreach ( $calc_s_taxes as $cs_id => $cs_amount ) {
+							$cs_amount = round( (float) $cs_amount, 2 );
+							$shipping_taxes[ (string) $cs_id ] = $cs_amount;
+							$rate_shipping_taxes[ (string) $cs_id ] = round( ( $rate_shipping_taxes[ (string) $cs_id ] ?? 0.0 ) + $cs_amount, 2 );
+						}
+					} else {
+						foreach ( $shipping_rates as $sr_id => $sr_data ) {
+							$sr_tax = round( $shipping_tax * ( (float) $sr_data['rate'] / $shipping_percent ), 2 );
+							$shipping_taxes[ (string) $sr_id ] = $sr_tax;
+							$rate_shipping_taxes[ (string) $sr_id ] = round( ( $rate_shipping_taxes[ (string) $sr_id ] ?? 0.0 ) + $sr_tax, 2 );
+						}
+					}
+
+					$total_shipping_tax = $shipping_tax;
+					$shipping_item->set_total( $net_shipping );
+					$shipping_item->set_taxes( array( 'total' => $shipping_taxes ) );
+				} else {
+					$shipping_item->set_total( $gross_shipping );
+					$shipping_item->set_taxes( array( 'total' => array() ) );
+				}
+
 				$order->add_item( $shipping_item );
 			}
 
@@ -480,7 +738,36 @@ final class Importer {
 				$fee->set_name( 'Pepita utalvány' );
 				$fee->set_amount( -(float) $validated['voucher'] );
 				$fee->set_total( -(float) $validated['voucher'] );
+				$fee->set_tax_status( 'none' );
+				$fee->set_taxes( array( 'total' => array() ) );
 				$order->add_item( $fee );
+			}
+
+			// Add WC_Order_Item_Tax rows for all applied rates.
+			$all_rate_ids = array_unique( array_merge( array_keys( $rate_cart_taxes ), array_keys( $rate_shipping_taxes ) ) );
+			foreach ( $all_rate_ids as $r_id ) {
+				$c_tax = $rate_cart_taxes[ $r_id ] ?? 0.0;
+				$s_tax = $rate_shipping_taxes[ $r_id ] ?? 0.0;
+
+				if ( $c_tax > 0 || $s_tax > 0 ) {
+					$tax_item = new \WC_Order_Item_Tax();
+					$tax_item->set_rate( is_numeric( $r_id ) ? (int) $r_id : $r_id );
+					$tax_item->set_tax_total( $c_tax );
+					$tax_item->set_shipping_tax_total( $s_tax );
+					$tax_item->set_compound( false );
+
+					$label = $rate_objects[ $r_id ]['label'] ?? '';
+					if ( '' === $label && class_exists( '\WC_Tax' ) && method_exists( '\WC_Tax', 'get_rate_label' ) ) {
+						$label = \WC_Tax::get_rate_label( $r_id );
+					}
+					$tax_item->set_label( '' !== $label ? $label : 'ÁFA' );
+
+					if ( class_exists( '\WC_Tax' ) && method_exists( '\WC_Tax', 'get_rate_code' ) ) {
+						$tax_item->set_rate_code( \WC_Tax::get_rate_code( $r_id ) );
+					}
+
+					$order->add_item( $tax_item );
+				}
 			}
 
 			$payment = Mapper::payment( (string) $validated['payment_mode'] );
@@ -517,12 +804,12 @@ final class Importer {
 				$order->set_date_created( $created );
 			}
 
-			// Totals are derived from the validated Pepita amounts. Taxes are
-			// not recalculated: a gross Pepita price must not gain a second VAT
-			// layer in a tax-enabled store.
+			// Synchronize calculated totals without recalculating taxes:
+			// Pepita gross total is authoritative, and taxes have already been
+			// correctly partitioned into net and tax rows.
 			$order->calculate_totals( false );
-			$order->set_cart_tax( 0.0 );
-			$order->set_shipping_tax( 0.0 );
+			$order->set_cart_tax( $total_cart_tax );
+			$order->set_shipping_tax( $total_shipping_tax );
 			$order->set_total( (float) $validated['total'] );
 
 			$paid   = 'paid' === (string) $validated['payment_status'];

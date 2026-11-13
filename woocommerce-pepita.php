@@ -3,7 +3,7 @@
  * Plugin Name:       WP Pepita Sync
  * Plugin URI:        https://github.com/zsoltacsai/woocommerce-pepita
  * Description:       WooCommerce és Pepita piactér integráció: Pepita XML termékfeed, külön készlet- és árfeed, valamint automatikus Pepita rendelésfogadás. Magyar adminisztrációs felület.
- * Version:           1.0.0
+ * Version:           1.1.0
  * Author:            Pepita integráció
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html

@@ -58,7 +58,7 @@ WPS_IT::test(
 	'WP Pepita Sync is active',
 	static function (): void {
 		WPS_IT::true( class_exists( '\WPS\Pepita\Plugin' ), 'The plugin class is not loaded.' );
-		WPS_IT::same( '1.0.0', (string) WPS_PEPITA_VERSION, 'Unexpected plugin version.' );
+		WPS_IT::same( '1.1.0', (string) WPS_PEPITA_VERSION, 'Unexpected plugin version.' );
 		WPS_IT::not_same( '', (string) Settings::secret( 'feed_token' ), 'The feed token is missing.' );
 		WPS_IT::not_same( '', (string) Settings::secret( 'order_api_key' ), 'The order API key is missing.' );
 	}

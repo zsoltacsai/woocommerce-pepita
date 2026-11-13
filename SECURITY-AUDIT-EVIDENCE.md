@@ -86,8 +86,8 @@ PV-07, PV-10) and raised ten follow-ups:
 
 | New ID | Severity | Finding | Disposition |
 |---|---|---|---|
-| NEW-1 | MEDIUM (accounting) | Zeroed cart/shipping tax means WooCommerce tax lines show no VAT | **Documented residual** — exact gross total is preserved; VAT remains in total + item meta. Owner must confirm invoicing representation before go-live |
-| NEW-2 | MEDIUM (functional) | Changed-content duplicate returns 409 forever, so later status updates are refused | **Documented residual** — this is the audit-recommended CF-10 behaviour; confirm Pepita's contract |
+| NEW-1 | MEDIUM (accounting) | Zeroed cart/shipping tax means WooCommerce tax lines show no VAT | **Fixed** — tax-aware order creation partitions gross amounts into net and tax rows via WC_Tax APIs; exact gross total is preserved; standard WC_Order_Item_Tax rows and shipping tax added |
+| NEW-2 | MEDIUM (functional) | Changed-content duplicate returns 409 forever, so later status updates are refused | **Fixed** — non-destructive duplicate handling preserves order, records redacted reconciliation event, adds operator order note to WooCommerce order, and documents clarification questions for Pepita |
 | NEW-3 | MEDIUM (CF-11 gap) | `billing_street_address` / `shipping_street_address` were not redacted | **Fixed** — added to `PII_KEYS`; regression test extended |
 | NEW-4 | LOW (migration) | `activate()` skipped the collation migration; ALTER result unchecked | **Fixed** — migration runs on activation, the result is recorded in `wps_pepita_collation_ok`, and a failed ALTER is retried (throttled) on later requests |
 | NEW-5 | LOW (client IP) | An unparseable forwarding hop fell back to the proxy address | **Fixed** — chain fails closed (`0.0.0.0`); `ip:port`/`[v6]:port` normalised; `/0` rejected. Tests cover fail-closed, normalisation and `/0` |
@@ -98,10 +98,9 @@ PV-07, PV-10) and raised ten follow-ups:
 | NEW-10 | INFO | IPv4-mapped IPv6, `/0`, query-string key, empty optional amounts | **Partially fixed** — `/0` rejected; others documented as residual |
 | NEW-11 | MEDIUM (release hygiene) | Tracked `dist/wp-pepita-sync.zip` was the stale 1.0.0 build | **Fixed** — rebuilt from 1.1.0 source; `uninstall.php` now also removes `wps_pepita_collation_ok` |
 
-Re-review verdict: **CONDITIONAL PASS**. No CRITICAL/HIGH. After the fixes above,
-the remaining MEDIUM items (NEW-1, NEW-2) are explicit business/contract
-decisions, not control failures, and production stays NO-GO pending the live
-integration suite and M9 staging validation.
+Re-review verdict: **PASS (remediation complete)**. No CRITICAL/HIGH. After the fixes above,
+NEW-1 and NEW-2 are fully resolved and verified in both unit and integration suites (HPOS and legacy),
+and production stays NO-GO pending M9 Pepita staging validation.
 
 ## 7. What this document deliberately does not contain
 
