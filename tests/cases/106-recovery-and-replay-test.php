@@ -1415,8 +1415,9 @@ $suite->add(
 		$order4 = new \WC_Order();
 		$order4->update_meta_data( '_wps_pepita_in_progress', '1' );
 		$order4->set_status( 'pending' );
-		$item = new \WC_Order_Item_Product();
-		$item->set_product_id( 701 );
+		$product = new \WC_Product( array( 'id' => 701, 'name' => 'Recovery Product 1' ) );
+		$item    = new \WC_Order_Item_Product();
+		$item->set_product( $product );
 		$item->set_quantity( 1 );
 		$order4->add_item( $item );
 		WPS_Assert::false( $ref->invoke( $importer, $order4 ) );

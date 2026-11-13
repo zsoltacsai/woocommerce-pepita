@@ -5,7 +5,7 @@
 **Repository:** `zsoltacsai/woocommerce-pepita`  
 **Target Pull Request:** [PR #2 (security/claude-audit-remediation)](https://github.com/zsoltacsai/woocommerce-pepita/pull/2) (Draft, Unmerged)  
 **Exact Review & Candidate SHA:** `1cbadd24353ea0eb31c63e29c1eca4db4417034a`  
-**Distribution Package SHA-256:** `63ca05e193d131f7fd0860c08dc4f8e685eacf8172ab80463b22a6a64f6d8ba2`  
+**Distribution Package SHA-256:** `613c070a14b1b8a90ae3cb9f70ab901f015a7f3efa71993d35db5fa2fea252f9`  
 **Date:** 2026-11-13  
 **Auditor:** Alastor "Mad-Eye" Moody (Independent QA via Claude Haiku 5.5 / `claude-haiku-5-5`)  
 **Development Harness:** T3 Code Orchestrator / Gemini 3.8 Flash
@@ -36,7 +36,7 @@ The release candidate has been synchronized with [PR #2](https://github.com/zsol
 | **Plugin Version** | `1.1.0` (`WPS_PEPITA_VERSION`) |
 | **Database Version** | `1.1.0` (`WPS_PEPITA_DB_VERSION`) |
 | **Candidate Commit** | `1cbadd24353ea0eb31c63e29c1eca4db4417034a` |
-| **Package SHA-256** | `63ca05e193d131f7fd0860c08dc4f8e685eacf8172ab80463b22a6a64f6d8ba2` |
+| **Package SHA-256** | `613c070a14b1b8a90ae3cb9f70ab901f015a7f3efa71993d35db5fa2fea252f9` |
 | **Entry Count** | 55 entries (47 files + 8 directories) |
 | **Compressed Size** | 134,845 bytes (~132 KB) |
 | **Uncompressed Size** | 445,466 bytes (~435 KB) |

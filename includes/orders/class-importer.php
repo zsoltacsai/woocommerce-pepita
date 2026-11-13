@@ -60,6 +60,9 @@ final class Importer {
 
 			if ( 0 === $order_id ) {
 				$order_id = $this->find_order_by_external_id( $external_id );
+				if ( $order_id > 0 ) {
+					Order_Repository::associate( $external_id, $order_id );
+				}
 			}
 
 			if ( 0 === $order_id ) {
