@@ -101,7 +101,7 @@ Reviewed surfaces:
 - Admin views escape with `esc_html`, `esc_attr`, `esc_url`, `esc_textarea`,
   `wp_kses_post`.
 - XML text is escaped by `XMLWriter`; invalid UTF-8, C0 controls and Unicode
-  noncharacters are removed before writing. XML validation in `Validator` parses feed files using `XMLReader` with `LIBXML_NONET | LIBXML_COMPACT`, hardening local entity resolution against XXE (the plugin issues no outbound HTTP requests for XML feeds).
+  noncharacters are removed before writing. `LIBXML_NONET` blocks network access during XML validation (`class-validator.php:200`), closing the XXE-to-network/SSRF exfiltration path (entity substitution is off since `LIBXML_NOENT` is unset; the plugin issues no outbound HTTP requests for XML feeds).
 - Logs are redacted: `apikey`, `token`, `secret`, `password`, `authorization`,
   `cookie`, `package_label`, e-mail, phone, name, address, city, postcode, tax
   number and customer/courier messages are masked.

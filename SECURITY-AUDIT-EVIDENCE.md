@@ -13,7 +13,7 @@ exploitable payloads in the repository.
 | Scope | Plugin source, docs, tests and integration harness at baseline `1fa7979c70ef43f7020c83807a9a88968f846894` |
 | Related PR | PR #1 (`security/audit-remediation`), head `624ef4390fdef32f984a90324e38087441c52b0e` — reviewed, not modified by this branch |
 | Verdict | **CONDITIONAL PASS** — no CRITICAL/HIGH confirmed; highest confirmed severity MEDIUM |
-| Production gate | Order intake blocked until the required MEDIUM findings (CF-01–CF-06) close and live staging validation passes |
+| Production gate | CF-01–CF-06 closed; order intake held until live M9 Pepita staging validation passes |
 | Redaction | Keys, tokens, passwords, customer names/e-mails/addresses and any working exploit strings are omitted or genericised |
 
 The original full audit text is kept outside the repository in the private
@@ -76,7 +76,7 @@ pending) and PV-01 (fixed).
 | Unpinned image digests (CF-13) | No Docker access to pull/verify | Before CI relies on the images |
 | No private vulnerability channel | Single maintainer; owner decision | Before public distribution |
 | Live staging validation pending | Environment lacks Docker/MySQL | Mandatory M9 gate |
-| XML parser hardening vs SSRF | `LIBXML_NONET` in `class-validator.php` prevents entity expansion/XXE network access during local XML validation; it is not an outbound SSRF control (the plugin makes no outbound HTTP requests) | If outbound XML fetchers are introduced |
+| XML parser hardening vs SSRF | `LIBXML_NONET` in `class-validator.php:200` blocks network access during parsing, closing the XXE-to-network/SSRF exfiltration path (entity substitution is off since `LIBXML_NOENT` is unset, and expansion limits rely on libxml2 defaults); the plugin makes no outbound HTTP requests for XML feeds | If outbound XML fetchers are introduced |
 | Pre-save crash recovery orphan window | If PHP crashes after `wc_create_order()` but before metadata save, an order exists without `_wps_pepita_order_id` | If persistent unhandled process crashes occur during order creation |
 | Legacy orders without payload hash | Existing WooCommerce orders created before 1.1.0 lack `_wps_pepita_payload_hash` meta; crash-recovery adopts them with duplicate 200 without payload comparison | Pre-1.1.0 historical data |
 

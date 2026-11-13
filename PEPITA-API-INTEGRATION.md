@@ -144,7 +144,7 @@ throttled and the window is one minute.
 | `products[].currency` | string | no | 3-letter code; all lines must agree |
 | `products[].quantity` | int | **yes** | Whole number, 1–100000 |
 | `products[].price` | number | **yes** | Gross unit price, strict non-negative amount, must be > 0 |
-| `products[].vat` | number | no | 0–100; optional. When provided on a taxable product in a tax-enabled store (for non-exempt customers), it is validated against the configured WooCommerce tax rate (mismatch → 422) |
+| `products[].vat` | number | no | 0–100; optional. When provided on a taxable product in a tax-enabled store (for non-exempt customers), it is validated against the configured WooCommerce tax rate (mismatch → 422). Specifying `vat > 0` on a zero-rated/none tax product is also rejected with 422 |
 
 ### 3.1 Monetary format
 
