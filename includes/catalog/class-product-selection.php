@@ -54,6 +54,42 @@ final class Product_Selection {
 			);
 		}
 
+		if ( Settings::is_beta_feed_only() ) {
+			$term_ids = self::category_ids( $product_id );
+
+			if ( array() === $term_ids ) {
+				return self::$resolution_cache[ $product_id ] = array(
+					'included'    => false,
+					'source'      => 'beta_unapproved_category',
+					'category_id' => 0,
+				);
+			}
+
+			$category = Category_Rules::decision_for_terms( $term_ids );
+
+			if ( Category_Rules::DECISION_EXCLUDE === $category['decision'] ) {
+				return self::$resolution_cache[ $product_id ] = array(
+					'included'    => false,
+					'source'      => self::SOURCE_CATEGORY,
+					'category_id' => $category['category_id'],
+				);
+			}
+
+			if ( Category_Rules::DECISION_INCLUDE === $category['decision'] ) {
+				return self::$resolution_cache[ $product_id ] = array(
+					'included'    => true,
+					'source'      => ( self::MODE_INCLUDE === $explicit ) ? self::SOURCE_PRODUCT_INCLUDED : self::SOURCE_CATEGORY,
+					'category_id' => $category['category_id'],
+				);
+			}
+
+			return self::$resolution_cache[ $product_id ] = array(
+				'included'    => false,
+				'source'      => 'beta_unapproved_category',
+				'category_id' => 0,
+			);
+		}
+
 		if ( self::MODE_INCLUDE === $explicit ) {
 			return self::$resolution_cache[ $product_id ] = array(
 				'included'    => true,

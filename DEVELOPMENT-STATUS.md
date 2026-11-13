@@ -20,6 +20,7 @@ Overall state: **feature-complete, unit- and integration-tested locally, live Pe
 | M9-B | RR20 order finalization fencing and recovery | ✅ Complete |
 | M9-C | Feed safety, diff reporting, stock health & secure CSV log export | ✅ Complete |
 | M9-D | Official XML contract compliance (1–3 axes, email delivery, books, safe publish) | ✅ Complete |
+| M9-D Beta | Beta Feed-Only release candidate: hard category allowlist, 503 order fencing, pointer swap | ✅ Complete — 235 unit / 83 integration tests |
 
 ## 2. What was built
 

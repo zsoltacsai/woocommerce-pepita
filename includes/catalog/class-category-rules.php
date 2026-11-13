@@ -319,6 +319,74 @@ final class Category_Rules {
 		return $count;
 	}
 
+	/**
+	 * Check whether at least one category has an effective include decision.
+	 */
+	public static function has_included_categories(): bool {
+		return self::count_included_categories() > 0;
+	}
+
+	/**
+	 * Count of categories whose effective decision is include.
+	 */
+	public static function count_included_categories(): int {
+		return count( self::get_included_category_ids() );
+	}
+
+	/**
+	 * @return int[]
+	 */
+	public static function get_included_category_ids(): array {
+		$terms = get_terms(
+			array(
+				'taxonomy'   => self::TAXONOMY,
+				'hide_empty' => false,
+				'fields'     => 'ids',
+			)
+		);
+
+		if ( ! is_array( $terms ) || array() === $terms ) {
+			return array();
+		}
+
+		$included = array();
+		foreach ( $terms as $term_id ) {
+			$term_id = (int) $term_id;
+			if ( self::DECISION_INCLUDE === self::decision( $term_id ) ) {
+				$included[] = $term_id;
+			}
+		}
+
+		return $included;
+	}
+
+	/**
+	 * @return int[]
+	 */
+	public static function get_excluded_category_ids(): array {
+		$terms = get_terms(
+			array(
+				'taxonomy'   => self::TAXONOMY,
+				'hide_empty' => false,
+				'fields'     => 'ids',
+			)
+		);
+
+		if ( ! is_array( $terms ) || array() === $terms ) {
+			return array();
+		}
+
+		$excluded = array();
+		foreach ( $terms as $term_id ) {
+			$term_id = (int) $term_id;
+			if ( self::DECISION_EXCLUDE === self::decision( $term_id ) ) {
+				$excluded[] = $term_id;
+			}
+		}
+
+		return $excluded;
+	}
+
 	public static function clear_cache(): void {
 		self::$decision_cache = array();
 		self::$term_cache     = array();

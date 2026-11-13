@@ -12,6 +12,7 @@
 
 namespace WPS\Pepita\Feed;
 
+use WPS\Pepita\Catalog\Category_Rules;
 use WPS\Pepita\Catalog\Product_Mapper;
 use WPS\Pepita\Catalog\Product_Selection;
 use WPS\Pepita\Catalog\Validator;
@@ -117,6 +118,15 @@ final class Generator {
 			return array(
 				'status'  => 'error',
 				'message' => 'A feed könyvtár nem hozható létre vagy nem írható.',
+			);
+		}
+
+		if ( Settings::is_beta_feed_only() && ! Category_Rules::has_included_categories() ) {
+			Lock::release( $type, $lock );
+
+			return array(
+				'status'  => 'error',
+				'message' => 'Béta üzemmódban legalább egy kategória engedélyezése kötelező a feed generálásához.',
 			);
 		}
 
@@ -564,6 +574,14 @@ final class Generator {
 					$validation['products'],
 					$exported
 				)
+			);
+		}
+
+		if ( Settings::is_beta_feed_only() && ! Category_Rules::has_included_categories() ) {
+			return $this->abort(
+				$type,
+				$state,
+				'Béta üzemmódban legalább egy kategória engedélyezése kötelező a feed publikálásához.'
 			);
 		}
 

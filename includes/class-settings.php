@@ -37,6 +37,7 @@ final class Settings {
 			'default_included'         => false,
 			'include_child_categories' => true,
 			'allowed_product_statuses' => array( 'publish' ),
+			'beta_feed_only'           => false,
 
 			// Pricing and tax.
 			'currency'                 => '',
@@ -132,13 +133,46 @@ final class Settings {
 	}
 
 	/**
+	 * Whether the plugin is currently running in feed-only beta mode.
+	 */
+	public static function is_beta_feed_only(): bool {
+		if ( defined( 'WPS_PEPITA_BETA_FEED_ONLY' ) ) {
+			return (bool) constant( 'WPS_PEPITA_BETA_FEED_ONLY' );
+		}
+
+		$all = self::all();
+		return ! empty( $all['beta_feed_only'] );
+	}
+
+	/**
 	 * @param mixed $fallback
 	 * @return mixed
 	 */
 	public static function get( string $key, $fallback = null ) {
 		$all = self::all();
 
-		return array_key_exists( $key, $all ) ? $all[ $key ] : $fallback;
+		$value = array_key_exists( $key, $all ) ? $all[ $key ] : $fallback;
+
+		if ( 'beta_feed_only' === $key ) {
+			if ( defined( 'WPS_PEPITA_BETA_FEED_ONLY' ) ) {
+				return (bool) constant( 'WPS_PEPITA_BETA_FEED_ONLY' );
+			}
+			return (bool) $value;
+		}
+
+		if ( self::is_beta_feed_only() ) {
+			if ( 'order_api_enabled' === $key ) {
+				return false;
+			}
+			if ( 'feed_public' === $key ) {
+				return false;
+			}
+			if ( 'default_included' === $key ) {
+				return false;
+			}
+		}
+
+		return $value;
 	}
 
 	/**
@@ -321,6 +355,7 @@ final class Settings {
 			'stock_requires_full',
 			'allow_empty_feed',
 			'feed_public',
+			'beta_feed_only',
 			'order_api_enabled',
 			'order_api_require_https',
 			'order_api_keep_payloads',
@@ -460,6 +495,13 @@ final class Settings {
 
 		if ( 'None' === $output['warranty_type'] ) {
 			$output['warranty_duration'] = '';
+		}
+
+		if ( ! empty( $output['beta_feed_only'] ) || ( defined( 'WPS_PEPITA_BETA_FEED_ONLY' ) && WPS_PEPITA_BETA_FEED_ONLY ) ) {
+			$output['beta_feed_only']    = true;
+			$output['order_api_enabled'] = false;
+			$output['feed_public']       = false;
+			$output['default_included']  = false;
 		}
 
 		return $output;

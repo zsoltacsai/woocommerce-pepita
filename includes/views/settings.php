@@ -75,6 +75,21 @@ $checked = static function ( string $key ) use ( $settings ): string {
 
 			<table class="form-table" role="presentation">
 				<tr>
+					<th scope="row"><?php esc_html_e( 'Béta üzemmód (Feed-only)', 'wp-pepita-sync' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="wps[beta_feed_only]" value="1" <?php echo $checked( 'beta_feed_only' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> <?php disabled( defined( 'WPS_PEPITA_BETA_FEED_ONLY' ) ); ?> />
+							<?php esc_html_e( 'Szigorú kategória engedélyezési lista és rendelésfogadás tiltása', 'wp-pepita-sync' ); ?>
+						</label>
+						<p class="description">
+							<?php esc_html_e( 'Bekapcsolva a plugin feed-only béta üzemmódban működik: a rendelés API teljesen inaktív (503), és a feedbe kizárólag az engedélyezett kategóriák termékei kerülhetnek be (a termékszintű engedélyezés nem bírálja felül a kategórialistát).', 'wp-pepita-sync' ); ?>
+							<?php if ( defined( 'WPS_PEPITA_BETA_FEED_ONLY' ) ) : ?>
+								<br><em><?php esc_html_e( 'A wp-config.php WPS_PEPITA_BETA_FEED_ONLY konstansa felülbírálja ezt a beállítást.', 'wp-pepita-sync' ); ?></em>
+							<?php endif; ?>
+						</p>
+					</td>
+				</tr>
+				<tr>
 					<th scope="row"><?php esc_html_e( 'Általános szabály', 'wp-pepita-sync' ); ?></th>
 					<td>
 						<label>
