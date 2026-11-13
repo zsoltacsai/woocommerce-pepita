@@ -5,6 +5,7 @@
  * @package WPS\Pepita\Tests
  */
 
+use WPS\Pepita\Logger;
 use WPS\Pepita\Orders\Api_Controller;
 use WPS\Pepita\Settings;
 
@@ -54,15 +55,33 @@ $seed = static function (): void {
 };
 
 /**
+ * Run a request over a TLS connection (the default the plugin now requires).
+ *
  * @param array<string, mixed> $payload
  * @return WP_REST_Response
  */
 $call = static function ( array $payload, array $params = array(), array $headers = array(), ?string $body = null ) {
+	WPS_Test_State::$ssl = true;
+
 	$request = new WP_REST_Request(
 		$params,
 		null === $body ? (string) wp_json_encode( $payload ) : $body,
 		$headers
 	);
+
+	return ( new Api_Controller() )->handle( $request );
+};
+
+/**
+ * Run a request without TLS, keeping whatever forwarding headers are set.
+ *
+ * @param array<string, mixed> $payload
+ * @return WP_REST_Response
+ */
+$call_plain = static function ( array $payload, array $params = array(), array $headers = array() ) {
+	WPS_Test_State::$ssl = false;
+
+	$request = new WP_REST_Request( $params, (string) wp_json_encode( $payload ), $headers );
 
 	return ( new Api_Controller() )->handle( $request );
 };
@@ -164,8 +183,8 @@ $suite->add(
 );
 
 $suite->add(
-	'api: HTTPS can be enforced, including behind a trusted proxy',
-	static function () use ( $call, $payload, $seed ): void {
+	'api: plain HTTP is rejected before the key is compared and spoofed HTTPS is ignored',
+	static function () use ( $call_plain, $payload, $seed ): void {
 		$seed();
 		Settings::update(
 			array(
@@ -174,20 +193,107 @@ $suite->add(
 			)
 		);
 
-		WPS_Test_State::$ssl = false;
+		$_SERVER['REMOTE_ADDR'] = '203.0.113.5';
+
+		// A correct key over plain HTTP must fail on transport, not succeed.
+		$response = $call_plain( $payload(), array( 'apikey' => 'secret-key' ) );
+
+		WPS_Assert::same( 403, $response->get_status() );
+		WPS_Assert::contains( 'HTTPS', $response->get_data()['message'] );
+
+		// A client-set forwarding header is not evidence of TLS.
+		$_SERVER['HTTP_X_FORWARDED_PROTO'] = 'https';
+
+		$response = $call_plain( $payload(), array( 'apikey' => 'secret-key' ) );
+
+		WPS_Assert::same( 403, $response->get_status() );
+		WPS_Assert::same( 0, count( WPS_Test_State::$orders ) );
+
+		unset( $_SERVER['HTTP_X_FORWARDED_PROTO'] );
+	}
+);
+
+$suite->add(
+	'api: a trusted proxy may terminate TLS for a plaintext backend',
+	static function () use ( $call_plain, $payload, $seed ): void {
+		$seed();
+		Settings::update(
+			array(
+				'order_api_key'             => 'secret-key',
+				'order_api_require_https'   => true,
+				'order_api_trusted_proxies' => '10.0.0.5',
+			)
+		);
+
+		$_SERVER['REMOTE_ADDR']             = '10.0.0.5';
+		$_SERVER['HTTP_X_FORWARDED_PROTO']  = 'https';
+
+		WPS_Assert::same( 200, $call_plain( $payload( array( 'id' => 'PEP-API-PROXY' ) ), array( 'apikey' => 'secret-key' ) )->get_status() );
+
+		// A non-HTTPS value from the trusted proxy is still refused.
+		$_SERVER['HTTP_X_FORWARDED_PROTO'] = 'http';
+
+		WPS_Assert::same( 403, $call_plain( $payload( array( 'id' => 'PEP-API-PROXY-2' ) ), array( 'apikey' => 'secret-key' ) )->get_status() );
+
+		unset( $_SERVER['HTTP_X_FORWARDED_PROTO'] );
+		$_SERVER['REMOTE_ADDR'] = '127.0.0.1';
+	}
+);
+
+$suite->add(
+	'api: spoofed forwarding headers cannot satisfy the IP allowlist',
+	static function () use ( $call, $payload, $seed ): void {
+		$seed();
+		Settings::update(
+			array(
+				'order_api_key'             => 'secret-key',
+				'order_api_allowed_ips'     => '10.0.0.1',
+				'order_api_trusted_proxies' => '',
+			)
+		);
+
+		$_SERVER['REMOTE_ADDR']             = '203.0.113.5';
+		$_SERVER['HTTP_X_FORWARDED_FOR']    = '10.0.0.1';
+		$_SERVER['HTTP_CF_CONNECTING_IP']   = '10.0.0.1';
+		$_SERVER['HTTP_X_REAL_IP']          = '10.0.0.1';
 
 		$response = $call( $payload(), array( 'apikey' => 'secret-key' ) );
 
-		WPS_Assert::same( 403, $response->get_status() );
+		WPS_Assert::same( 401, $response->get_status() );
+		WPS_Assert::contains( 'IP', $response->get_data()['message'] );
+		WPS_Assert::same( 0, count( WPS_Test_State::$orders ) );
 
-		$_SERVER['HTTP_X_FORWARDED_PROTO'] = 'https';
+		unset( $_SERVER['HTTP_X_FORWARDED_FOR'], $_SERVER['HTTP_CF_CONNECTING_IP'], $_SERVER['HTTP_X_REAL_IP'] );
+		$_SERVER['REMOTE_ADDR'] = '127.0.0.1';
+	}
+);
 
-		WPS_Assert::same( 200, $call( $payload( array( 'id' => 'PEP-API-PROXY' ) ), array( 'apikey' => 'secret-key' ) )->get_status() );
+$suite->add(
+	'api: a trusted proxy resolves the client address for the allowlist and the rate limit',
+	static function () use ( $call, $payload, $seed ): void {
+		$seed();
+		Settings::update(
+			array(
+				'order_api_key'             => 'secret-key',
+				'order_api_allowed_ips'     => '203.0.113.9',
+				'order_api_trusted_proxies' => '10.0.0.5',
+			)
+		);
 
-		unset( $_SERVER['HTTP_X_FORWARDED_PROTO'] );
-		WPS_Test_State::$ssl = true;
+		$_SERVER['REMOTE_ADDR']          = '10.0.0.5';
+		$_SERVER['HTTP_X_FORWARDED_FOR'] = '198.51.100.1, 203.0.113.9';
 
-		WPS_Assert::same( 200, $call( $payload( array( 'id' => 'PEP-API-SSL' ) ), array( 'apikey' => 'secret-key' ) )->get_status() );
+		WPS_Assert::same( 200, $call( $payload(), array( 'apikey' => 'secret-key' ) )->get_status() );
+
+		// The rate limiter must use the same resolved client address.
+		set_transient( 'wps_pepita_api_rate_' . md5( '203.0.113.9' ), 120, MINUTE_IN_SECONDS );
+
+		$response = $call( $payload( array( 'id' => 'PEP-API-PROXY-RATE' ) ), array( 'apikey' => 'secret-key' ) );
+
+		WPS_Assert::same( 429, $response->get_status() );
+
+		unset( $_SERVER['HTTP_X_FORWARDED_FOR'] );
+		$_SERVER['REMOTE_ADDR'] = '127.0.0.1';
 	}
 );
 
@@ -228,6 +334,89 @@ $suite->add(
 		WPS_Assert::same( 429, $response->get_status() );
 		WPS_Assert::contains( 'Túl sok kérés', $response->get_data()['message'] );
 		WPS_Assert::same( 0, count( WPS_Test_State::$orders ) );
+	}
+);
+
+$suite->add(
+	'api: failed authentication is throttled before the key comparison',
+	static function () use ( $call, $payload, $seed ): void {
+		$seed();
+		Settings::update( array( 'order_api_key' => 'secret-key' ) );
+
+		$_SERVER['REMOTE_ADDR'] = '198.51.100.7';
+
+		// Below the limit a correct key still works: legitimate retries stay possible.
+		for ( $i = 0; $i < 5; $i++ ) {
+			WPS_Assert::same( 401, $call( $payload(), array( 'apikey' => 'wrong' ) )->get_status() );
+		}
+
+		WPS_Assert::same( 200, $call( $payload(), array( 'apikey' => 'secret-key' ) )->get_status() );
+
+		// Exhaust the failure budget for this address.
+		for ( $i = 0; $i < 30; $i++ ) {
+			$call( $payload( array( 'id' => 'PEP-API-FAIL-' . $i ) ), array( 'apikey' => 'wrong' ) );
+		}
+
+		$response = $call( $payload( array( 'id' => 'PEP-API-FAIL-AFTER' ) ), array( 'apikey' => 'secret-key' ) );
+
+		WPS_Assert::same( 429, $response->get_status() );
+		WPS_Assert::contains( 'sikertelen', $response->get_data()['message'] );
+
+		// Logging stays bounded: one row per client/reason/minute plus the
+		// per-minute global budget, never one row per failed request. 36
+		// failed attempts from one address must not produce 36 rows.
+		$logged = Logger::query( array( 'event' => 'order_api' ) );
+
+		WPS_Assert::true( $logged['total'] > 0 );
+		WPS_Assert::true( $logged['total'] <= 5, 'Failed-auth logging is not bounded: ' . (int) $logged['total'] . ' rows.' );
+
+		$_SERVER['REMOTE_ADDR'] = '127.0.0.1';
+	}
+);
+
+$suite->add(
+	'api: an unparseable forwarding hop fails closed instead of trusting the proxy address',
+	static function () use ( $call, $payload, $seed ): void {
+		$seed();
+		Settings::update(
+			array(
+				'order_api_key'             => 'secret-key',
+				// The allowlist contains the proxy, so a fallback to the proxy
+				// address would wrongly admit the request.
+				'order_api_allowed_ips'     => '10.0.0.5',
+				'order_api_trusted_proxies' => '10.0.0.5',
+			)
+		);
+
+		$_SERVER['REMOTE_ADDR']          = '10.0.0.5';
+		$_SERVER['HTTP_X_FORWARDED_FOR'] = 'not-an-ip';
+
+		$response = $call( $payload(), array( 'apikey' => 'secret-key' ) );
+
+		WPS_Assert::same( 401, $response->get_status() );
+		WPS_Assert::contains( 'IP', $response->get_data()['message'] );
+
+		// A well-formed ip:port hop is normalised and then evaluated by the
+		// allowlist. Allowlisting that exact address proves normalisation
+		// happened (a fail-closed result would be 401, not 200).
+		Settings::update( array( 'order_api_allowed_ips' => '203.0.113.9' ) );
+		$_SERVER['HTTP_X_FORWARDED_FOR'] = '203.0.113.9:4321';
+
+		WPS_Assert::same( 200, $call( $payload( array( 'id' => 'PEP-API-PORT' ) ), array( 'apikey' => 'secret-key' ) )->get_status() );
+
+		// A /0 trusted range must never be accepted: it would trust everyone.
+		Settings::update(
+			array(
+				'order_api_allowed_ips'     => '203.0.113.9',
+				'order_api_trusted_proxies' => '0.0.0.0/0',
+			)
+		);
+		$_SERVER['HTTP_X_FORWARDED_FOR'] = '203.0.113.9';
+
+		WPS_Assert::same( 401, $call( $payload( array( 'id' => 'PEP-API-SLASH0' ) ), array( 'apikey' => 'secret-key' ) )->get_status() );
+
+		unset( $_SERVER['HTTP_X_FORWARDED_FOR'] );
+		$_SERVER['REMOTE_ADDR'] = '127.0.0.1';
 	}
 );
 

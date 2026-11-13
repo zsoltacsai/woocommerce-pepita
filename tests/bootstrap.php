@@ -23,8 +23,8 @@ define( 'ARRAY_A', 'ARRAY_A' );
 define( 'ARRAY_N', 'ARRAY_N' );
 define( 'OBJECT', 'OBJECT' );
 
-define( 'WPS_PEPITA_VERSION', '1.0.0' );
-define( 'WPS_PEPITA_DB_VERSION', '1.0.0' );
+define( 'WPS_PEPITA_VERSION', '1.1.0' );
+define( 'WPS_PEPITA_DB_VERSION', '1.1.0' );
 define( 'WPS_PEPITA_FILE', dirname( __DIR__ ) . '/woocommerce-pepita.php' );
 define( 'WPS_PEPITA_DIR', dirname( __DIR__ ) . '/' );
 define( 'WPS_PEPITA_URL', 'https://example.test/wp-content/plugins/wp-pepita-sync/' );

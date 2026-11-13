@@ -110,6 +110,18 @@ WPS_IT::test(
 );
 
 WPS_IT::test(
+	'External ids are compared case-sensitively',
+	static function () use ( $orders_table ): void {
+		global $wpdb;
+
+		$row = $wpdb->get_row( "SHOW FULL COLUMNS FROM {$orders_table} LIKE 'external_id'", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+		WPS_IT::true( is_array( $row ), 'The external_id column is missing.' );
+		WPS_IT::same( 'utf8mb4_bin', strtolower( (string) ( $row['Collation'] ?? '' ) ), 'external_id must use a binary collation.' );
+	}
+);
+
+WPS_IT::test(
 	'Required indexes and the unique external id constraint exist',
 	static function () use ( $orders_table, $logs_table ): void {
 		$order_indexes = wps_it_indexes( $orders_table );

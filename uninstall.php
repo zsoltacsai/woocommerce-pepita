@@ -38,6 +38,7 @@ Storage::purge();
 $option_names = array(
 	Settings::OPTION,
 	'wps_pepita_db_version',
+	'wps_pepita_collation_ok',
 	'wps_pepita_feed_state_full',
 	'wps_pepita_feed_state_stock',
 	'wps_pepita_generation_full',

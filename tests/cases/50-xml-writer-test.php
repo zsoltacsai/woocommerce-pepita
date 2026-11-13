@@ -296,3 +296,18 @@ $suite->add(
 		WPS_Assert::not_contains( '<ShippingPrice>', $xml );
 	}
 );
+
+$suite->add(
+	'xml: invalid XML characters and Unicode noncharacters are stripped',
+	static function (): void {
+		$value = "A\x00B\x0BC\xEF\xBF\xBED\xEF\xBF\xBF" . "E\xEF\xB7\x90F";
+
+		$clean = Xml_Writer::clean( $value );
+
+		WPS_Assert::same( 'ABCDEF', $clean );
+
+		$document = simplexml_load_string( '<Root>' . htmlspecialchars( $clean, ENT_XML1 | ENT_QUOTES, 'UTF-8' ) . '</Root>' );
+
+		WPS_Assert::true( false !== $document );
+	}
+);

@@ -322,6 +322,19 @@ final class Xml_Writer {
 			$value = mb_convert_encoding( $value, 'UTF-8', 'UTF-8' );
 		}
 
-		return preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F]/u', '', $value ) ?? '';
+		// XML 1.0 forbids most C0 controls; a literal 0x00 makes the whole
+		// document unparseable for the marketplace.
+		$value = preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F]/u', '', $value ) ?? '';
+
+		// Noncharacters are not valid XML characters even though they are
+		// valid UTF-8. Strip the Unicode noncharacter blocks (U+FDD0–U+FDEF
+		// and the last two code points of every plane).
+		$value = preg_replace(
+			'/[\x{FDD0}-\x{FDEF}\x{FFFE}\x{FFFF}\x{1FFFE}\x{1FFFF}\x{2FFFE}\x{2FFFF}\x{3FFFE}\x{3FFFF}\x{4FFFE}\x{4FFFF}\x{5FFFE}\x{5FFFF}\x{6FFFE}\x{6FFFF}\x{7FFFE}\x{7FFFF}\x{8FFFE}\x{8FFFF}\x{9FFFE}\x{9FFFF}\x{AFFFE}\x{AFFFF}\x{BFFFE}\x{BFFFF}\x{CFFFE}\x{CFFFF}\x{DFFFE}\x{DFFFF}\x{EFFFE}\x{EFFFF}\x{FFFFE}\x{FFFFF}\x{10FFFE}\x{10FFFF}]/u',
+			'',
+			$value
+		) ?? '';
+
+		return $value;
 	}
 }

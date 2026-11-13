@@ -63,6 +63,33 @@ final class WPS_Assert {
 	}
 
 	/**
+	 * @param mixed $unexpected
+	 * @param mixed $actual
+	 */
+	public static function not_same( $unexpected, $actual, string $message = '' ): void {
+		if ( $unexpected === $actual ) {
+			self::fail(
+				'' !== $message
+					? $message . ' (expected not ' . self::describe( $unexpected ) . ')'
+					: 'Expected value not to be ' . self::describe( $unexpected )
+			);
+		}
+	}
+
+	/**
+	 * @param mixed $actual
+	 */
+	public static function null( $actual, string $message = '' ): void {
+		if ( null !== $actual ) {
+			self::fail(
+				'' !== $message
+					? $message . ' (expected null, got ' . self::describe( $actual ) . ')'
+					: 'Expected null, got ' . self::describe( $actual )
+			);
+		}
+	}
+
+	/**
 	 * @param mixed $expected
 	 * @param mixed $actual
 	 */

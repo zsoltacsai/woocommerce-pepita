@@ -9,6 +9,7 @@
 use WPS\Pepita\Catalog\Product_Selection;
 use WPS\Pepita\Catalog\Validator;
 use WPS\Pepita\Feed\Generator;
+use WPS\Pepita\Feed\Lock;
 use WPS\Pepita\Feed\Scheduler;
 use WPS\Pepita\Settings;
 use WPS\Pepita\Storage;
@@ -476,5 +477,41 @@ $suite->add(
 
 		WPS_Assert::same( true, $validation['valid'] );
 		WPS_Assert::same( 0, $validation['products'] );
+	}
+);
+
+$suite->add(
+	'feed: an expired lock is reclaimed by exactly one process',
+	static function (): void {
+		$key = 'wps_pepita_lock_full';
+
+		// Simulate a lock abandoned by a crashed process.
+		update_option(
+			$key,
+			array(
+				'token'   => 'stale-token',
+				'expires' => time() - 60,
+				'pid'     => 0,
+			),
+			false
+		);
+
+		WPS_Assert::false( Lock::is_locked( 'full' ) );
+
+		$first = Lock::acquire( 'full', 60 );
+
+		WPS_Assert::true( is_string( $first ) && '' !== $first );
+		WPS_Assert::true( Lock::is_locked( 'full' ) );
+		WPS_Assert::is_null( Lock::acquire( 'full', 60 ) );
+
+		// A non-owner release must not remove the live lock.
+		Lock::release( 'full', 'stale-token' );
+
+		WPS_Assert::true( Lock::is_locked( 'full' ) );
+		WPS_Assert::true( Lock::is_owner( 'full', (string) $first ) );
+
+		Lock::release( 'full', (string) $first );
+
+		WPS_Assert::false( Lock::is_locked( 'full' ) );
 	}
 );

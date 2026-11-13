@@ -31,6 +31,62 @@ final class Redactor {
 	);
 
 	/**
+	 * Personal data that must not reach the log table in clear text. Keys are
+	 * matched case-insensitively after normalisation; the nested `customer`
+	 * object is handled by recursion.
+	 */
+	private const PII_KEYS = array(
+		'first_name',
+		'last_name',
+		'full_name',
+		'billing_name',
+		'shipping_name',
+		'billing_first_name',
+		'billing_last_name',
+		'shipping_first_name',
+		'shipping_last_name',
+		'company',
+		'company_name',
+		'tax_number',
+		'vat_number',
+		'address',
+		'address_1',
+		'address_2',
+		'billing_address',
+		'billing_address_1',
+		'billing_address_2',
+		'shipping_address',
+		'shipping_address_1',
+		'shipping_address_2',
+		'street',
+		'billing_street',
+		'shipping_street',
+		'street_address',
+		'billing_street_address',
+		'shipping_street_address',
+		'house_number',
+		'billing_house_number',
+		'shipping_house_number',
+		'city',
+		'billing_city',
+		'shipping_city',
+		'postcode',
+		'postal_code',
+		'billing_postcode',
+		'billing_postal_code',
+		'shipping_postcode',
+		'shipping_postal_code',
+		'zip',
+		'customer_message',
+		'courier_message',
+		'note',
+		'comments',
+		'remote_addr',
+		'ip',
+		'ip_address',
+	);
+
+	/**
 	 * Recursively mask sensitive keys and truncate huge values.
 	 *
 	 * @param mixed $value
@@ -52,13 +108,18 @@ final class Redactor {
 					continue;
 				}
 
-				if ( 'email' === $normalised && is_scalar( $item ) ) {
-					$clean[ $key ] = self::mask_email( (string) $item );
+				if ( 'email' === $normalised || str_ends_with( $normalised, '_email' ) ) {
+					$clean[ $key ] = is_scalar( $item ) ? self::mask_email( (string) $item ) : '[redacted]';
 					continue;
 				}
 
-				if ( in_array( $normalised, array( 'phone', 'telephone', 'billing_phone' ), true ) && is_scalar( $item ) ) {
-					$clean[ $key ] = self::mask_phone( (string) $item );
+				if ( 'phone' === $normalised || str_ends_with( $normalised, '_phone' ) ) {
+					$clean[ $key ] = is_scalar( $item ) ? self::mask_phone( (string) $item ) : '[redacted]';
+					continue;
+				}
+
+				if ( in_array( $normalised, self::PII_KEYS, true ) ) {
+					$clean[ $key ] = is_scalar( $item ) && '' !== (string) $item ? '[redacted]' : '';
 					continue;
 				}
 

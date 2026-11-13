@@ -213,14 +213,23 @@ final class Scheduler {
 	public function run_purge(): void {
 		$logs = Logger::purge_old();
 
-		$payloads = Order_Repository::purge_payloads( (int) Settings::get( 'log_retention_days', 30 ) );
+		$keep_payloads = (bool) Settings::get( 'order_api_keep_payloads', false );
+		$payloads      = Order_Repository::purge_payloads(
+			(int) Settings::get( 'log_retention_days', 30 ),
+			! $keep_payloads
+		);
+
+		$labels = Order_Repository::purge_labels(
+			(int) Settings::get( 'order_api_label_retention_days', 30 )
+		);
 
 		Logger::debug(
 			'log_maintenance',
 			'Napló karbantartás lefutott.',
 			array(
-				'logs_deleted'     => $logs,
+				'logs_deleted'    => $logs,
 				'payloads_cleared' => $payloads,
+				'labels_deleted'  => $labels,
 			)
 		);
 	}

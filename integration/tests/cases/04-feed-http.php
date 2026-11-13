@@ -29,7 +29,7 @@ WPS_IT::test(
 		WPS_IT::contains( 'pepita-full.xml', (string) ( $response['headers']['content-disposition'] ?? '' ), 'Unexpected filename.' );
 		WPS_IT::contains( 'noindex', (string) ( $response['headers']['x-robots-tag'] ?? '' ), 'Missing noindex header.' );
 		WPS_IT::same( 'nosniff', (string) ( $response['headers']['x-content-type-options'] ?? '' ), 'Missing nosniff header.' );
-		WPS_IT::contains( 'max-age=300', (string) ( $response['headers']['cache-control'] ?? '' ), 'Unexpected cache control.' );
+		WPS_IT::contains( 'no-store', (string) ( $response['headers']['cache-control'] ?? '' ), 'Unexpected cache control for private feed.' );
 		WPS_IT::true( isset( $response['headers']['etag'] ), 'Missing ETag.' );
 		WPS_IT::true( isset( $response['headers']['last-modified'] ), 'Missing Last-Modified.' );
 
@@ -129,6 +129,7 @@ WPS_IT::test(
 			$response = WPS_IT::http( 'GET', WPS_IT::feed_url( 'full' ) );
 
 			WPS_IT::same( 200, $response['code'], 'The public feed was not served without a token.' );
+			WPS_IT::contains( 'max-age=300', (string) ( $response['headers']['cache-control'] ?? '' ), 'Unexpected cache control for public feed.' );
 		} finally {
 			Settings::update( array( 'feed_public' => false ) );
 		}

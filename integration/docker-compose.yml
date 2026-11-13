@@ -58,7 +58,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "${HPOS_PORT:-8080}:80"
+      - "127.0.0.1:${HPOS_PORT:-8080}:80"
     environment:
       <<: *wordpress-env
       WORDPRESS_DB_NAME: wps_hpos
@@ -77,7 +77,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "${LEGACY_PORT:-8081}:80"
+      - "127.0.0.1:${LEGACY_PORT:-8081}:80"
     environment:
       <<: *wordpress-env
       WORDPRESS_DB_NAME: wps_legacy

@@ -36,14 +36,56 @@ final class Lock {
 			return null;
 		}
 
-		// Expired: remove and retry once. The retry is still atomic.
-		delete_option( $key );
+		// The lock is expired. Reclaiming is a read-check-delete-add sequence,
+		// so it runs under a second, atomic option mutex: otherwise two
+		// reclaimers could interleave and one could delete the fresh lock the
+		// other just wrote, leaving two owners.
+		$mutex = $key . '_reclaim';
 
-		if ( add_option( $key, $value, '', false ) ) {
-			return $token;
+		if ( ! self::acquire_mutex( $mutex ) ) {
+			return null;
 		}
 
-		return null;
+		try {
+			// Re-read under the mutex: another reclaimer may have won already.
+			$existing = get_option( $key, array() );
+
+			if ( is_array( $existing ) && (int) ( $existing['expires'] ?? 0 ) > time() ) {
+				return null;
+			}
+
+			delete_option( $key );
+
+			if ( add_option( $key, $value, '', false ) ) {
+				return $token;
+			}
+
+			return null;
+		} finally {
+			delete_option( $mutex );
+		}
+	}
+
+	/**
+	 * Acquire the short-lived reclaim mutex. A mutex abandoned by a crashed
+	 * process expires after 30 seconds and can be reclaimed once.
+	 */
+	private static function acquire_mutex( string $key ): bool {
+		$now = time();
+
+		if ( add_option( $key, $now, '', false ) ) {
+			return true;
+		}
+
+		$held = (int) get_option( $key, 0 );
+
+		if ( $held > 0 && $held > $now - 30 ) {
+			return false;
+		}
+
+		delete_option( $key );
+
+		return (bool) add_option( $key, $now, '', false );
 	}
 
 	public static function refresh( string $name, string $token, int $ttl = 1800 ): bool {
@@ -83,13 +125,10 @@ final class Lock {
 			return false;
 		}
 
-		if ( (int) ( $existing['expires'] ?? 0 ) <= time() ) {
-			delete_option( self::key( $name ) );
-
-			return false;
-		}
-
-		return true;
+		// Read-only: an expired lock is reported as free but is never deleted
+		// here. Deleting it would race with a process that has just reclaimed
+		// it and could destroy a valid, fresh lock.
+		return (int) ( $existing['expires'] ?? 0 ) > time();
 	}
 
 	public static function release_all(): void {
