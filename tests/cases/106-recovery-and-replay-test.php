@@ -848,7 +848,14 @@ $suite->add(
 		WPS_Assert::same( 'retry', $result['status'] );
 
 		// The incomplete order shell must be discarded
-		$found_id = $importer->find_order_by_external_id( $external_id );
+		$found_orders = wc_get_orders(
+			array(
+				'meta_key'   => Importer::META_ORDER_ID,
+				'meta_value' => $external_id,
+				'return'     => 'ids',
+			)
+		);
+		$found_id = ! empty( $found_orders ) ? (int) $found_orders[0] : 0;
 		WPS_Assert::same( 0, $found_id );
 	}
 );
@@ -895,7 +902,14 @@ $suite->add(
 		WPS_Assert::same( 'retry', $result['status'] );
 
 		// CRITICAL (Mad-Eye Finding 1): Completed order must NOT be deleted!
-		$order_id = $importer->find_order_by_external_id( $external_id );
+		$found_orders = wc_get_orders(
+			array(
+				'meta_key'   => Importer::META_ORDER_ID,
+				'meta_value' => $external_id,
+				'return'     => 'ids',
+			)
+		);
+		$order_id = ! empty( $found_orders ) ? (int) $found_orders[0] : 0;
 		WPS_Assert::true( $order_id > 0 );
 		$order = wc_get_order( $order_id );
 		WPS_Assert::true( $order instanceof \WC_Order );
@@ -933,15 +947,18 @@ $suite->add(
 		WPS_Assert::same( 200, $first['http'] );
 		$order_id = (int) $first['order_id'];
 
-		// Clear hashes to simulate historical order replay
+		// Clear hashes and set claim to failed/stale so that replay reclaims (attempt 2)
 		$order = wc_get_order( $order_id );
 		$order->delete_meta_data( Importer::META_PAYLOAD_HASH );
+		$order->save();
+
 		global $wpdb;
 		$wpdb->update(
 			Order_Repository::table(),
 			array(
 				'status'       => Order_Repository::STATUS_FAILED,
 				'payload_hash' => null,
+				'updated_at'   => gmdate( 'Y-m-d H:i:s', time() - 2000 ),
 				'last_error'   => 'Stale/failed for replay',
 			),
 			array( 'external_id' => $external_id )
@@ -999,9 +1016,16 @@ $suite->add(
 		$shell_id = $shell->save();
 		WPS_Assert::true( $shell_id > 0 );
 
-		// Create claim for this order
+		// Create claim for this order and make it stale (> 15 min) so import() can reclaim
 		$claim = Order_Repository::claim( $external_id, 'pepita.hu', wp_json_encode( $payload ), 'hash-1' );
 		WPS_Assert::same( 'claimed', $claim['state'] );
+
+		global $wpdb;
+		$wpdb->update(
+			Order_Repository::table(),
+			array( 'updated_at' => gmdate( 'Y-m-d H:i:s', time() - 2000 ) ),
+			array( 'external_id' => $external_id )
+		);
 
 		// When the incomplete shell is deleted during recovery, bump attempts to fence Worker A
 		$action_fired = false;
@@ -1054,7 +1078,7 @@ $suite->add(
 		$result = $importer->import( $payload );
 
 		// Restore table
-		Order_Repository::install();
+		\WPS\Pepita\Installer::install();
 		Order_Repository::reset_table_cache();
 
 		WPS_Assert::same( 500, $result['http'] );
