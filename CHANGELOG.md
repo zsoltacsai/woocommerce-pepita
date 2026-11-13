@@ -6,6 +6,13 @@ All notable changes are recorded here. The format follows
 
 ## Unreleased — M9-D Beta Feed-Only Release Readiness
 
+### Fixed & Hardened (M9-D Beta P0 Release Blockers)
+- **Stock Feed Generation Integrity**: Every successful stock generation now produces an immutable, unique filename (`pepita-stock.<gen>.xml`), preventing repeated updates from overwriting active files before publication. Atomic pointer update maintains previous stock generation retention and safe obsolete generation pruning. Concurrency locking (`active-generation.lock`) serializes overlapping full and stock publications while preserving active stock across full feed builds.
+- **Strict Feed Lookup & Fail-Closed Recovery**: `Storage::validate_pointer()` verifies pointer structure and safe filenames, rejecting directory traversal attempts. Corrupted or truncated pointers immediately fail closed with HTTP 503 and Retry-After without falling back to stale unversioned compatibility files. Dedicated `Storage::migrate_legacy_to_versioned()` provides an explicit validated migration path.
+- **Independent Emergency Feed Kill Switch**: Added `feed_emergency_disabled` setting and `WPS_PEPITA_FEED_EMERGENCY_DISABLED` / `WPS_PEPITA_FEED_DISABLED` constants. Suspends feed serving immediately with HTTP 503 without touching beta mode or risking order intake re-activation.
+- **Accidental Order Intake Prevention**: Settings sanitization enforces `order_api_enabled = false` in beta mode and ensures disabling beta mode does not automatically activate order intake.
+- **Seller-Facing Documentation Alignment**: Corrected `docs/m9d/BETA-FEED-HANDOFF.md` to document verified URLs (`/?wps_feed=full&token={token}`), variation limits (max 3 axes), shipping calculation sources, and removed unverified REST feed endpoints.
+
 ### Added (M9-D Beta)
 - **Mandatory Hard Category Allowlist**: When `beta_feed_only` is active, only merchant-approved WooCommerce categories are exported (`Category_Rules::has_included_categories()`, `Product_Selection::resolve()`). Products without approved categories or in unruled categories are strictly excluded (`beta_unapproved_category`). Explicit product inclusion overrides cannot bypass category exclusion. Overlapping membership in an excluded category wins.
 - **Beta Mode Operational Safety**: `Settings::is_beta_feed_only()` forces `order_api_enabled = false`, `feed_public = false`, and `default_included = false`. Order API endpoint `/wp-json/wps/v1/pepita/order` returns HTTP 503 Service Unavailable immediately without processing or side-effects.

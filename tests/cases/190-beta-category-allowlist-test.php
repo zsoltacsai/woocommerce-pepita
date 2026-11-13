@@ -305,3 +305,68 @@ $suite->add(
 		}
 	}
 );
+
+$suite->add(
+	'beta category: category deletion and rule changes invalidate cache and re-resolve accurately',
+	static function () use ( $build_category_tree ): void {
+		$build_category_tree();
+		Settings::update( array( 'beta_feed_only' => true ) );
+
+		// Approve category 11
+		update_term_meta( 11, 'wps_include', 'include' );
+		Category_Rules::clear_cache();
+
+		WPS_Test_State::add_product( array( 'id' => 601, 'name' => 'Dynamic Item' ) );
+		WPS_Test_State::assign_term( 601, 11 );
+
+		// Initially approved
+		$res1 = Product_Selection::resolve( 601 );
+		WPS_Assert::true( $res1['included'] );
+
+		// Rule change: change 11 to exclude
+		update_term_meta( 11, 'wps_include', 'exclude' );
+		Product_Selection::clear_cache();
+
+		$res2 = Product_Selection::resolve( 601 );
+		WPS_Assert::false( $res2['included'] );
+		WPS_Assert::same( 'category', $res2['source'] );
+
+		// Rule change: remove meta (unapproved)
+		delete_term_meta( 11, 'wps_include' );
+		Product_Selection::clear_cache();
+
+		$res3 = Product_Selection::resolve( 601 );
+		WPS_Assert::false( $res3['included'] );
+		WPS_Assert::same( 'beta_unapproved_category', $res3['source'] );
+	}
+);
+
+$suite->add(
+	'beta category: preview counts count_selected matches exportable products in beta mode',
+	static function () use ( $build_category_tree ): void {
+		$build_category_tree();
+		Settings::update( array( 'beta_feed_only' => true ) );
+
+		// Approve only category 11
+		update_term_meta( 11, 'wps_include', 'include' );
+		Category_Rules::clear_cache();
+
+		// Add 3 products in approved category 11
+		for ( $i = 701; $i <= 703; ++$i ) {
+			WPS_Test_State::add_product( array( 'id' => $i, 'name' => "Approved Item {$i}" ) );
+			WPS_Test_State::assign_term( $i, 11 );
+		}
+
+		// Add 2 products in unapproved category 21
+		for ( $i = 704; $i <= 705; ++$i ) {
+			WPS_Test_State::add_product( array( 'id' => $i, 'name' => "Unapproved Item {$i}" ) );
+			WPS_Test_State::assign_term( $i, 21 );
+		}
+
+		$counts = Product_Selection::count_selected();
+		// Scanned total: 5
+		WPS_Assert::same( 5, $counts['scanned'] );
+		// Selected (exportable): exactly 3
+		WPS_Assert::same( 3, $counts['selected'] );
+	}
+);

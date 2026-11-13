@@ -391,6 +391,9 @@ final class Category_Rules {
 		self::$decision_cache = array();
 		self::$term_cache     = array();
 		delete_transient( 'wps_pepita_included_category_count' );
+		if ( class_exists( Product_Selection::class, false ) ) {
+			Product_Selection::clear_resolution_cache();
+		}
 	}
 
 	/**

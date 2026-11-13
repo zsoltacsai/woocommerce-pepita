@@ -36,6 +36,10 @@ final class Endpoint {
 			$this->deny( 403, 'invalid_token' );
 		}
 
+		if ( Settings::is_feed_emergency_disabled() ) {
+			$this->fail( 503, 'A feed kiszolgálás átmenetileg szünetel (vészhelyzeti leállítás aktív).', $type );
+		}
+
 		$state = ( new Generator() )->get_feed_state( $type );
 
 		if ( ! Storage::exists( $type ) ) {

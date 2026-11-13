@@ -633,7 +633,7 @@ final class Generator {
 		$hash = hash_file( 'sha256', $feed_temp );
 
 		if ( self::TYPE_FULL === $type ) {
-			if ( ! Storage::publish_full( $feed_temp, $index_temp ) ) {
+			if ( ! Storage::publish_full( $feed_temp, $index_temp, null, (string) $state['signature'] ) ) {
 				return $this->abort( $type, $state, 'A teljes feed és a katalógus index közzététele nem sikerült (konzisztencia megőrizve).' );
 			}
 
@@ -641,7 +641,7 @@ final class Generator {
 				update_option( Catalog_Diff::OPTION_DIFF_FULL, $catalog_diff, false );
 			}
 		} else {
-			if ( ! Storage::publish( $type, $feed_temp ) ) {
+			if ( ! Storage::publish( $type, $feed_temp, null, (string) $state['signature'] ) ) {
 				return $this->abort( $type, $state, 'A kész feed nem helyezhető át a végleges helyére.' );
 			}
 
