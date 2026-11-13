@@ -45,7 +45,7 @@ final class Importer {
 			return $this->result( 'error', 400, 'Hiányzik vagy érvénytelen a Pepita rendelésazonosító (id).' );
 		}
 
-		$canonical_payload = $this->canonicalize( $payload );
+		$canonical_payload = self::canonicalize( $payload );
 		$payload_json      = wp_json_encode( $canonical_payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 		$payload_json      = is_string( $payload_json ) ? $payload_json : '';
 		$payload_hash      = hash( 'sha256', $payload_json );
@@ -1092,10 +1092,10 @@ final class Importer {
 	/**
 	 * Canonicalize payload recursively for deterministic hash identity.
 	 *
-	 * @param mixed $data
+	 * @param mixed $data Data.
 	 * @return mixed
 	 */
-	private function canonicalize( $data ) {
+	public static function canonicalize( $data ) {
 		if ( ! is_array( $data ) ) {
 			return $data;
 		}
@@ -1106,10 +1106,23 @@ final class Importer {
 		}
 
 		foreach ( $data as $key => $value ) {
-			$data[ $key ] = $this->canonicalize( $value );
+			$data[ $key ] = self::canonicalize( $value );
 		}
 
 		return $data;
+	}
+
+	/**
+	 * Compute deterministic SHA-256 hash for an order payload.
+	 *
+	 * @param array<string, mixed> $payload Payload.
+	 * @return string
+	 */
+	public static function hash_payload( array $payload ): string {
+		$canonical = self::canonicalize( $payload );
+		$json      = wp_json_encode( $canonical, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+
+		return hash( 'sha256', is_string( $json ) ? $json : '' );
 	}
 
 	/**

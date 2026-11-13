@@ -126,10 +126,7 @@ $suite->add(
 		$seed();
 
 		$payload_data = $payload();
-		$expected     = hash(
-			'sha256',
-			wp_json_encode( $payload_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
-		);
+		$expected     = Importer::hash_payload( $payload_data );
 
 		$result = ( new Importer() )->import( $payload_data );
 		$order  = WPS_Test_State::$orders[ $result['order_id'] ];
