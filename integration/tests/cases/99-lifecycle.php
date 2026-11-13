@@ -118,10 +118,11 @@ WPS_IT::test(
 		WPS_IT::same( count( $orders ), count( $remaining ), 'Uninstall changed the number of WooCommerce orders.' );
 		WPS_IT::instance( \WC_Order::class, wc_get_order( $order_id ), 'Uninstall deleted a WooCommerce order.' );
 
-		// Observation only (recorded in the log, not asserted): whether the
-		// plugin's order meta survived. uninstall.php deletes from postmeta only.
+		// The plugin's order meta is removed in both storage modes (postmeta
+		// for legacy stores, wc_orders_meta for HPOS); the order itself stays.
 		$order = wc_get_order( $order_id );
-		WPS_IT::line( '        note: _wps_pepita_order_id after uninstall = "' . (string) $order->get_meta( Importer::META_ORDER_ID ) . '" (HPOS: ' . ( \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled() ? 'yes' : 'no' ) . ')' );
+		WPS_IT::same( '', (string) $order->get_meta( Importer::META_ORDER_ID ), 'Plugin order meta survived uninstall with data removal.' );
+		WPS_IT::same( '', (string) $order->get_meta( Importer::META_PAYLOAD_HASH ), 'Plugin payload hash meta survived uninstall.' );
 
 		// Database rollback / reinstall: activation must rebuild a working plugin.
 		Settings::reset_cache();

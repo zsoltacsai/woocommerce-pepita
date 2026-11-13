@@ -96,9 +96,17 @@ $meta_keys = array(
 	'_wps_pepita_vat',
 );
 
+// HPOS stores order meta in its own table; legacy stores use postmeta.
+$hpos_meta_table = $wpdb->prefix . 'wc_orders_meta';
+$has_hpos_meta   = $hpos_meta_table === $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $hpos_meta_table ) ) );
+
 foreach ( $meta_keys as $meta_key ) {
 	$wpdb->delete( $wpdb->postmeta, array( 'meta_key' => $meta_key ) );
 	$wpdb->delete( $wpdb->termmeta, array( 'meta_key' => $meta_key ) );
+
+	if ( $has_hpos_meta ) {
+		$wpdb->delete( $hpos_meta_table, array( 'meta_key' => $meta_key ) );
+	}
 }
 
 // Category rule term meta.
