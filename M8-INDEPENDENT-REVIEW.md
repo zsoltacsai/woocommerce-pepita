@@ -1,13 +1,16 @@
 # WP Pepita Sync M8 — independent review package
 
-## Review target
-
-**Current review target:** the head commit of the `ci/governance` pull request
-against `main` (CI and repository-governance changes). The exact SHA is shown on
-the pull request page and in the final CI run.
+## Review target and traceability
 
 **Implementation baseline:** `1fa7979c70ef43f7020c83807a9a88968f846894`
-(“docs: narrow backlog to the remaining staging checks”), published to `main`.
+(“docs: narrow backlog to the remaining staging checks”), published to `main` and
+unchanged by this PR.
+
+**Current review target:** the final head commit of PR #1 (`ci/governance`).
+A commit cannot contain its own SHA, so the exact final review SHA and the CI run
+are recorded in the **PR #1 handoff comment** immediately after the final commit
+is pushed. Reviewers must use that recorded SHA, not a revision read from this
+file.
 
 Earlier implementation commits, for context only:
 

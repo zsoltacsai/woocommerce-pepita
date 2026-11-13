@@ -4,32 +4,45 @@
 
 | Version | Supported |
 |---|---|
-| 1.0.x (current: 1.0.0) | Yes |
+| 1.0.x (development package; current: 1.0.0) | Yes |
 | Earlier or unreleased builds | No |
 
-Security fixes are prepared for the latest released 1.0.x version. Backports to
-older versions, forks and modified copies are not provided. The plugin declares
-PHP 8.1+ and WooCommerce 8.0+; the current release is tested on PHP 8.1–8.5 and
+**Release status:** `1.0.0` is a development/package version. No official
+production release has been approved or published, and live Pepita staging
+validation is still pending (see `DEVELOPMENT-STATUS.md`). The version number,
+the packaged ZIP and the passing local/CI suites are not a production release
+approval.
+
+Security fixes are prepared for the latest 1.0.x package. Backports to older
+versions, forks and modified copies are not provided. The plugin declares
+PHP 8.1+ and WooCommerce 8.0+; the current package is tested on PHP 8.1–8.5 and
 WooCommerce 11.3.0 (see `COMPATIBILITY-REPORT.md`).
 
 ## Reporting a vulnerability
 
-Do **not** open a public issue with vulnerability details, exploit steps,
-credentials, customer data or order payloads.
+**No private vulnerability reporting channel is currently available to external
+reporters.** This is a known limitation of the current repository plan:
 
-Preferred channel: **GitHub private vulnerability reporting**, if it is
-available and enabled for this repository — use the repository **Security** tab
-and choose **Report a vulnerability**. This opens a private advisory visible only
-to the maintainer.
+- GitHub private vulnerability reporting requires GitHub Advanced Security on a
+  private repository and is not enabled here.
+- GitHub issues on a private repository are visible only to collaborators, so an
+  external reporter cannot open or read an issue in this repository.
+- No security email address is published.
 
-If private vulnerability reporting is not available (it requires GitHub Advanced
-Security on a private repository), open a minimal public issue titled
-`Security contact request` that contains **no vulnerability details** and asks
-the maintainer for a private channel. The maintainer will reply with a private
-way to share the report.
+Do **not** disclose vulnerability details, exploit steps, credentials, customer
+data or order payloads in a public place (social media, public gists, public
+forks, or issues on other repositories), and do not guess or use an address that
+is not explicitly published here.
 
-There is no published security email address; do not send reports to an address
-you find elsewhere without confirming it with the maintainer first.
+If you already have a private channel with the maintainer (for example through an
+existing engagement or contract), use it and reference this policy. Otherwise,
+wait until a private reporting channel is published.
+
+**Owner decision required:** before this repository accepts external reports, the
+owner must enable GitHub private vulnerability reporting (requires GitHub Pro or
+Advanced Security) or publish an approved private contact method. This policy does
+not imply that either has been done. When a channel becomes available, this
+section will be updated with the exact steps.
 
 ## What to include
 
