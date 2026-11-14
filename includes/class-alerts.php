@@ -65,8 +65,8 @@ final class Alerts {
 		}
 
 		$raw_email = (string) Settings::get( 'feed_alert_email', '' );
-		if ( '' === $raw_email && function_exists( 'get_option' ) ) {
-			$raw_email = (string) get_option( 'admin_email', '' );
+		if ( '' === $raw_email && function_exists( 'get_bloginfo' ) ) {
+			$raw_email = (string) get_bloginfo( 'admin_email' );
 		}
 		$recipient = function_exists( 'sanitize_email' ) ? sanitize_email( $raw_email ) : (string) filter_var( $raw_email, FILTER_SANITIZE_EMAIL );
 		if ( ! is_email( $recipient ) ) {

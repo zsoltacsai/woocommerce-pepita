@@ -477,7 +477,7 @@ final class Catalog_Diff {
 			$overall_impact = 'warn';
 		}
 
-		if ( $require_approval && ( 'warn' === $status || 'fail' === $status || ! empty( $warnings ) ) ) {
+		if ( $require_approval && ( 'warn' === $status || 'fail' === $status || ! empty( $warnings ) || $price_spike_count > 0 || $quality_excluded_count > 0 ) ) {
 			$overall_impact = 'approval_required';
 		}
 

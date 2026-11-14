@@ -915,6 +915,16 @@ function wp_set_post_terms( int $post_id, $terms, string $taxonomy = 'post_tag',
  * URLs, uploads, attachments
  * ---------------------------------------------------------------------- */
 
+function get_bloginfo( string $show = 'name', string $filter = 'raw' ): string {
+	if ( 'admin_email' === $show ) {
+		return 'admin@example.com';
+	}
+	if ( 'name' === $show ) {
+		return 'Test Store';
+	}
+	return '';
+}
+
 function home_url( string $path = '' ): string {
 	return rtrim( WPS_Test_State::$home_url, '/' ) . '/' . ltrim( $path, '/' );
 }

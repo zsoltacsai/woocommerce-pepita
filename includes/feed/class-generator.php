@@ -640,7 +640,7 @@ final class Generator {
 			}
 
 			$require_approval = (bool) Settings::get( 'feed_safety_require_approval', false );
-			if ( $require_approval && ( 'warn' === $catalog_diff['status'] || 'fail' === $catalog_diff['status'] || ! empty( $catalog_diff['warnings'] ) ) ) {
+			if ( $require_approval && ( 'warn' === $catalog_diff['status'] || 'fail' === $catalog_diff['status'] || ! empty( $catalog_diff['warnings'] ) || 'approval_required' === ( $catalog_diff['overall_impact'] ?? '' ) ) ) {
 				$reason = implode( ' ', $catalog_diff['warnings'] );
 				if ( '' === $reason ) {
 					$reason = __( 'Kockázatos változások észlelve, kézi jóváhagyás szükséges.', 'wp-pepita-sync' );
