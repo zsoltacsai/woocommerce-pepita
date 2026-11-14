@@ -120,9 +120,14 @@ $suite->add(
 		WPS_Assert::same( 'invalid_image_file', $truncated_warnings[0]['code'] );
 		@unlink( $truncated_path );
 
-		// This cut preserves a parseable full-size JPEG header/scan setup but omits image data and EOI.
+		// Cut immediately after the SOS header: dimensions parse, but scan data and EOI are absent.
 		$header_truncated_path = sys_get_temp_dir() . '/wps-image-header-truncated-' . uniqid() . '.jpg';
-		file_put_contents( $header_truncated_path, substr( (string) $jpeg_bytes, 0, 134 ) );
+		$sos_offset = strpos( (string) $jpeg_bytes, "\xFF\xDA" );
+		WPS_Assert::true( false !== $sos_offset, 'The complete JPEG fixture must contain a start-of-scan marker.' );
+		$sos_length = unpack( 'nlength', substr( (string) $jpeg_bytes, $sos_offset + 2, 2 ) );
+		WPS_Assert::true( is_array( $sos_length ) && isset( $sos_length['length'] ) );
+		$scan_header_end = $sos_offset + 2 + (int) $sos_length['length'];
+		file_put_contents( $header_truncated_path, substr( (string) $jpeg_bytes, 0, $scan_header_end ) );
 		WPS_Assert::true( is_array( @getimagesize( $header_truncated_path ) ), 'The truncated fixture must retain a parseable JPEG header.' );
 		WPS_Test_State::add_attachment( 850, 'https://example.test/header-truncated.jpg' );
 		WPS_Test_State::$attached_files[ 850 ] = $header_truncated_path;
