@@ -129,7 +129,7 @@ if ( 'view' === $action && '' !== $id ) :
 							</a>
 							<span style="margin-left: 8px; font-weight: normal;">
 								(<?php echo esc_html( function_exists( 'wc_get_order_status_name' ) ? wc_get_order_status_name( $wc_order->get_status() ) : $wc_order->get_status() ); ?>,
-								<?php echo esc_html( function_exists( 'wc_price' ) ? wc_price( $wc_order->get_total(), array( 'currency' => $wc_order->get_currency() ) ) : (string) $wc_order->get_total() ); ?>)
+								<?php echo function_exists( 'wc_price' ) ? wp_kses_post( wc_price( $wc_order->get_total(), array( 'currency' => $wc_order->get_currency() ) ) ) : esc_html( (string) $wc_order->get_total() ); ?>)
 							</span>
 						<?php elseif ( $orphan_order instanceof \WC_Order ) : ?>
 							<span style="color: #b32d2e; font-weight: bold;">
@@ -207,14 +207,20 @@ if ( 'view' === $action && '' !== $id ) :
 			<h2><?php esc_html_e( 'Nyers Pepita adatcsomag (Személyes adatok maszkolva)', 'wp-pepita-sync' ); ?></h2>
 			<?php if ( $has_payload ) : ?>
 				<?php
-				$decoded  = json_decode( $raw_payload, true );
-				$redacted = is_array( $decoded ) ? Redactor::redact( $decoded ) : array( 'raw' => $raw_payload );
-				$json_out = wp_json_encode( $redacted, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+				$decoded = json_decode( $raw_payload, true );
+				if ( is_array( $decoded ) ) :
+					$redacted = Redactor::redact( $decoded );
+					$json_out = wp_json_encode( $redacted, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
 				?>
-				<pre style="background: #f6f7f7; padding: 12px; border: 1px solid #dcdcde; border-radius: 4px; overflow: auto; max-height: 400px; font-family: monospace; font-size: 12px;"><code><?php echo esc_html( (string) $json_out ); ?></code></pre>
-				<p class="description">
-					<?php esc_html_e( 'A személyes adatok (vásárló neve, számlázási és szállítási címe, telefonszáma, e-mail címe) a megtekintés előtt a GDPR-nak megfelelően automatikusan kitakarásra kerültek.', 'wp-pepita-sync' ); ?>
-				</p>
+					<pre style="background: #f6f7f7; padding: 12px; border: 1px solid #dcdcde; border-radius: 4px; overflow: auto; max-height: 400px; font-family: monospace; font-size: 12px;"><code><?php echo esc_html( (string) $json_out ); ?></code></pre>
+					<p class="description">
+						<?php esc_html_e( 'A személyes adatok (vásárló neve, számlázási és szállítási címe, telefonszáma, e-mail címe) a megtekintés előtt a GDPR-nak megfelelően automatikusan kitakarásra kerültek.', 'wp-pepita-sync' ); ?>
+					</p>
+				<?php else : ?>
+					<p class="notice notice-error notice-alt" style="padding: 10px; margin: 10px 0;">
+						<?php esc_html_e( 'A tárolt adatcsomag formátuma érvénytelen vagy sérült, a személyes adatok védelme érdekében nem jeleníthető meg.', 'wp-pepita-sync' ); ?>
+					</p>
+				<?php endif; ?>
 			<?php else : ?>
 				<p class="wps-muted">
 					<?php esc_html_e( 'A nyers adatcsomag nem elérhető (a megőrzési idő lejárt vagy az adatmegőrzés ki volt kapcsolva). Az adatok sértetlenségét a fenti SHA-256 ellenőrzőösszeg tanúsítja.', 'wp-pepita-sync' ); ?>

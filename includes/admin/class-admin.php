@@ -660,6 +660,7 @@ final class Admin {
 			'recover_associated'  => array( 'success', __( 'A hiányzó kapcsolat sikeresen helyreállítva a meglévő WooCommerce rendeléshez.', 'wp-pepita-sync' ) ),
 			'recover_reopened'    => array( 'info', __( 'A lezárt státusz törölve: a rendelés újranyitva, a következő értesítéskor újra importálódik.', 'wp-pepita-sync' ) ),
 			'recover_already_open'=> array( 'info', __( 'A rendelés már nyitott állapotban van (feldolgozás alatt vagy hibás).', 'wp-pepita-sync' ) ),
+			'recover_failed'      => array( 'error', __( 'A rendelés kapcsolat helyreállítása meghiúsult.', 'wp-pepita-sync' ) ),
 		);
 
 		if ( ! isset( $messages[ $notice ] ) ) {

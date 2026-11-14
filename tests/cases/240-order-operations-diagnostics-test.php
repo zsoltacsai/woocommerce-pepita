@@ -460,6 +460,150 @@ $suite->add(
 	}
 );
 
+$suite->add(
+	'm10 operator recovery: recover failed claim when orphan WooCommerce order exists',
+	static function (): void {
+		// 1. Create a WooCommerce order with Pepita metadata.
+		$wc_order = new WC_Order();
+		$wc_order->update_meta_data( Importer::META_ORDER_ID, 'PEP-M10-FAILED-REC' );
+		WPS_Test_State::add_order( $wc_order );
+
+		// 2. Create claim that failed during processing.
+		Order_Repository::claim( 'PEP-M10-FAILED-REC', 'pepita.hu', '{}', 'hash_failed_rec' );
+		Order_Repository::fail( 'PEP-M10-FAILED-REC', 'Fatal error during order line item mapping', 1 );
+
+		$claim = Order_Repository::get( 'PEP-M10-FAILED-REC' );
+		WPS_Assert::same( Order_Repository::STATUS_FAILED, $claim['status'], 'Initial claim must be failed.' );
+		WPS_Assert::same( 0, (int) $claim['wc_order_id'] );
+		WPS_Assert::true( ! empty( $claim['last_error'] ), 'Initial claim has error message.' );
+
+		// 3. Operator recovery recovers the failed claim.
+		$admin                = new Order_Admin();
+		$nonce                = wp_create_nonce( 'wps_pepita_recover_order_PEP-M10-FAILED-REC' );
+		$_POST['id']          = 'PEP-M10-FAILED-REC';
+		$_POST['_wpnonce']    = $nonce;
+		$_REQUEST['_wpnonce'] = $nonce;
+
+		$redirected = false;
+		try {
+			$admin->handle_recover_order();
+		} catch ( \RuntimeException $e ) {
+			if ( str_contains( $e->getMessage(), 'wps_notice=recover_associated' ) ) {
+				$redirected = true;
+			}
+		}
+
+		unset( $_POST['id'], $_POST['_wpnonce'], $_REQUEST['_wpnonce'] );
+
+		WPS_Assert::true( $redirected, 'Recovery should redirect with recover_associated notice.' );
+
+		// 4. Verification: claim is completed, associated with WC order, and last_error is cleared.
+		$updated = Order_Repository::get( 'PEP-M10-FAILED-REC' );
+		WPS_Assert::same( Order_Repository::STATUS_COMPLETED, $updated['status'], 'Status must be updated to completed.' );
+		WPS_Assert::same( $wc_order->get_id(), (int) $updated['wc_order_id'], 'WC Order ID must be recorded.' );
+		WPS_Assert::true( null === $updated['last_error'] || '' === $updated['last_error'], 'Last error must be cleared.' );
+	}
+);
+
+$suite->add(
+	'm10 order diagnostics: malformed payload fails closed and never leaks raw content',
+	static function (): void {
+		$malformed_raw = '{"broken": json, "secret_email": "leaked_victim@example.test", "tax_number": "99999999-1-11"';
+
+		Order_Repository::claim( 'PEP-M10-MALFORMED', 'pepita.hu', $malformed_raw, 'hash_malformed' );
+		Order_Repository::fail( 'PEP-M10-MALFORMED', 'JSON decode failure', 1 );
+
+		$_GET['action'] = 'view';
+		$_GET['id']     = 'PEP-M10-MALFORMED';
+
+		ob_start();
+		require WPS_PEPITA_DIR . 'includes/views/orders.php';
+		$view_out = ob_get_clean();
+
+		unset( $_GET['action'], $_GET['id'] );
+
+		// Must fail closed with error notice.
+		WPS_Assert::true( str_contains( $view_out, 'A tárolt adatcsomag formátuma érvénytelen vagy sérült' ), 'Must show safe error notice for corrupted payload.' );
+		// Raw unredacted text MUST NOT appear in the rendered HTML.
+		WPS_Assert::false( str_contains( $view_out, 'leaked_victim@example.test' ), 'Corrupted raw payload must never be leaked.' );
+		WPS_Assert::false( str_contains( $view_out, '99999999-1-11' ), 'Corrupted raw payload must never be leaked.' );
+	}
+);
+
+$suite->add(
+	'm10 authorization: unprivileged user and invalid nonce rejection',
+	static function (): void {
+		$admin = new Order_Admin();
+
+		// Case A: Unprivileged user (lacks manage_woocommerce capability).
+		WPS_Test_State::$current_user_caps['manage_woocommerce'] = false;
+
+		$unauth_died = 0;
+		try {
+			$admin->handle_retry_order();
+		} catch ( \RuntimeException $e ) {
+			if ( str_contains( $e->getMessage(), 'Nincs jogosultsága' ) ) {
+				++$unauth_died;
+			}
+		}
+
+		try {
+			$admin->handle_recover_order();
+		} catch ( \RuntimeException $e ) {
+			if ( str_contains( $e->getMessage(), 'Nincs jogosultsága' ) ) {
+				++$unauth_died;
+			}
+		}
+
+		try {
+			$admin->handle_download_label();
+		} catch ( \RuntimeException $e ) {
+			if ( str_contains( $e->getMessage(), 'Nincs jogosultsága' ) ) {
+				++$unauth_died;
+			}
+		}
+
+		WPS_Test_State::$current_user_caps['manage_woocommerce'] = true;
+		WPS_Assert::same( 3, $unauth_died, 'All 3 operations must reject unprivileged user with 403.' );
+
+		// Case B: Invalid nonce for authorized user.
+		$_POST['id']          = 'PEP-NONCE-TEST';
+		$_POST['_wpnonce']    = 'invalid_nonce';
+		$_REQUEST['_wpnonce'] = 'invalid_nonce';
+		$_GET['order_id']     = 1;
+		$_GET['_wpnonce']     = 'invalid_nonce';
+
+		$bad_nonce_died = 0;
+		try {
+			$admin->handle_retry_order();
+		} catch ( \RuntimeException $e ) {
+			if ( str_contains( $e->getMessage(), 'Invalid admin nonce' ) ) {
+				++$bad_nonce_died;
+			}
+		}
+
+		try {
+			$admin->handle_recover_order();
+		} catch ( \RuntimeException $e ) {
+			if ( str_contains( $e->getMessage(), 'Invalid admin nonce' ) ) {
+				++$bad_nonce_died;
+			}
+		}
+
+		try {
+			$admin->handle_download_label();
+		} catch ( \RuntimeException $e ) {
+			if ( str_contains( $e->getMessage(), 'Invalid admin nonce' ) ) {
+				++$bad_nonce_died;
+			}
+		}
+
+		unset( $_POST['id'], $_POST['_wpnonce'], $_REQUEST['_wpnonce'], $_GET['order_id'], $_GET['_wpnonce'] );
+
+		WPS_Assert::same( 3, $bad_nonce_died, 'All 3 operations must reject invalid nonce.' );
+	}
+);
+
 /* -------------------------------------------------------------------------
  * 6. Package Label Security: Path Traversal Prevention
  * ---------------------------------------------------------------------- */
@@ -482,12 +626,114 @@ $suite->add(
 		$died = false;
 		try {
 			$admin->handle_download_label();
-		} catch ( \Throwable $t ) {
-			$died = true;
+		} catch ( \RuntimeException $e ) {
+			if ( 'A csomagcímke fájl nem található vagy elérési útja érvénytelen.' === $e->getMessage() ) {
+				$died = true;
+			}
 		}
 
 		unset( $_GET['order_id'], $_GET['_wpnonce'], $_REQUEST['_wpnonce'] );
 
-		WPS_Assert::true( $died, 'Path traversal must be blocked and die.' );
+		WPS_Assert::true( $died, 'Path traversal must be blocked with validation error.' );
+	}
+);
+
+$suite->add(
+	'm10 label security: prevent sibling directory traversal and non-pdf files',
+	static function (): void {
+		$admin     = new Order_Admin();
+		$label_dir = Storage::label_dir();
+
+		// 1. Sibling directory traversal attack: labels-evil/private.pdf
+		$sibling_dir = rtrim( $label_dir, '/' ) . '-evil';
+		if ( ! is_dir( $sibling_dir ) ) {
+			mkdir( $sibling_dir, 0755, true );
+		}
+		$sibling_file = $sibling_dir . '/private.pdf';
+		file_put_contents( $sibling_file, '%PDF-1.4 sibling test' );
+
+		$order_sibling = new WC_Order();
+		$order_sibling->update_meta_data( Importer::META_PACKAGE_LABEL, $sibling_file );
+		WPS_Test_State::add_order( $order_sibling );
+
+		$nonce                = wp_create_nonce( 'wps_pepita_download_label_' . $order_sibling->get_id() );
+		$_GET['order_id']     = $order_sibling->get_id();
+		$_GET['_wpnonce']     = $nonce;
+		$_REQUEST['_wpnonce'] = $nonce;
+
+		$sibling_blocked = false;
+		try {
+			$admin->handle_download_label();
+		} catch ( \RuntimeException $e ) {
+			if ( 'A csomagcímke fájl nem található vagy elérési útja érvénytelen.' === $e->getMessage() ) {
+				$sibling_blocked = true;
+			}
+		}
+
+		@unlink( $sibling_file );
+		@rmdir( $sibling_dir );
+		unset( $_GET['order_id'], $_GET['_wpnonce'], $_REQUEST['_wpnonce'] );
+
+		WPS_Assert::true( $sibling_blocked, 'Sibling directory traversal must be blocked with validation error.' );
+
+		// 2. Non-PDF file inside labels directory: labels/script.sh
+		$txt_file = $label_dir . '/script.sh';
+		file_put_contents( $txt_file, '#!/bin/sh' );
+
+		$order_txt = new WC_Order();
+		$order_txt->update_meta_data( Importer::META_PACKAGE_LABEL, $txt_file );
+		WPS_Test_State::add_order( $order_txt );
+
+		$nonce                = wp_create_nonce( 'wps_pepita_download_label_' . $order_txt->get_id() );
+		$_GET['order_id']     = $order_txt->get_id();
+		$_GET['_wpnonce']     = $nonce;
+		$_REQUEST['_wpnonce'] = $nonce;
+
+		$txt_blocked = false;
+		try {
+			$admin->handle_download_label();
+		} catch ( \RuntimeException $e ) {
+			if ( 'A csomagcímke fájl nem található vagy elérési útja érvénytelen.' === $e->getMessage() ) {
+				$txt_blocked = true;
+			}
+		}
+
+		@unlink( $txt_file );
+		unset( $_GET['order_id'], $_GET['_wpnonce'], $_REQUEST['_wpnonce'] );
+
+		WPS_Assert::true( $txt_blocked, 'Non-PDF file must be blocked with validation error.' );
+
+		// 3. Legitimate PDF in label directory succeeds.
+		$valid_pdf = $label_dir . '/order-123.pdf';
+		file_put_contents( $valid_pdf, '%PDF-1.4 legitimate test' );
+
+		$order_valid = new WC_Order();
+		$order_valid->update_meta_data( Importer::META_PACKAGE_LABEL, $valid_pdf );
+		WPS_Test_State::add_order( $order_valid );
+
+		$nonce                = wp_create_nonce( 'wps_pepita_download_label_' . $order_valid->get_id() );
+		$_GET['order_id']     = $order_valid->get_id();
+		$_GET['_wpnonce']     = $nonce;
+		$_REQUEST['_wpnonce'] = $nonce;
+
+		$served = false;
+		add_filter(
+			'wps_pepita_serve_label_download',
+			static function ( bool $serve, string $path ) use ( &$served, $valid_pdf ): bool {
+				if ( realpath( $valid_pdf ) === $path ) {
+					$served = true;
+				}
+				return false; // Suppress readfile and exit in test environment.
+			},
+			10,
+			2
+		);
+
+		$admin->handle_download_label();
+
+		@unlink( $valid_pdf );
+		unset( $_GET['order_id'], $_GET['_wpnonce'], $_REQUEST['_wpnonce'] );
+
+		WPS_Assert::true( $served, 'Legitimate PDF file must be served.' );
 	}
 );

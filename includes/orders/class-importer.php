@@ -1734,7 +1734,7 @@ final class Importer {
 				$payload_email = strtolower( trim( (string) ( $validation['customer']['email'] ?? '' ) ) );
 				if ( '' !== $order_email && '' !== $payload_email && $order_email !== $payload_email ) {
 					$conflict  = true;
-					$reasons[] = sprintf( 'eltérő vásárlói email (tárolt: %s, új: %s)', $order_email, $payload_email );
+					$reasons[] = sprintf( 'eltérő vásárlói email (tárolt: %s, új: %s)', Redactor::mask_email( $order_email ), Redactor::mask_email( $payload_email ) );
 				}
 
 				// 5. Strict line items count & contents match

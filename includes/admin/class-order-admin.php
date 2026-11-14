@@ -312,9 +312,12 @@ final class Order_Admin {
 			exit;
 		}
 
-		// If the claim was completed earlier, reopen it so importer does not short-circuit on completed check.
+		// If the claim was completed earlier and no WooCommerce order exists, reopen it so importer does not short-circuit.
 		if ( Order_Repository::STATUS_COMPLETED === ( $claim['status'] ?? '' ) ) {
-			Order_Repository::reopen_completed( $id );
+			$candidate_id = self::find_order_by_external_id( $id );
+			if ( 0 === $candidate_id ) {
+				Order_Repository::reopen_completed( $id );
+			}
 		}
 
 		$importer = new Importer();
@@ -382,18 +385,39 @@ final class Order_Admin {
 		$candidate_id = self::find_order_by_external_id( $id );
 
 		if ( $candidate_id > 0 ) {
-			$status = (string) ( $claim['status'] ?? '' );
+			$recovered = Order_Repository::recover_orphan_order( $id, $candidate_id );
 
-			if ( Order_Repository::STATUS_COMPLETED === $status && 0 === (int) ( $claim['wc_order_id'] ?? 0 ) ) {
-				Order_Repository::associate_legacy_completed_order( $id, $candidate_id );
-			} else {
-				Order_Repository::associate( $id, $candidate_id );
+			if ( ! $recovered ) {
+				Logger::error(
+					'order_recovery',
+					'A rendelés kapcsolat helyreállítása meghiúsult.',
+					array(
+						'external_id' => $id,
+						'wc_order_id' => $candidate_id,
+					)
+				);
+
+				wp_safe_redirect(
+					add_query_arg(
+						array(
+							'page'       => 'wps-pepita-orders',
+							'action'     => 'view',
+							'id'         => $id,
+							'wps_notice' => 'recover_failed',
+						),
+						admin_url( 'admin.php' )
+					)
+				);
+				exit;
 			}
 
 			Logger::info(
 				'order_recovery',
 				'Rendelés kapcsolat sikeresen helyreállítva a meglévő WooCommerce rendeléshez.',
-				array( 'external_id' => $id, 'wc_order_id' => $candidate_id )
+				array(
+					'external_id' => $id,
+					'wc_order_id' => $candidate_id,
+				)
 			);
 
 			wp_safe_redirect(
@@ -449,6 +473,33 @@ final class Order_Admin {
 	}
 
 	/**
+	 * Validate a label file path ensuring it resides within the allowed labels directory and is a PDF.
+	 *
+	 * @param string $file
+	 * @return string|false Canonical absolute path if valid, false otherwise.
+	 */
+	public static function get_valid_label_path( string $file ): string|false {
+		if ( '' === $file ) {
+			return false;
+		}
+
+		$label_dir = realpath( Storage::label_dir() );
+		$real_file = realpath( $file );
+
+		if ( false === $label_dir || false === $real_file ) {
+			return false;
+		}
+
+		$label_dir_prefix = rtrim( $label_dir, DIRECTORY_SEPARATOR ) . DIRECTORY_SEPARATOR;
+
+		if ( ! str_starts_with( $real_file, $label_dir_prefix ) || ! is_file( $real_file ) || ! str_ends_with( strtolower( $real_file ), '.pdf' ) ) {
+			return false;
+		}
+
+		return $real_file;
+	}
+
+	/**
 	 * Download package label PDF securely with strict traversal prevention.
 	 */
 	public function handle_download_label(): void {
@@ -471,16 +522,26 @@ final class Order_Admin {
 			wp_die( esc_html__( 'A rendeléshez nem tartozik csomagcímke.', 'wp-pepita-sync' ), 404 );
 		}
 
-		$label_dir = realpath( Storage::label_dir() );
-		$real_file = realpath( $file );
+		$real_file = self::get_valid_label_path( $file );
 
-		if ( false === $label_dir || false === $real_file || ! str_starts_with( $real_file, $label_dir ) || ! file_exists( $real_file ) || ! str_ends_with( strtolower( $real_file ), '.pdf' ) ) {
+		if ( false === $real_file ) {
 			wp_die( esc_html__( 'A csomagcímke fájl nem található vagy elérési útja érvénytelen.', 'wp-pepita-sync' ), 404 );
+		}
+
+		while ( ob_get_level() > 0 ) {
+			ob_end_clean();
 		}
 
 		header( 'Content-Type: application/pdf' );
 		header( 'Content-Disposition: attachment; filename="pepita-label-' . $order->get_id() . '.pdf"' );
 		header( 'Content-Length: ' . (int) filesize( $real_file ) );
+		header( 'X-Content-Type-Options: nosniff' );
+		header( 'Cache-Control: private, no-store, must-revalidate' );
+
+		if ( ! apply_filters( 'wps_pepita_serve_label_download', true, $real_file, $order ) ) {
+			return;
+		}
+
 		readfile( $real_file );
 		exit;
 	}
