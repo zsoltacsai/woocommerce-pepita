@@ -647,16 +647,33 @@ final class Admin {
 		$this->guard( true );
 		check_admin_referer( 'wps_pepita_import_profile' );
 
-		$json_str = '';
-		if ( isset( $_FILES['profile_file'] ) && is_array( $_FILES['profile_file'] ) && ! empty( $_FILES['profile_file']['tmp_name'] ) ) {
-			$tmp_file = (string) $_FILES['profile_file']['tmp_name'];
-			if ( is_uploaded_file( $tmp_file ) || file_exists( $tmp_file ) ) {
-				$json_str = (string) file_get_contents( $tmp_file );
-			}
-		} elseif ( isset( $_POST['profile_json'] ) ) {
-			$json_str = wp_unslash( (string) $_POST['profile_json'] );
+		if ( ! isset( $_FILES['profile_file'] ) || ! is_array( $_FILES['profile_file'] ) ) {
+			$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_empty' ) );
 		}
 
+		$file = $_FILES['profile_file'];
+		$error_code = (int) ( $file['error'] ?? UPLOAD_ERR_NO_FILE );
+		if ( UPLOAD_ERR_OK !== $error_code ) {
+			$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_upload_error' ) );
+		}
+
+		$size = (int) ( $file['size'] ?? 0 );
+		if ( $size <= 0 || $size > 1048576 ) {
+			$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_too_large' ) );
+		}
+
+		$client_name = (string) ( $file['name'] ?? '' );
+		if ( ! preg_match( '/\.json$/i', $client_name ) ) {
+			$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_invalid_type' ) );
+		}
+
+		$tmp_file = (string) ( $file['tmp_name'] ?? '' );
+		$is_uploaded = is_uploaded_file( $tmp_file );
+		if ( ! apply_filters( 'wps_pepita_is_uploaded_file', $is_uploaded, $tmp_file ) ) {
+			$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_upload_invalid' ) );
+		}
+
+		$json_str = (string) file_get_contents( $tmp_file );
 		if ( '' === trim( $json_str ) ) {
 			$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_empty' ) );
 		}
@@ -757,6 +774,10 @@ final class Admin {
 			'recover_failed'      => array( 'error', __( 'A rendelés kapcsolat helyreállítása meghiúsult.', 'wp-pepita-sync' ) ),
 			'profile_empty'          => array( 'error', __( 'A feltöltött vagy megadott profilfájl üres.', 'wp-pepita-sync' ) ),
 			'profile_invalid_json'   => array( 'error', __( 'A megadott profilfájl formátuma érvénytelen JSON.', 'wp-pepita-sync' ) ),
+			'profile_upload_error'   => array( 'error', __( 'Hiba történt a fájl feltöltése során.', 'wp-pepita-sync' ) ),
+			'profile_too_large'      => array( 'error', __( 'A megadott profilfájl meghaladja a megengedett 1 MB méretkorlátot.', 'wp-pepita-sync' ) ),
+			'profile_invalid_type'   => array( 'error', __( 'A profilfájlnak .json kiterjesztésűnek kell lennie.', 'wp-pepita-sync' ) ),
+			'profile_upload_invalid' => array( 'error', __( 'Érvénytelen vagy illegális fájlfeltöltés.', 'wp-pepita-sync' ) ),
 			'profile_import_failed'  => array( 'error', __( 'A konfigurációs profil importálása meghiúsult.', 'wp-pepita-sync' ) ),
 			'profile_import_success' => array( 'success', __( 'A konfigurációs profil sikeresen importálva.', 'wp-pepita-sync' ) ),
 		);

@@ -87,7 +87,12 @@ $summary = Operational_Reports::get_summary( $days );
 				<dd><?php echo esc_html( (string) $summary['orphan_orders'] ); ?></dd>
 
 				<dt><?php esc_html_e( 'Összesített GMV:', 'wp-pepita-sync' ); ?></dt>
-				<dd><strong><?php echo function_exists( 'wc_price' ) ? wp_kses_post( wc_price( $summary['total_gmv'] ) ) : esc_html( (string) $summary['total_gmv'] ); ?></strong></dd>
+				<dd>
+					<strong><?php echo function_exists( 'wc_price' ) ? wp_kses_post( wc_price( $summary['total_gmv'] ) ) : esc_html( (string) $summary['total_gmv'] ); ?></strong>
+					<?php if ( ! empty( $summary['gmv_truncated'] ) ) : ?>
+						<span class="description" style="display: block; font-size: 11px;"><?php esc_html_e( '(A legutóbbi 1000 rekord alapján korlátozva)', 'wp-pepita-sync' ); ?></span>
+					<?php endif; ?>
+				</dd>
 			</dl>
 			<form method="get" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top: 15px;">
 				<input type="hidden" name="action" value="wps_pepita_export_report_csv" />

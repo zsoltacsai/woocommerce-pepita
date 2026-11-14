@@ -27,6 +27,103 @@ final class Merchant_Profiles {
 	public const SCHEMA_VERSION = 1;
 
 	/**
+	 * Settings that are explicitly permitted in configuration exports and imports.
+	 *
+	 * Strict security invariant:
+	 * Only portable, operational merchant configuration keys are allowlisted.
+	 * Secrets (feed_token, order_api_key, storage_key, alert webhooks/emails, IP restrictions)
+	 * and security posture toggles (feed_public, order_api_require_https, order_api_enabled,
+	 * order_api_keep_payloads, delete_data_on_uninstall, feed_emergency_disabled, beta_feed_only)
+	 * are strictly excluded from portability.
+	 *
+	 * @var string[]
+	 */
+	public const PORTABLE_SETTINGS_ALLOWLIST = array(
+		// Catalog selection.
+		'default_included',
+		'include_child_categories',
+		'allowed_product_statuses',
+		'exclude_quality_issues',
+		'show_internal_quality_score',
+
+		// Pricing and tax.
+		'currency',
+		'vat_mode',
+		'vat_fixed',
+		'price_tax_mode',
+		'price_adjustment_type',
+		'price_adjustment_value',
+		'rounding',
+		'include_purchase_net',
+
+		// Shipping and warranty.
+		'shipping_delay',
+		'shipping_price',
+		'warranty_type',
+		'warranty_duration',
+
+		// Content mapping.
+		'description_source',
+		'brand_source',
+		'brand_meta_key',
+		'brand_taxonomy',
+		'manufacturer_default',
+		'attribute_name_map',
+		'gtin_meta_keys',
+		'gtin_required_categories',
+		'primary_category_strategy',
+		'max_category_paths',
+		'max_gallery_images',
+
+		// Feed operational schedule and thresholds.
+		'batch_size',
+		'batches_per_run',
+		'max_runtime',
+		'full_feed_interval',
+		'stock_feed_interval',
+		'stock_requires_full',
+		'removal_policy',
+		'removal_grace_days',
+		'feed_cache_max_age',
+		'feed_full_slug',
+		'feed_stock_slug',
+		'feed_safety_drop_threshold',
+		'feed_safety_block_publication',
+		'feed_safety_variation_change_warning',
+		'feed_safety_require_approval',
+		'feed_safety_max_price_drop_percent',
+		'feed_safety_max_price_spikes',
+		'feed_safety_max_quality_exclusions',
+		'offpeak_schedule_enabled',
+		'offpeak_start_hour',
+		'offpeak_end_hour',
+
+		// Marketplace Inventory & Pricing Strategy (M9-H).
+		'inventory_strategy_enabled',
+		'inventory_buffer',
+		'inventory_max_qty',
+		'pricing_strategy_enabled',
+		'marketplace_commission_percent',
+		'marketplace_commission_fixed',
+		'marketplace_packaging_cost',
+		'marketplace_shipping_cost',
+		'marketplace_min_margin_percent',
+
+		// Safe Order mappings & status settings.
+		'order_api_status_paid',
+		'order_api_status_unpaid',
+		'order_api_save_label',
+		'order_api_label_retention_days',
+		'payment_map',
+		'shipping_map',
+
+		// Logging & metadata.
+		'log_retention_days',
+		'log_level',
+		'record_export_meta',
+	);
+
+	/**
 	 * Keys that are strictly forbidden in configuration exports.
 	 *
 	 * @var string[]
@@ -50,13 +147,12 @@ final class Merchant_Profiles {
 	public static function export_profile( array $options = array() ): array {
 		$all_settings = Settings::all();
 
-		// Strip all secrets and sensitive identifiers.
+		// Export only allowlisted portable settings.
 		$sanitized_settings = array();
-		foreach ( $all_settings as $key => $value ) {
-			if ( in_array( $key, self::SECRET_KEYS, true ) ) {
-				continue;
+		foreach ( self::PORTABLE_SETTINGS_ALLOWLIST as $key ) {
+			if ( array_key_exists( $key, $all_settings ) ) {
+				$sanitized_settings[ $key ] = $all_settings[ $key ];
 			}
-			$sanitized_settings[ $key ] = $value;
 		}
 
 		// Export category rules by term slug for multi-store portability.
@@ -128,19 +224,24 @@ final class Merchant_Profiles {
 		$errors   = array();
 		$warnings = array();
 
-		if ( ! isset( $data['schema_version'] ) ) {
-			$errors[] = 'Hiányzik a sémaverzió (schema_version).';
-		} elseif ( (int) $data['schema_version'] !== self::SCHEMA_VERSION ) {
-			$errors[] = sprintf( 'Nem támogatott sémaverzió: %s (elvárt: %d).', (string) $data['schema_version'], self::SCHEMA_VERSION );
+		// Strict type and value check for schema_version (must be integer 1, no loose casting).
+		if ( ! isset( $data['schema_version'] ) || ! is_int( $data['schema_version'] ) || self::SCHEMA_VERSION !== $data['schema_version'] ) {
+			$errors[] = sprintf(
+				'Nem támogatott sémaverzió: %s (elvárt: egész szám %d).',
+				isset( $data['schema_version'] ) ? (string) $data['schema_version'] : 'hiányzó',
+				self::SCHEMA_VERSION
+			);
 		}
 
 		if ( ! isset( $data['settings'] ) || ! is_array( $data['settings'] ) ) {
 			$errors[] = 'A profil nem tartalmaz érvényes beállításokat (settings).';
 		} else {
-			// Ensure no secrets are injected into export.
-			foreach ( self::SECRET_KEYS as $secret_key ) {
-				if ( isset( $data['settings'][ $secret_key ] ) && '' !== $data['settings'][ $secret_key ] ) {
-					$warnings[] = sprintf( 'A profil érzékeny kulcsot (%s) tartalmaz, amely biztonsági okokból figyelmen kívül lesz hagyva.', $secret_key );
+			// Ensure no secrets or unallowlisted settings weaken store security posture.
+			foreach ( $data['settings'] as $key => $val ) {
+				if ( in_array( $key, self::SECRET_KEYS, true ) ) {
+					$warnings[] = sprintf( 'A profil érzékeny kulcsot (%s) tartalmaz, amely biztonsági okokból figyelmen kívül lesz hagyva.', $key );
+				} elseif ( ! in_array( $key, self::PORTABLE_SETTINGS_ALLOWLIST, true ) ) {
+					$warnings[] = sprintf( 'A profil biztonsági vagy nem hordozható beállítást (%s) tartalmaz, amely figyelmen kívül lesz hagyva.', $key );
 				}
 			}
 		}
@@ -177,13 +278,16 @@ final class Merchant_Profiles {
 		$current_settings = Settings::all();
 		$import_settings  = (array) ( $data['settings'] ?? array() );
 
-		// Security: remove any secret keys from import payload to keep store secrets intact.
-		foreach ( self::SECRET_KEYS as $secret_key ) {
-			unset( $import_settings[ $secret_key ] );
+		// Security: allow only strictly permit-listed portable settings.
+		$filtered_import = array();
+		foreach ( self::PORTABLE_SETTINGS_ALLOWLIST as $allowed_key ) {
+			if ( array_key_exists( $allowed_key, $import_settings ) ) {
+				$filtered_import[ $allowed_key ] = $import_settings[ $allowed_key ];
+			}
 		}
 
-		// Merge import settings with current settings (keeping existing secrets).
-		$merged = array_merge( $current_settings, $import_settings );
+		// Merge filtered import settings with current settings.
+		$merged = array_merge( $current_settings, $filtered_import );
 
 		// Re-apply existing secrets unconditionally.
 		foreach ( self::SECRET_KEYS as $secret_key ) {

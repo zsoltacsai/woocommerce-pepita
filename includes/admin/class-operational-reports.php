@@ -7,8 +7,10 @@
  *
  * Strict security invariants:
  * - NEVER exports customer names, delivery addresses, billing addresses, phone numbers.
- * - Masks any email addresses present in error messages via Redactor::mask_email().
+ * - Masks any email addresses and phone numbers in error messages.
+ * - Sanitizes all CSV cells via Logger::sanitize_csv_field() to neutralize formula injection.
  * - Bounded queries prevent memory exhaustion on high-volume stores.
+ * - Compatible with both MySQL and in-memory test stubs (no GROUP BY dependencies).
  *
  * @package WPS\Pepita\Admin
  */
@@ -17,6 +19,7 @@ namespace WPS\Pepita\Admin;
 
 use WPS\Pepita\Admin\Order_Admin;
 use WPS\Pepita\Feed\Generator;
+use WPS\Pepita\Logger;
 use WPS\Pepita\Orders\Order_Repository;
 use WPS\Pepita\Redactor;
 
@@ -25,6 +28,47 @@ defined( 'ABSPATH' ) || exit;
 final class Operational_Reports {
 
 	public const MAX_EXPORT_ROWS = 1000;
+
+	/**
+	 * Sanitize and mask sensitive information in error messages.
+	 *
+	 * Masks emails, redacts phone numbers, and truncates long strings.
+	 *
+	 * @param string $raw_err
+	 * @return string
+	 */
+	public static function sanitize_error_message( string $raw_err ): string {
+		if ( '' === trim( $raw_err ) ) {
+			return '';
+		}
+
+		// 1. Mask email addresses.
+		$masked = preg_replace_callback(
+			'/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/',
+			static function ( array $m ): string {
+				return Redactor::mask_email( $m[0] );
+			},
+			$raw_err
+		);
+
+		$masked = is_string( $masked ) ? $masked : $raw_err;
+
+		// 2. Redact phone numbers (Hungarian/international patterns).
+		$redacted = preg_replace(
+			'/(?:\+?[0-9]{1,3}[-.\s]?)?\(?[0-9]{1,4}?\)?[-.\s]?[0-9]{3,4}[-.\s]?[0-9]{3,4}/',
+			'[REDACTED_PHONE]',
+			$masked
+		);
+
+		$result = is_string( $redacted ) ? $redacted : $masked;
+
+		// 3. Truncate long error details to bound memory and display size.
+		if ( mb_strlen( $result ) > 255 ) {
+			$result = mb_substr( $result, 0, 252 ) . '...';
+		}
+
+		return $result;
+	}
 
 	/**
 	 * Compute an aggregated operational summary for the specified time window.
@@ -46,101 +90,76 @@ final class Operational_Reports {
 			'processing_orders' => 0,
 			'orphan_orders'     => 0,
 			'total_gmv'         => 0.0,
+			'gmv_truncated'     => false,
 			'top_errors'        => array(),
 			'feed_telemetry'    => array(),
 		);
 
-		// Status breakdown.
-		$status_counts = $wpdb->get_results(
+		// Single memory-bounded query compatible with both MySQL and in-memory test harnesses.
+		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT status, COUNT(*) as cnt
+				"SELECT id, status, external_id, wc_order_id, last_error
 				 FROM {$table}
 				 WHERE created_at >= %s
-				 GROUP BY status", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-				$since
-			),
-			ARRAY_A
-		);
-
-		if ( is_array( $status_counts ) ) {
-			foreach ( $status_counts as $row ) {
-				$status = (string) ( $row['status'] ?? '' );
-				$count  = (int) ( $row['cnt'] ?? 0 );
-				$defaults['total_orders'] += $count;
-
-				if ( Order_Repository::STATUS_COMPLETED === $status ) {
-					$defaults['completed_orders'] = $count;
-				} elseif ( Order_Repository::STATUS_FAILED === $status ) {
-					$defaults['failed_orders'] = $count;
-				} elseif ( Order_Repository::STATUS_PROCESSING === $status ) {
-					$defaults['processing_orders'] = $count;
-				}
-			}
-		}
-
-		// Calculate total GMV and orphan count from completed orders in window.
-		$completed_orders = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT external_id, wc_order_id
-				 FROM {$table}
-				 WHERE created_at >= %s AND status = %s
+				 ORDER BY id DESC
 				 LIMIT %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 				$since,
-				Order_Repository::STATUS_COMPLETED,
 				self::MAX_EXPORT_ROWS
 			),
 			ARRAY_A
 		);
 
-		if ( is_array( $completed_orders ) ) {
-			foreach ( $completed_orders as $row ) {
-				$wc_id = (int) ( $row['wc_order_id'] ?? 0 );
-				$ext_id = (string) ( $row['external_id'] ?? '' );
+		$error_counts = array();
+		if ( is_array( $rows ) ) {
+			if ( count( $rows ) >= self::MAX_EXPORT_ROWS ) {
+				$defaults['gmv_truncated'] = true;
+			}
 
-				if ( $wc_id > 0 && function_exists( 'wc_get_order' ) ) {
-					$order = wc_get_order( $wc_id );
-					if ( $order instanceof \WC_Order ) {
-						$defaults['total_gmv'] += (float) $order->get_total();
+			foreach ( $rows as $row ) {
+				++$defaults['total_orders'];
+
+				$status   = (string) ( $row['status'] ?? '' );
+				$wc_id    = (int) ( $row['wc_order_id'] ?? 0 );
+				$ext_id   = (string) ( $row['external_id'] ?? '' );
+				$last_err = (string) ( $row['last_error'] ?? '' );
+
+				if ( Order_Repository::STATUS_COMPLETED === $status ) {
+					++$defaults['completed_orders'];
+					if ( $wc_id > 0 && function_exists( 'wc_get_order' ) ) {
+						$order = wc_get_order( $wc_id );
+						if ( $order instanceof \WC_Order ) {
+							$defaults['total_gmv'] += (float) $order->get_total();
+						}
 					}
-				} elseif ( 0 === $wc_id ) {
-					// Check if there is an orphan order in WooCommerce.
+				} elseif ( Order_Repository::STATUS_FAILED === $status ) {
+					++$defaults['failed_orders'];
+				} elseif ( Order_Repository::STATUS_PROCESSING === $status ) {
+					++$defaults['processing_orders'];
+				}
+
+				// Check for orphans across all unlinked claims regardless of status.
+				if ( 0 === $wc_id && '' !== $ext_id ) {
 					$candidate = Order_Admin::find_order_by_external_id( $ext_id );
 					if ( $candidate > 0 ) {
 						++$defaults['orphan_orders'];
 					}
 				}
+
+				// Top error aggregation.
+				if ( '' !== trim( $last_err ) ) {
+					$sanitized_err = self::sanitize_error_message( $last_err );
+					$error_counts[ $sanitized_err ] = ( $error_counts[ $sanitized_err ] ?? 0 ) + 1;
+				}
 			}
 		}
 
-		// Top errors within window.
-		$top_errors = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT last_error, COUNT(*) as cnt
-				 FROM {$table}
-				 WHERE created_at >= %s AND last_error IS NOT NULL AND last_error != ''
-				 GROUP BY last_error
-				 ORDER BY cnt DESC
-				 LIMIT 5", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-				$since
-			),
-			ARRAY_A
-		);
-
-		if ( is_array( $top_errors ) ) {
-			foreach ( $top_errors as $err_row ) {
-				$raw_err = (string) ( $err_row['last_error'] ?? '' );
-				// Strictly mask any emails or sensitive patterns in error display.
-				$masked_err = preg_replace_callback(
-					'/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/',
-					static function ( array $m ): string {
-						return Redactor::mask_email( $m[0] );
-					},
-					$raw_err
-				);
-
+		if ( ! empty( $error_counts ) ) {
+			arsort( $error_counts, SORT_NUMERIC );
+			$top = array_slice( $error_counts, 0, 5, true );
+			foreach ( $top as $msg => $cnt ) {
 				$defaults['top_errors'][] = array(
-					'error' => is_string( $masked_err ) ? $masked_err : $raw_err,
-					'count' => (int) ( $err_row['cnt'] ?? 0 ),
+					'error' => $msg,
+					'count' => $cnt,
 				);
 			}
 		}
@@ -163,6 +182,8 @@ final class Operational_Reports {
 
 	/**
 	 * Export order operations as a memory-bounded, PII-free CSV document.
+	 *
+	 * Sanitizes every cell against spreadsheet formula injection via Logger::sanitize_csv_field().
 	 *
 	 * @param int $days
 	 * @return string
@@ -209,25 +230,20 @@ final class Operational_Reports {
 		if ( is_array( $orders ) ) {
 			foreach ( $orders as $row ) {
 				$raw_err = (string) ( $row['last_error'] ?? '' );
-				$masked_err = preg_replace_callback(
-					'/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/',
-					static function ( array $m ): string {
-						return Redactor::mask_email( $m[0] );
-					},
-					$raw_err
-				);
+				$sanitized_err = self::sanitize_error_message( $raw_err );
 
+				// All cells sanitized against formula injection via Logger::sanitize_csv_field().
 				fputcsv(
 					$fp,
 					array(
-						(string) ( $row['external_id'] ?? '' ),
+						Logger::sanitize_csv_field( (string) ( $row['external_id'] ?? '' ) ),
 						(int) ( $row['wc_order_id'] ?? 0 ),
-						(string) ( $row['origin'] ?? '' ),
-						(string) ( $row['status'] ?? '' ),
+						Logger::sanitize_csv_field( (string) ( $row['origin'] ?? '' ) ),
+						Logger::sanitize_csv_field( (string) ( $row['status'] ?? '' ) ),
 						(int) ( $row['attempts'] ?? 0 ),
-						(string) ( $row['created_at'] ?? '' ),
-						(string) ( $row['updated_at'] ?? '' ),
-						is_string( $masked_err ) ? $masked_err : $raw_err,
+						Logger::sanitize_csv_field( (string) ( $row['created_at'] ?? '' ) ),
+						Logger::sanitize_csv_field( (string) ( $row['updated_at'] ?? '' ) ),
+						Logger::sanitize_csv_field( $sanitized_err ),
 					)
 				);
 			}
