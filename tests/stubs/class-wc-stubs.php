@@ -126,11 +126,23 @@ class WC_Product {
 	}
 
 	public function is_in_stock(): bool {
+		if ( 'outofstock' === (string) ( $this->data['stock_status'] ?? 'instock' ) ) {
+			return false;
+		}
+
 		if ( $this->managing_stock() ) {
 			return (int) $this->data['stock_quantity'] > 0;
 		}
 
 		return 'instock' === (string) $this->data['stock_status'];
+	}
+
+	public function get_stock_status(): string {
+		return (string) ( $this->data['stock_status'] ?? 'instock' );
+	}
+
+	public function set_stock_status( string $status ): void {
+		$this->data['stock_status'] = $status;
 	}
 
 	public function managing_stock(): bool {

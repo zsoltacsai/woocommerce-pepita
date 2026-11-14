@@ -498,6 +498,8 @@ $suite->add(
 $suite->add(
 	'strategy: admin strategy preview view renders cleanly without runtime warnings or errors',
 	static function (): void {
+		WPS_Test_State::$current_user_caps['manage_woocommerce'] = true;
+
 		Settings::update(
 			array(
 				'inventory_strategy_enabled'     => true,
