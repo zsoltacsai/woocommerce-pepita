@@ -1,7 +1,7 @@
 # M9-G — Feedvezérlés, Előnézet és Biztonságos Publikálás
 
 **Státusz:** Tervezés és megvalósítás alatt  
-**Alap:** M9-F lezárt HEAD (`310ca6c5225028aa7be04a3773121ae431b9ae69`)  
+**Alap:** M9-F lezárt HEAD (`310ca6ce14adbcf06b764ba880c44ec15b74f791`)
 **Cél:** Publikálás előtti biztonsági kapu, részletes katalógus-differencia (Feed Preview), monitoring és riasztások, valamint off-peak ütemezés.
 
 ## 1. Részfeladatok és követelmények

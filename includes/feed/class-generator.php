@@ -646,7 +646,10 @@ final class Generator {
 					$reason = __( 'Kockázatos változások észlelve, kézi jóváhagyás szükséges.', 'wp-pepita-sync' );
 				}
 
-				if ( Storage::stage_full( $feed_temp, $index_temp, (string) $state['lock_token'], (string) $state['signature'], $catalog_diff, $reason ) ) {
+				$counters = is_array( $state['counters'] ?? null ) ? $state['counters'] : array();
+				$warnings = is_array( $catalog_diff['warnings'] ?? null ) ? $catalog_diff['warnings'] : array();
+
+				if ( Storage::stage_full( $feed_temp, $index_temp, (string) $state['lock_token'], (string) $state['signature'], $catalog_diff, $reason, $counters, $warnings ) ) {
 					Alerts::trigger(
 						Alerts::EVENT_STAGED_APPROVAL,
 						array(
@@ -675,6 +678,14 @@ final class Generator {
 						'counts'  => $state['counters'],
 					);
 				}
+
+				// Safety gate FAIL CLOSED: staging failed, do not fall through to publish!
+				Logger::error( 'feed_safety', 'A staging mentése sikertelen volt, a közzététel leállítva a biztonsági kapu védelmében.', array( 'reason' => $reason ) );
+				$this->abort( $type, $state, __( 'A staging mentése sikertelen volt, közzététel megállítva.', 'wp-pepita-sync' ) );
+				return array(
+					'status'  => 'error',
+					'message' => __( 'A staging mentése meghiúsult, közzététel blokkolva.', 'wp-pepita-sync' ),
+				);
 			}
 		}
 

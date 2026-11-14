@@ -567,8 +567,10 @@ final class Admin {
 
 		check_admin_referer( 'wps_pepita_approve_staged_feed' );
 
-		$success = Storage::approve_staged_full();
-		$notice  = $success ? 'feed_approved' : 'generation_error';
+		$gen = isset( $_GET['gen'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['gen'] ) ) : null; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+
+		$success = Storage::approve_staged_full( $gen );
+		$notice  = $success ? 'feed_approved' : 'approval_failed';
 
 		$this->redirect( 'wps-pepita-feeds', array( 'wps_notice' => $notice ) );
 	}
@@ -578,7 +580,9 @@ final class Admin {
 
 		check_admin_referer( 'wps_pepita_reject_staged_feed' );
 
-		Storage::discard_staged_full();
+		$gen = isset( $_GET['gen'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['gen'] ) ) : null; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+
+		Storage::discard_staged_full( $gen );
 
 		$this->redirect( 'wps-pepita-feeds', array( 'wps_notice' => 'feed_rejected' ) );
 	}
@@ -623,6 +627,7 @@ final class Admin {
 			'generation_error'    => array( 'error', __( 'A feed generálása sikertelen volt. A korábbi feed megmaradt. A részletek a naplóban találhatók.', 'wp-pepita-sync' ) ),
 			'generation_staged'   => array( 'warning', __( 'A feed elkészült, de a biztonsági kapu aktiválódott: jóváhagyásra vár a közzététel előtt.', 'wp-pepita-sync' ) ),
 			'feed_approved'       => array( 'success', __( 'A jóváhagyott feed sikeresen publikálásra került.', 'wp-pepita-sync' ) ),
+			'approval_failed'     => array( 'error', __( 'A jóváhagyásra váró feed közzététele meghiúsult. A korábbi feed megmaradt.', 'wp-pepita-sync' ) ),
 			'feed_rejected'       => array( 'info', __( 'A jóváhagyásra váró feed elvetve. Az előző érvényes feed maradt aktív.', 'wp-pepita-sync' ) ),
 			'feed_missing'        => array( 'error', __( 'A kért feed még nem készült el.', 'wp-pepita-sync' ) ),
 			'secret_regenerated'  => array( 'success', __( 'Az új titkos kulcs elkészült. A régi kulcs azonnal érvénytelenné vált.', 'wp-pepita-sync' ) ),

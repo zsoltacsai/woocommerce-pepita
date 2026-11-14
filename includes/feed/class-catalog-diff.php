@@ -153,7 +153,7 @@ final class Catalog_Diff {
 				'vat'        => (float) ( $row['vat'] ?? 0.0 ),
 				'currency'   => (string) ( $row['currency'] ?? '' ),
 				'qty'        => isset( $row['qty'] ) ? (int) $row['qty'] : null,
-				'avail'      => isset( $row['avail'] ) ? (bool) $row['avail'] : ( 0 === $retired_at ),
+				'avail'      => isset( $row['avail'] ) ? (bool) $row['avail'] : null,
 				'cat'        => (string) ( $row['cat'] ?? '' ),
 				'qual_ex'    => (bool) ( $row['qual_ex'] ?? false ),
 				'vars'       => (array) ( $row['vars'] ?? array() ),
@@ -270,7 +270,10 @@ final class Catalog_Diff {
 				$prev_qty   = $prev['qty'];
 				$curr_qty   = isset( $row['qty'] ) ? (int) $row['qty'] : null;
 
-				if ( $prev_avail !== $curr_avail || ( null !== $prev_qty && null !== $curr_qty && $prev_qty !== $curr_qty ) ) {
+				$has_avail_diff = null !== $prev_avail && ( $prev_avail !== $curr_avail );
+				$has_qty_diff   = null !== $prev_qty && null !== $curr_qty && ( $prev_qty !== $curr_qty );
+
+				if ( $has_avail_diff || $has_qty_diff ) {
 					++$stock_changed_count;
 
 					if ( count( $samples['stock_changed'] ) < $sample_limit ) {
@@ -474,7 +477,7 @@ final class Catalog_Diff {
 			$overall_impact = 'warn';
 		}
 
-		if ( $require_approval && ( 'warn' === $status || 'fail' === $status || $drop_percent > 0 || $price_spike_count > 0 || $quality_excluded_count > 0 ) ) {
+		if ( $require_approval && ( 'warn' === $status || 'fail' === $status || ! empty( $warnings ) ) ) {
 			$overall_impact = 'approval_required';
 		}
 

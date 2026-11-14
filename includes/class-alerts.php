@@ -20,6 +20,13 @@ final class Alerts {
 	public const EVENT_STAGED_APPROVAL        = 'staged_approval_required';
 
 	/**
+	 * Test-injectable host resolver callback.
+	 *
+	 * @var (callable(string): array<string>)|null
+	 */
+	public static $host_resolver = null;
+
+	/**
 	 * Trigger alert across enabled channels if not suppressed.
 	 *
 	 * @param string               $event   Event constant.
@@ -57,7 +64,11 @@ final class Alerts {
 			return;
 		}
 
-		$recipient = sanitize_email( (string) Settings::get( 'feed_alert_email', '' ) );
+		$raw_email = (string) Settings::get( 'feed_alert_email', '' );
+		if ( '' === $raw_email && function_exists( 'get_option' ) ) {
+			$raw_email = (string) get_option( 'admin_email', '' );
+		}
+		$recipient = function_exists( 'sanitize_email' ) ? sanitize_email( $raw_email ) : (string) filter_var( $raw_email, FILTER_SANITIZE_EMAIL );
 		if ( ! is_email( $recipient ) ) {
 			return;
 		}
@@ -78,7 +89,8 @@ final class Alerts {
 		if ( ! empty( $context['warnings'] ) && is_array( $context['warnings'] ) ) {
 			$lines[] = 'Figyelmeztetések:';
 			foreach ( $context['warnings'] as $warning ) {
-				$lines[] = ' - ' . (string) $warning;
+				$msg = is_array( $warning ) ? (string) ( $warning['message'] ?? ( $warning['code'] ?? '' ) ) : (string) $warning;
+				$lines[] = ' - ' . $msg;
 			}
 		}
 
@@ -117,8 +129,20 @@ final class Alerts {
 
 		$url = trim( (string) Settings::get( 'feed_alert_webhook_url', '' ) );
 		if ( ! self::is_safe_webhook_url( $url ) ) {
-			Logger::warning( 'feed_alert', 'Webhook küldés elutasítva: érvénytelen vagy nem biztonságos URL (SSRF védelem).', array( 'url' => $url ) );
+			$safe_host = (string) ( wp_parse_url( $url, PHP_URL_HOST ) ?: 'invalid' );
+			Logger::warning( 'feed_alert', 'Webhook küldés elutasítva: érvénytelen vagy nem biztonságos URL (SSRF védelem).', array( 'host' => $safe_host ) );
 			return;
+		}
+
+		$formatted_warnings = array();
+		if ( ! empty( $context['warnings'] ) && is_array( $context['warnings'] ) ) {
+			foreach ( $context['warnings'] as $w ) {
+				if ( is_array( $w ) ) {
+					$formatted_warnings[] = (string) ( $w['message'] ?? ( $w['code'] ?? 'Unknown warning' ) );
+				} else {
+					$formatted_warnings[] = (string) $w;
+				}
+			}
 		}
 
 		// Pure telemetry payload. NEVER include credentials, customer data, order details, or secrets.
@@ -139,22 +163,24 @@ final class Alerts {
 				'price_spikes'  => (int) ( $context['diff']['price_spike_count'] ?? 0 ),
 				'stock_changed' => (int) ( $context['diff']['stock_changed_count'] ?? 0 ),
 			),
-			'warnings'    => array_values( array_map( 'strval', (array) ( $context['warnings'] ?? array() ) ) ),
+			'warnings'    => $formatted_warnings,
 		);
 
-		if ( function_exists( 'wp_remote_post' ) ) {
-			wp_remote_post(
+		$http_fn = function_exists( 'wp_safe_remote_post' ) ? 'wp_safe_remote_post' : 'wp_remote_post';
+		if ( function_exists( $http_fn ) ) {
+			$http_fn(
 				$url,
 				array(
-					'timeout'     => 5,
-					'redirection' => 0, // Disallow redirects to prevent SSRF redirect bypass
-					'httpversion' => '1.1',
-					'blocking'    => false, // Asynchronous / non-blocking so generation is not delayed
-					'headers'     => array(
+					'timeout'            => 5,
+					'redirection'        => 0, // Disallow redirects to prevent SSRF redirect bypass
+					'reject_unsafe_urls' => true,
+					'httpversion'        => '1.1',
+					'blocking'           => false, // Asynchronous / non-blocking so generation is not delayed
+					'headers'            => array(
 						'Content-Type' => 'application/json; charset=utf-8',
 						'User-Agent'   => 'WP-Pepita-Sync/' . WPS_PEPITA_VERSION,
 					),
-					'body'        => wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ),
+					'body'               => wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ),
 				)
 			);
 		}
@@ -206,6 +232,12 @@ final class Alerts {
 		$ips = array();
 		if ( filter_var( $host, FILTER_VALIDATE_IP ) ) {
 			$ips[] = $host;
+		} elseif ( null !== self::$host_resolver && is_callable( self::$host_resolver ) ) {
+			$resolved = (array) call_user_func( self::$host_resolver, $host );
+			$ips      = array_merge( $ips, $resolved );
+		} elseif ( function_exists( 'apply_filters' ) && null !== apply_filters( 'wps_pepita_resolve_host', null, $host ) ) {
+			$resolved = (array) apply_filters( 'wps_pepita_resolve_host', null, $host );
+			$ips      = array_merge( $ips, $resolved );
 		} else {
 			if ( function_exists( 'dns_get_record' ) ) {
 				$records = @dns_get_record( $host, DNS_A + DNS_AAAA );
@@ -228,7 +260,7 @@ final class Alerts {
 			}
 		}
 
-		// In test or stub environment where DNS lookups fail, if valid public hostname, allow.
+		// Fail closed if host cannot be resolved to any IP address.
 		if ( array() === $ips ) {
 			return false;
 		}
@@ -238,10 +270,15 @@ final class Alerts {
 			if ( ! filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) ) {
 				return false;
 			}
-			// Extra check for 127.0.0.0/8 or 0.0.0.0/8
-			if ( str_starts_with( $ip, '127.' ) || str_starts_with( $ip, '0.' ) || '::1' === $ip ) {
+			// Extra check for loopback, cloud metadata or reserved ranges.
+			if ( str_starts_with( $ip, '127.' ) || str_starts_with( $ip, '0.' ) || '::1' === $ip || str_starts_with( $ip, '169.254.' ) ) {
 				return false;
 			}
+			// Block Carrier Grade NAT (RFC 6598) 100.64.0.0/10 (including Alibaba metadata 100.100.100.200)
+			if ( preg_match( '/^100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\./', $ip ) ) {
+				return false;
+			}
+		}
 		}
 
 		return true;

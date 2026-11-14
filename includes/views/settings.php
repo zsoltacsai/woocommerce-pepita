@@ -481,6 +481,20 @@ $checked = static function ( string $key ) use ( $settings ): string {
 					</td>
 				</tr>
 				<tr>
+					<th scope="row"><label for="wps-price-spikes"><?php esc_html_e( 'Megengedett drasztikus áresések száma', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<input type="number" min="1" max="1000" id="wps-price-spikes" name="wps[feed_safety_max_price_spikes]" value="<?php echo esc_attr( (string) $field( 'feed_safety_max_price_spikes' ) ); ?>" class="small-text" />
+						<p class="description"><?php esc_html_e( 'Figyelmeztetés és jóváhagyási kérés aktiválódik, ha az árcsökkenési küszöböt meghaladó termékek száma eléri ezt az értéket (alapértelmezett: 10).', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="wps-quality-exclusions"><?php esc_html_e( 'Megengedett minőségi kizárások száma', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<input type="number" min="1" max="5000" id="wps-quality-exclusions" name="wps[feed_safety_max_quality_exclusions]" value="<?php echo esc_attr( (string) $field( 'feed_safety_max_quality_exclusions' ) ); ?>" class="small-text" />
+						<p class="description"><?php esc_html_e( 'Figyelmeztetés és jóváhagyási kérés aktiválódik, ha a minőségi hibák miatt kizárt termékek száma eléri ezt a küszöböt (alapértelmezett: 50).', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
 					<th scope="row"><?php esc_html_e( 'Vészhelyzeti feed-leállítás', 'wp-pepita-sync' ); ?></th>
 					<td>
 						<label>

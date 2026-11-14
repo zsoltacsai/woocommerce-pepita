@@ -1236,6 +1236,11 @@ function is_email( string $email ): bool {
 	return false !== filter_var( $email, FILTER_VALIDATE_EMAIL );
 }
 
+function sanitize_email( string $email ): string {
+	$sanitized = filter_var( $email, FILTER_SANITIZE_EMAIL );
+	return false !== $sanitized ? (string) $sanitized : '';
+}
+
 function is_wp_error( $thing ): bool {
 	return $thing instanceof WP_Error;
 }
@@ -1453,6 +1458,11 @@ function wp_remote_post( string $url, array $args = array() ): array {
 		'response' => array( 'code' => 200, 'message' => 'OK' ),
 		'body'     => '{"success":true}',
 	);
+}
+
+function wp_safe_remote_post( string $url, array $args = array() ): array {
+	$args['reject_unsafe_urls'] = true;
+	return wp_remote_post( $url, $args );
 }
 
 function wp_http_validate_url( string $url ) {

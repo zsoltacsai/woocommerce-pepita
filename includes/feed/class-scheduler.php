@@ -211,6 +211,26 @@ final class Scheduler {
 		return $hour >= $start || $hour < $end;
 	}
 
+	/**
+	 * Compute the Unix timestamp of the next off-peak window start.
+	 */
+	public static function next_offpeak_window_timestamp( ?int $from_time = null ): int {
+		$start_hour = (int) Settings::get( 'offpeak_start_hour', 1 );
+		$now        = $from_time ?? time();
+		$site_now   = (int) ( null !== $from_time ? wp_date( 'U', $from_time ) : current_time( 'timestamp' ) );
+
+		// Target time today in site timezone
+		$today_target = strtotime( sprintf( 'today %02d:00:00', $start_hour ), $site_now );
+		if ( false !== $today_target && $today_target > $site_now ) {
+			$diff = $today_target - $site_now;
+			return $now + max( 60, $diff );
+		}
+
+		$tomorrow_target = strtotime( sprintf( '+1 day %02d:00:00', $start_hour ), $site_now );
+		$diff            = false !== $tomorrow_target ? ( $tomorrow_target - $site_now ) : 3600;
+		return $now + max( 60, $diff );
+	}
+
 	private function run( string $type ): void {
 		if ( Lock::is_locked( $type ) ) {
 			Logger::debug( 'feed_schedule', 'A generálás már fut, az ütemezett kérés kihagyva.', array( 'type' => $type ) );
@@ -219,16 +239,30 @@ final class Scheduler {
 		}
 
 		if ( Generator::TYPE_FULL === $type && (bool) Settings::get( 'offpeak_schedule_enabled', false ) ) {
-			if ( ! self::is_in_offpeak_window() ) {
+			$is_continuation = (bool) get_option( 'wps_pepita_generation_state_' . $type, false );
+			if ( ! $is_continuation && ! self::is_in_offpeak_window() ) {
+				$next_window_ts = self::next_offpeak_window_timestamp();
+
 				Logger::info(
 					'feed_schedule',
-					'A teljes feed ütemezett generálása elhalasztva az off-peak időszakon kívül.',
+					'A teljes feed generálása elhalasztva a következő off-peak időszak kezdetéig.',
 					array(
-						'current_hour' => (int) current_time( 'G' ),
-						'start_hour'   => (int) Settings::get( 'offpeak_start_hour', 1 ),
-						'end_hour'     => (int) Settings::get( 'offpeak_end_hour', 5 ),
+						'current_hour'      => (int) current_time( 'G' ),
+						'start_hour'        => (int) Settings::get( 'offpeak_start_hour', 1 ),
+						'end_hour'          => (int) Settings::get( 'offpeak_end_hour', 5 ),
+						'deferred_until_ts' => $next_window_ts,
 					)
 				);
+
+				if ( self::has_action_scheduler() ) {
+					if ( ! as_has_scheduled_action( self::HOOK_QUEUE_FULL, array(), self::GROUP ) ) {
+						as_schedule_single_action( $next_window_ts, self::HOOK_QUEUE_FULL, array(), self::GROUP, true );
+					}
+				} elseif ( function_exists( 'wp_next_scheduled' ) && function_exists( 'wp_schedule_single_event' ) ) {
+					if ( ! wp_next_scheduled( self::HOOK_QUEUE_FULL ) ) {
+						wp_schedule_single_event( $next_window_ts, self::HOOK_QUEUE_FULL );
+					}
+				}
 
 				return;
 			}

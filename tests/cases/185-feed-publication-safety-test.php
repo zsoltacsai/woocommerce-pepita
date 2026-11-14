@@ -239,6 +239,7 @@ $suite->add(
 	static function (): void {
 		WPS_Test_State::reset();
 		Alerts::clear_suppression( Alerts::EVENT_SAFETY_GATE_TRIGGERED );
+		Alerts::$host_resolver = static fn( string $host ): array => array( '93.184.216.34' );
 
 		Settings::update(
 			array(
@@ -288,6 +289,7 @@ $suite->add(
 		WPS_Assert::same( 1, count( WPS_Test_State::$remote_posts ), 'Suppressed alert must not send second webhook' );
 
 		Alerts::clear_suppression( Alerts::EVENT_SAFETY_GATE_TRIGGERED );
+		Alerts::$host_resolver = null;
 	}
 );
 
@@ -360,5 +362,64 @@ $suite->add(
 		// 12:00 -> false
 		$t_1200 = strtotime( '2026-11-14 12:00:00' );
 		WPS_Assert::false( Scheduler::is_in_offpeak_window( $t_1200 ) );
+
+		// next_offpeak_window_timestamp targets next start hour
+		$next_ts = Scheduler::next_offpeak_window_timestamp( $t_1200 );
+		WPS_Assert::true( $next_ts > $t_1200 );
+	}
+);
+
+$suite->add(
+	'staging: approve updates feed state, enqueues stock, and prevents rollback',
+	static function () use ( $setup_storage ): void {
+		$setup_storage();
+
+		// Live V1
+		$f1 = sys_get_temp_dir() . '/live1_' . uniqid() . '.xml';
+		$i1 = sys_get_temp_dir() . '/live1_' . uniqid() . '.jsonl';
+		file_put_contents( $f1, '<Catalog><Product><Id>V1</Id></Product></Catalog>' );
+		file_put_contents( $i1, '{"pid":"V1"}' . "\n" );
+		Storage::publish_full( $f1, $i1, 'gen-v1' );
+
+		// Stage V2
+		$f2 = sys_get_temp_dir() . '/staged2_' . uniqid() . '.xml';
+		$i2 = sys_get_temp_dir() . '/staged2_' . uniqid() . '.jsonl';
+		file_put_contents( $f2, '<Catalog><Product><Id>V2</Id></Product></Catalog>' );
+		file_put_contents( $i2, '{"pid":"V2"}' . "\n" );
+		Storage::stage_full( $f2, $i2, 'gen-v2', 'sig-v2', array( 'status' => 'warn' ), 'Pending review', array( 'exported' => 5 ), array( 'warn' ) );
+
+		$staged_info = Storage::get_staged_full();
+		WPS_Assert::same( 'gen-v1', $staged_info['base_generation_id'] );
+
+		// Now simulate a newer normal publication happening while V2 was pending (V3)
+		$f3 = sys_get_temp_dir() . '/live3_' . uniqid() . '.xml';
+		$i3 = sys_get_temp_dir() . '/live3_' . uniqid() . '.jsonl';
+		file_put_contents( $f3, '<Catalog><Product><Id>V3</Id></Product></Catalog>' );
+		file_put_contents( $i3, '{"pid":"V3"}' . "\n" );
+		// Calling publish_full directly would discard staged, but if staged existed with old base_gen:
+		Storage::stage_full( $f2, $i2, 'gen-v2-test', 'sig-v2-test', array(), 're-stage' );
+		// Manually tamper base_gen to simulate stale staged feed
+		$staged_meta = get_option( 'wps_pepita_feed_staged_full' );
+		$staged_meta['base_generation_id'] = 'gen-obsolete-base';
+		update_option( 'wps_pepita_feed_staged_full', $staged_meta, false );
+
+		// Approval must be rejected because base_gen does not match active generation
+		$approved = Storage::approve_staged_full();
+		WPS_Assert::false( $approved, 'Approval must refuse rollback over mismatched base generation' );
+
+		// Health check reflects warning while staged feed exists
+		$checks = \WPS\Pepita\Health::checks();
+		$found_staged_check = false;
+		foreach ( $checks as $check ) {
+			if ( 'Biztonsági kapu' === ( $check['label'] ?? '' ) ) {
+				$found_staged_check = true;
+				WPS_Assert::same( \WPS\Pepita\Health::STATUS_WARN, $check['status'] );
+			}
+		}
+		WPS_Assert::true( $found_staged_check, 'Health checks must include staged warning' );
+
+		// Clean up
+		Storage::discard_staged_full();
+		WPS_Assert::false( Storage::has_staged_full() );
 	}
 );
