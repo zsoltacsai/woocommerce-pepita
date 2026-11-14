@@ -34,6 +34,37 @@ final class Product_Issues {
 	public const ISSUE_SKU           = 'missing_sku';
 	public const ISSUE_GENERIC       = 'validation_error';
 
+	/** @var array<string, int> Internal diagnostic penalties, not Pepita scoring rules. */
+	private const QUALITY_PENALTIES = array(
+		'missing_product'    => 100,
+		'image_dim'           => 25,
+		'invalid_image'       => 30,
+		'missing_image'       => 30,
+		'webp'                => 25,
+		'missing_name'        => 15,
+		'missing_description' => 10,
+		'invalid_price'       => 20,
+		'invalid_vat'         => 15,
+		'missing_category'    => 20,
+		'missing_gtin'        => 15,
+		'missing_sku'         => 3,
+	);
+
+	/** @var array<string, string> Actionable guidance derived only from known validator findings. */
+	private const QUALITY_RECOMMENDATIONS = array(
+		'image_dim'           => 'Cserélje a képet legalább 1200×630 pixeles, jó minőségű JPEG vagy PNG fájlra; ne nagyítsa fel a kis képet.',
+		'invalid_image'       => 'Ellenőrizze a helyi képfájlt, MIME-típust és dekódolhatóságot, majd adjon meg érvényes JPEG vagy PNG képet.',
+		'missing_image'       => 'Állítson be ellenőrizhető kiemelt képet vagy megfelelő galériaképet.',
+		'webp'                => 'Használjon ellenőrzött JPEG/PNG eredetit, vagy javítsa a WebP forrásfájlt és próbálja újra a konverziót.',
+		'missing_name'        => 'Adjon meg terméknevet a WooCommerce termékszerkesztőben.',
+		'missing_description' => 'Adjon meg pontos, termékspecifikus leírást.',
+		'invalid_price'       => 'Ellenőrizze, hogy a termék feedre számított bruttó ára pozitív és érvényes.',
+		'invalid_vat'         => 'Ellenőrizze a WooCommerce adóosztályt és az adóbeállításokat.',
+		'missing_category'    => 'Rendelje a terméket egy engedélyezett, Pepita-exporthoz leképezett kategóriához.',
+		'missing_gtin'        => 'Adja meg a termék valódi GTIN/EAN/ISBN kódját; a rendszer nem generál helyette kódot.',
+		'missing_sku'         => 'Opcionális: adja meg a kereskedő tényleges belső cikkszámát. Ez önmagában nem blokkolja az exportot.',
+	);
+
 	/** @var array<int, array<int, array{category: string, code: string, description: string, blocking: bool}>> */
 	private static array $issues_cache = array();
 
@@ -246,6 +277,63 @@ final class Product_Issues {
 	}
 
 	/**
+	 * Return an internal diagnostic score and safe, non-mutating recommendations.
+	 * The score is not a Pepita ranking and never changes validation or eligibility.
+	 *
+	 * @param int $product_id
+	 * @return array{score: int, official: bool, blocking_count: int, warning_count: int, recommendations: array<int, array{code: string, blocking: bool, text: string}>}
+	 */
+	public static function quality_summary( int $product_id ): array {
+		return self::summarize_issues( self::inspect( $product_id ) );
+	}
+
+	/**
+	 * Deterministic summary helper kept separate so scoring does not depend on product mutations.
+	 *
+	 * @param array<int, array{code: string, blocking: bool}> $issues
+	 * @return array{score: int, official: bool, blocking_count: int, warning_count: int, recommendations: array<int, array{code: string, blocking: bool, text: string}>}
+	 */
+	public static function summarize_issues( array $issues ): array {
+		$score            = 100;
+		$blocking_count   = 0;
+		$warning_count    = 0;
+		$recommendations  = array();
+		$seen             = array();
+
+		foreach ( $issues as $issue ) {
+			$code     = sanitize_key( (string) ( $issue['code'] ?? '' ) );
+			$blocking = ! empty( $issue['blocking'] );
+			if ( '' === $code || isset( $seen[ $code ] ) ) {
+				continue;
+			}
+			$seen[ $code ] = true;
+
+			if ( $blocking ) {
+				++$blocking_count;
+			} else {
+				++$warning_count;
+			}
+
+			$score -= self::QUALITY_PENALTIES[ $code ] ?? ( $blocking ? 10 : 2 );
+			if ( isset( self::QUALITY_RECOMMENDATIONS[ $code ] ) ) {
+				$recommendations[] = array(
+					'code'     => $code,
+					'blocking' => $blocking,
+					'text'     => self::QUALITY_RECOMMENDATIONS[ $code ],
+				);
+			}
+		}
+
+		return array(
+			'score'           => max( 0, min( 100, $score ) ),
+			'official'        => false,
+			'blocking_count'  => $blocking_count,
+			'warning_count'   => $warning_count,
+			'recommendations' => $recommendations,
+		);
+	}
+
+	/**
 	 * Determine the current feed eligibility state and badge styling for a product.
 	 *
 	 * @param int                                                                             $product_id
@@ -346,6 +434,7 @@ final class Product_Issues {
 			}
 
 			$status = self::feed_status( $pid, $issues );
+			$quality = self::summarize_issues( $issues );
 
 			// Filter by feed eligibility.
 			if ( 'all' !== $feed_filter && $status['key'] !== $feed_filter ) {
@@ -377,6 +466,7 @@ final class Product_Issues {
 				'thumbnail_url'      => $thumb_url,
 				'primary_category'   => $cat_path,
 				'issues'             => $issues,
+				'quality_summary'    => $quality,
 				'problem_categories' => array_values( array_unique( array_column( $issues, 'category' ) ) ),
 				'descriptions'       => array_column( $issues, 'description' ),
 				'feed_status'        => $status,

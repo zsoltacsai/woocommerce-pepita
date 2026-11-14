@@ -119,6 +119,16 @@ $checked = static function ( string $key ) use ( $settings ): string {
 					</td>
 				</tr>
 				<tr>
+					<th scope="row"><?php esc_html_e( 'Belső minőségi pontszám', 'wp-pepita-sync' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="wps[show_internal_quality_score]" value="1" <?php echo $checked( 'show_internal_quality_score' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
+							<?php esc_html_e( 'Mutassa a belső 0–100 diagnosztikai pontszámot a hibás termékek listájában', 'wp-pepita-sync' ); ?>
+						</label>
+						<p class="description"><?php esc_html_e( 'Ez a saját ellenőrzéseinkből számított tájékoztató érték; nem Pepita-rangsor és nem írja felül a kötelező validációt.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
 					<th scope="row"><label for="wps-primary-category-strategy"><?php esc_html_e( 'Elsődleges kategória kiválasztási stratégia', 'wp-pepita-sync' ); ?></label></th>
 					<td>
 						<select id="wps-primary-category-strategy" name="wps[primary_category_strategy]">

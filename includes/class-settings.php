@@ -39,6 +39,7 @@ final class Settings {
 			'allowed_product_statuses' => array( 'publish' ),
 			'beta_feed_only'           => false,
 			'exclude_quality_issues'   => false,
+			'show_internal_quality_score' => false,
 
 			// Pricing and tax.
 			'currency'                 => '',
@@ -390,6 +391,7 @@ final class Settings {
 			'feed_emergency_disabled',
 			'beta_feed_only',
 			'exclude_quality_issues',
+			'show_internal_quality_score',
 			'order_api_enabled',
 			'order_api_require_https',
 			'order_api_keep_payloads',

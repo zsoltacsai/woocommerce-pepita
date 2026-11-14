@@ -777,6 +777,47 @@ $suite->add(
 	}
 );
 
+$suite->add(
+	'm9f quality summary: deterministic internal score and recommendations do not change eligibility rules',
+	static function (): void {
+		$summary = Product_Issues::summarize_issues(
+			array(
+				array( 'code' => Product_Issues::ISSUE_PRICE, 'blocking' => true ),
+				array( 'code' => Product_Issues::ISSUE_PRICE, 'blocking' => true ),
+				array( 'code' => Product_Issues::ISSUE_SKU, 'blocking' => false ),
+			)
+		);
+
+		WPS_Assert::same( 77, $summary['score'], 'One invalid price (20 points) and an optional missing SKU (3 points) have documented internal penalties.' );
+		WPS_Assert::same( false, $summary['official'], 'The score must never claim to be an official Pepita ranking.' );
+		WPS_Assert::same( 1, $summary['blocking_count'] );
+		WPS_Assert::same( 1, $summary['warning_count'] );
+		WPS_Assert::same( 2, count( $summary['recommendations'] ) );
+		WPS_Assert::true( str_contains( $summary['recommendations'][0]['text'], 'pozitív' ) );
+		WPS_Assert::true( str_contains( $summary['recommendations'][1]['text'], 'Opcionális' ) );
+
+		WPS_Test_State::reset();
+		Settings::update( array( 'default_included' => true ) );
+		WPS_Test_State::add_term( 100, 'Kategória 100' );
+		WPS_Test_State::add_attachment( 830, 'https://example.test/img.jpg' );
+		WPS_Test_State::$attachment_metadata[830] = array( 'width' => 1200, 'height' => 800 );
+		WPS_Test_State::add_product(
+			array(
+				'id'          => 7021,
+				'name'        => 'Quality summary product',
+				'description' => 'Érvényes termékleírás',
+				'price'       => 1000,
+				'sku'         => 'QUALITY-01',
+				'image_id'    => 830,
+			)
+		);
+		WPS_Test_State::assign_term( 7021, 100 );
+		$eligibility_before = Product_Selection::resolve( 7021 );
+		Product_Issues::quality_summary( 7021 );
+		WPS_Assert::same( $eligibility_before, Product_Selection::resolve( 7021 ), 'Scoring must not alter product selection or feed eligibility.' );
+	}
+);
+
 /* =========================================================================
  * 6. FN-DECO 269 Baseline Acceptance: 28 Excluded, 241 Exported, #9897 Verified
  * ========================================================================= */

@@ -36,6 +36,7 @@ $base_args = array(
 );
 
 $auto_exclude_on = Settings::exclude_quality_issues();
+$show_quality_score = (bool) Settings::get( 'show_internal_quality_score', false );
 ?>
 <div class="wrap wps-wrap">
 	<h1><?php esc_html_e( 'Pepita hibás termékek', 'wp-pepita-sync' ); ?></h1>
@@ -126,6 +127,9 @@ $auto_exclude_on = Settings::exclude_quality_issues();
 								<?php echo esc_html( $item['name'] ); ?>
 							</a>
 						</strong>
+						<?php if ( $show_quality_score ) : ?>
+							<br /><small><?php echo esc_html( sprintf( /* translators: %d: internal diagnostic score */ __( 'Belső minőségi pont: %d/100', 'wp-pepita-sync' ), (int) $item['quality_summary']['score'] ) ); ?></small>
+						<?php endif; ?>
 					</td>
 					<td><code><?php echo esc_html( $item['sku'] ); ?></code></td>
 					<td><?php echo esc_html( $item['primary_category'] ); ?></td>
@@ -142,6 +146,13 @@ $auto_exclude_on = Settings::exclude_quality_issues();
 								<li style="margin-bottom: 4px; font-size: 13px;"><?php echo esc_html( $desc ); ?></li>
 							<?php endforeach; ?>
 						</ul>
+						<?php if ( ! empty( $item['quality_summary']['recommendations'] ) ) : ?>
+							<ul style="margin: 6px 0 0; padding-left: 16px; list-style-type: circle;">
+								<?php foreach ( $item['quality_summary']['recommendations'] as $recommendation ) : ?>
+									<li style="margin-bottom: 4px; font-size: 12px;"><strong><?php esc_html_e( 'Javaslat:', 'wp-pepita-sync' ); ?></strong> <?php echo esc_html( $recommendation['text'] ); ?></li>
+								<?php endforeach; ?>
+							</ul>
+						<?php endif; ?>
 					</td>
 					<td>
 						<span class="wps-badge <?php echo esc_attr( $item['feed_status']['class'] ); ?>">
