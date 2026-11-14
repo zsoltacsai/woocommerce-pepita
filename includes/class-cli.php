@@ -252,4 +252,117 @@ final class Cli {
 
 		\WP_CLI::success( sprintf( '%d naplóbejegyzés és %d adatcsomag törölve.', $logs, $payloads ) );
 	}
+
+	/**
+	 * Export the current store configuration as a secret-free profile JSON.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--file=<file>]
+	 * : Destination file path to save the profile.
+	 *
+	 * [--pretty]
+	 * : Pretty-print the JSON output.
+	 *
+	 * @subcommand export-profile
+	 */
+	public function export_profile( array $args, array $assoc_args ): void {
+		$profile = \WPS\Pepita\Admin\Merchant_Profiles::export_profile();
+		$flags   = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
+		if ( isset( $assoc_args['pretty'] ) ) {
+			$flags |= JSON_PRETTY_PRINT;
+		}
+
+		$json = wp_json_encode( $profile, $flags );
+		$file = $assoc_args['file'] ?? '';
+
+		if ( '' !== $file ) {
+			if ( false === file_put_contents( $file, $json ) ) {
+				\WP_CLI::error( 'A profil mentése meghiúsult a megadott fájlba.' );
+				return;
+			}
+			\WP_CLI::success( sprintf( 'Konfigurációs profil elmentve: %s', $file ) );
+			return;
+		}
+
+		\WP_CLI::log( (string) $json );
+	}
+
+	/**
+	 * Import a configuration profile JSON into the current store.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <file>
+	 * : Path to the profile JSON file.
+	 *
+	 * [--no-categories]
+	 * : Skip importing category rules.
+	 *
+	 * @subcommand import-profile
+	 */
+	public function import_profile( array $args, array $assoc_args ): void {
+		$file = $args[0] ?? '';
+		if ( '' === $file || ! file_exists( $file ) ) {
+			\WP_CLI::error( 'A megadott profilfájl nem található.' );
+			return;
+		}
+
+		$content = (string) file_get_contents( $file );
+		$decoded = json_decode( $content, true );
+		if ( ! is_array( $decoded ) ) {
+			\WP_CLI::error( 'A profilfájl nem érvényes JSON.' );
+			return;
+		}
+
+		$import_cats = ! isset( $assoc_args['no-categories'] );
+		$res         = \WPS\Pepita\Admin\Merchant_Profiles::import_profile( $decoded, array( 'import_category_rules' => $import_cats ) );
+
+		if ( ! $res['success'] ) {
+			\WP_CLI::error( $res['message'] );
+			return;
+		}
+
+		\WP_CLI::success( sprintf( 'Profil sikeresen importálva (%d beállítás, %d kategóriaszabály).', $res['imported_settings'], $res['imported_categories'] ) );
+	}
+
+	/**
+	 * Show operational summary and order reconciliation statistics.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--days=<days>]
+	 * : Number of days to include in the report (default: 30).
+	 *
+	 * [--format=<format>]
+	 * : Render output format (table, json, csv). Default: table.
+	 *
+	 * @subcommand report-orders
+	 */
+	public function report_orders( array $args, array $assoc_args ): void {
+		$days    = isset( $assoc_args['days'] ) ? max( 1, (int) $assoc_args['days'] ) : 30;
+		$format  = $assoc_args['format'] ?? 'table';
+		$summary = \WPS\Pepita\Admin\Operational_Reports::get_summary( $days );
+
+		if ( 'json' === $format ) {
+			\WP_CLI::log( (string) wp_json_encode( $summary, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE ) );
+			return;
+		}
+
+		if ( 'csv' === $format ) {
+			\WP_CLI::log( \WPS\Pepita\Admin\Operational_Reports::export_report_csv( $days ) );
+			return;
+		}
+
+		$rows = array(
+			array( 'Metrika' => 'Időszak (napok)', 'Érték' => $days ),
+			array( 'Metrika' => 'Összes rendelésértesítés', 'Érték' => $summary['total_orders'] ),
+			array( 'Metrika' => 'Sikeresen importálva', 'Érték' => $summary['completed_orders'] ),
+			array( 'Metrika' => 'Sikertelen kísérlet', 'Érték' => $summary['failed_orders'] ),
+			array( 'Metrika' => 'Árva rendelések', 'Érték' => $summary['orphan_orders'] ),
+			array( 'Metrika' => 'Összesített GMV', 'Érték' => $summary['total_gmv'] ),
+		);
+
+		\WP_CLI\Utils\format_items( 'table', $rows, array( 'Metrika', 'Érték' ) );
+	}
 }
