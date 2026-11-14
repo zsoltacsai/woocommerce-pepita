@@ -253,6 +253,16 @@ final class Category_Rules {
 	}
 
 	/**
+	 * Check if GTIN is required for a single term ID.
+	 *
+	 * @param int $term_id
+	 * @return bool
+	 */
+	public static function is_gtin_required( int $term_id ): bool {
+		return self::gtin_required( array( $term_id ) );
+	}
+
+	/**
 	 * Persist the category form values.
 	 *
 	 * @param array<string, mixed> $data

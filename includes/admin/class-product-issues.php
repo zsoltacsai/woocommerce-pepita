@@ -187,7 +187,7 @@ final class Product_Issues {
 			// Check mandatory GTIN requirement for resolved category.
 			$primary_leaf = end( $categories[0] );
 			$cat_id       = (int) ( $primary_leaf['id'] ?? 0 );
-			if ( $cat_id > 0 && Category_Rules::is_gtin_required( $cat_id ) ) {
+			if ( $cat_id > 0 && Category_Rules::gtin_required( array( $cat_id ) ) ) {
 				$gtin = Product_Mapper::gtin( $product_id );
 				if ( '' === $gtin ) {
 					$issues[] = array(
