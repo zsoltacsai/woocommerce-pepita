@@ -190,12 +190,28 @@ final class Marketplace_Inventory {
 	 * - If product is out of stock in WooCommerce and not backorderable, returns 0.
 	 * - Never returns negative quantity.
 	 *
-	 * @param int|null                 $source_qty
-	 * @param array<string, mixed>     $rules
+	 * Supports either:
+	 *   calculate_quantity( \WC_Product $product, array $term_ids = array() )
+	 * or:
+	 *   calculate_quantity( ?int $source_qty, array $rules, ?\WC_Product $product = null )
+	 *
+	 * @param \WC_Product|int|null     $product_or_qty
+	 * @param array<string, mixed>     $rules_or_terms
 	 * @param \WC_Product|null         $product
 	 * @return int|null
 	 */
-	public static function calculate_quantity( ?int $source_qty, array $rules, ?\WC_Product $product = null ): ?int {
+	public static function calculate_quantity( $product_or_qty, array $rules_or_terms = array(), ?\WC_Product $product = null ): ?int {
+		if ( $product_or_qty instanceof \WC_Product ) {
+			$product    = $product_or_qty;
+			$source_qty = $product->managing_stock() ? (int) $product->get_stock_quantity() : null;
+			$parent_id  = $product->is_type( 'variation' ) ? (int) $product->get_parent_id() : null;
+			$term_ids   = $rules_or_terms;
+			$rules      = self::resolve_rules( (int) $product->get_id(), $term_ids, $parent_id );
+		} else {
+			$source_qty = null !== $product_or_qty ? (int) $product_or_qty : null;
+			$rules      = $rules_or_terms;
+		}
+
 		if ( null === $source_qty ) {
 			return null;
 		}

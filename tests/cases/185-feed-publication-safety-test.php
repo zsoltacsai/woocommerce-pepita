@@ -579,12 +579,11 @@ $suite->add(
 			$staged_full_tmp,
 			$staged_idx_tmp,
 			'gen-v2',
-			'gen-v1',
+			'sig-v2',
 			array( 'added_count' => 1 ),
 			'approval_required',
 			array(),
-			array(),
-			'sig-v2'
+			array()
 		);
 		WPS_Assert::true( $staged, 'Staging full feed should succeed' );
 		WPS_Assert::true( Storage::has_staged_full(), 'Staged feed should be recognized' );
