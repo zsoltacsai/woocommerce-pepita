@@ -216,8 +216,11 @@ final class Marketplace_Inventory {
 			return null;
 		}
 
-		$is_in_stock = null === $product || $product->is_in_stock();
-		$backorders  = $product && method_exists( $product, 'backorders_allowed' ) && $product->backorders_allowed();
+		$stock_status = ( $product && method_exists( $product, 'get_stock_status' ) )
+			? (string) $product->get_stock_status()
+			: ( ( null === $product || $product->is_in_stock() ) ? 'instock' : 'outofstock' );
+		$is_in_stock  = ( 'outofstock' !== $stock_status ) && ( null === $product || $product->is_in_stock() );
+		$backorders   = $product && method_exists( $product, 'backorders_allowed' ) && $product->backorders_allowed();
 
 		if ( ! $is_in_stock && ! $backorders ) {
 			return 0;

@@ -161,8 +161,8 @@ $global_min_margin       = Settings::get( 'marketplace_min_margin_percent', null
 					// Pricing calculations
 					$source_price = (float) $product->get_price();
 					$source_gross = Price_Calculator::gross( $product );
-					$calculated   = Price_Calculator::calculate( $product );
-					$target_gross = (float) ( $calculated['gross'] ?? $source_gross );
+					$adjustment   = Price_Calculator::resolve_adjustment( $product_id, $term_ids );
+					$target_gross = Price_Calculator::adjust( $source_gross, $adjustment );
 
 					$diff = round( $target_gross - $source_gross, 2 );
 

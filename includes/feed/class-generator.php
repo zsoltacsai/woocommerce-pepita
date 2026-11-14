@@ -14,6 +14,7 @@ namespace WPS\Pepita\Feed;
 
 use WPS\Pepita\Alerts;
 use WPS\Pepita\Catalog\Category_Rules;
+use WPS\Pepita\Catalog\Marketplace_Pricing;
 use WPS\Pepita\Catalog\Product_Mapper;
 use WPS\Pepita\Catalog\Product_Selection;
 use WPS\Pepita\Catalog\Validator;
@@ -614,6 +615,27 @@ final class Generator {
 
 		if ( self::TYPE_FULL === $type ) {
 			$catalog_diff = Catalog_Diff::compare( $index_temp, Storage::catalog_index_path() );
+
+			// Check for pricing strategy margin below threshold warnings.
+			$margin_warning_count = 0;
+			if ( ! empty( $state['warnings'] ) ) {
+				foreach ( $state['warnings'] as $w ) {
+					if ( is_array( $w ) && 'margin_below_threshold' === ( $w['code'] ?? '' ) ) {
+						++$margin_warning_count;
+					}
+				}
+			}
+			if ( $margin_warning_count > 0 && Marketplace_Pricing::is_enabled() ) {
+				$msg = sprintf(
+					'Figyelem: %d termék árrése a minimális elvárt szint alatt van. Kézi jóváhagyás szükséges.',
+					$margin_warning_count
+				);
+				$catalog_diff['warnings'][] = $msg;
+				if ( 'fail' !== $catalog_diff['status'] ) {
+					$catalog_diff['status'] = 'warn';
+				}
+				$catalog_diff['overall_impact'] = 'approval_required';
+			}
 
 			if ( ! empty( $catalog_diff['warnings'] ) ) {
 				foreach ( $catalog_diff['warnings'] as $warning ) {

@@ -454,3 +454,67 @@ $suite->add(
 		WPS_Assert::equals( 0.0, (float) Settings::get( 'marketplace_min_margin_percent' ) );
 	}
 );
+
+$suite->add(
+	'strategy: category pricing rule inheritance when product only defines cost of goods',
+	static function () use ( $setup_taxonomy ): void {
+		$setup_taxonomy();
+
+		Settings::update(
+			array(
+				'marketplace_commission_percent' => 5.0,
+				'marketplace_min_margin_percent' => 10.0,
+			)
+		);
+
+		// Category 202 overrides commission to 15% and min margin to 25%
+		Category_Rules::save(
+			202,
+			array(
+				'commission_percent' => '15,5',
+				'min_margin'         => '25,0',
+			)
+		);
+
+		// Product has category 202 and only sets cost price
+		$product = WPS_Test_State::add_product(
+			array(
+				'id'    => 1070,
+				'price' => '10000',
+			)
+		);
+		update_post_meta( 1070, Marketplace_Pricing::META_COST_PRICE, 4500.0 );
+
+		$resolved = Marketplace_Pricing::resolve_cost_inputs( 1070, array( 201, 202 ) );
+
+		// Product COGS must NOT wipe out category commission % or min margin
+		WPS_Assert::equals( 15.5, $resolved['commission_percent'] );
+		WPS_Assert::equals( 25.0, $resolved['min_margin'] );
+		WPS_Assert::equals( 4500.0, $resolved['cost_price'] );
+		WPS_Assert::same( 'category', $resolved['source'] );
+	}
+);
+
+$suite->add(
+	'strategy: admin strategy preview view renders cleanly without runtime warnings or errors',
+	static function (): void {
+		Settings::update(
+			array(
+				'inventory_strategy_enabled'     => true,
+				'pricing_strategy_enabled'       => true,
+				'marketplace_commission_percent' => 12.0,
+				'marketplace_min_margin_percent' => 15.0,
+			)
+		);
+
+		$admin = new Admin();
+
+		ob_start();
+		$admin->render_strategy();
+		$html = ob_get_clean();
+
+		WPS_Assert::true( is_string( $html ) && '' !== $html, 'Strategy view rendered output string' );
+		WPS_Assert::true( false !== strpos( $html, 'Készlet és árazás stratégia' ), 'Contains Hungarian title' );
+		WPS_Assert::true( false !== strpos( $html, 'wp-pepita-strategy-table' ), 'Contains strategy table container' );
+	}
+);

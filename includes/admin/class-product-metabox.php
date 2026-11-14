@@ -352,12 +352,12 @@ final class Product_Metabox {
 				continue;
 			}
 
-			if ( in_array( $field, array( 'wps_inventory_buffer', 'wps_inventory_max_qty' ), true ) ) {
+			if ( 'wps_inventory_buffer' === $field ) {
 				$value = trim( $value );
 				if ( '' !== $value ) {
 					$val = (int) $value;
 					if ( $val >= 0 ) {
-						update_post_meta( $post_id, $meta_key, $val );
+						update_post_meta( $post_id, $meta_key, min( 999999, $val ) );
 					} else {
 						delete_post_meta( $post_id, $meta_key );
 					}
@@ -368,12 +368,44 @@ final class Product_Metabox {
 				continue;
 			}
 
-			if ( in_array( $field, array( 'wps_cost_price', 'wps_commission_percent', 'wps_min_margin' ), true ) ) {
+			if ( 'wps_inventory_max_qty' === $field ) {
+				$value = trim( $value );
+				if ( '' !== $value ) {
+					$val = (int) $value;
+					if ( $val > 0 ) {
+						update_post_meta( $post_id, $meta_key, min( 999999, $val ) );
+					} else {
+						delete_post_meta( $post_id, $meta_key );
+					}
+				} else {
+					delete_post_meta( $post_id, $meta_key );
+				}
+
+				continue;
+			}
+
+			if ( in_array( $field, array( 'wps_commission_percent', 'wps_min_margin' ), true ) ) {
 				$value = trim( $value );
 				if ( '' !== $value ) {
 					$val = (float) str_replace( ',', '.', $value );
 					if ( $val >= 0.0 ) {
-						update_post_meta( $post_id, $meta_key, $val );
+						update_post_meta( $post_id, $meta_key, min( 100.0, $val ) );
+					} else {
+						delete_post_meta( $post_id, $meta_key );
+					}
+				} else {
+					delete_post_meta( $post_id, $meta_key );
+				}
+
+				continue;
+			}
+
+			if ( 'wps_cost_price' === $field ) {
+				$value = trim( $value );
+				if ( '' !== $value ) {
+					$val = (float) str_replace( ',', '.', $value );
+					if ( $val >= 0.0 ) {
+						update_post_meta( $post_id, $meta_key, min( 1000000000.0, $val ) );
 					} else {
 						delete_post_meta( $post_id, $meta_key );
 					}

@@ -58,79 +58,103 @@ final class Marketplace_Pricing {
 	 * }
 	 */
 	public static function resolve_cost_inputs( int $product_id, array $term_ids = array(), ?int $parent_id = null ): array {
-		// 1. Direct product-level metadata.
-		$prod_comm_pct = get_post_meta( $product_id, self::META_COMMISSION_PERCENT, true );
-		$prod_comm_fix = get_post_meta( $product_id, self::META_COMMISSION_FIXED, true );
-		$prod_pkg      = get_post_meta( $product_id, self::META_PACKAGING_COST, true );
-		$prod_ship     = get_post_meta( $product_id, self::META_SHIPPING_COST, true );
-		$prod_cost     = self::read_cost_meta( $product_id );
-		$prod_min_mgn  = get_post_meta( $product_id, self::META_MIN_MARGIN, true );
-
-		$has_prod_rule = '' !== $prod_comm_pct
-			|| '' !== $prod_comm_fix
-			|| '' !== $prod_pkg
-			|| '' !== $prod_ship
-			|| null !== $prod_cost
-			|| '' !== $prod_min_mgn;
-
-		if ( $has_prod_rule ) {
-			return array(
-				'commission_percent' => '' !== $prod_comm_pct ? (float) $prod_comm_pct : (float) Settings::get( 'marketplace_commission_percent', 0.0 ),
-				'commission_fixed'   => '' !== $prod_comm_fix ? (float) $prod_comm_fix : (float) Settings::get( 'marketplace_commission_fixed', 0.0 ),
-				'packaging_cost'     => '' !== $prod_pkg ? (float) $prod_pkg : (float) Settings::get( 'marketplace_packaging_cost', 0.0 ),
-				'shipping_cost'      => '' !== $prod_ship ? (float) $prod_ship : (float) Settings::get( 'marketplace_shipping_cost', 0.0 ),
-				'cost_price'         => $prod_cost,
-				'min_margin'         => '' !== $prod_min_mgn ? (float) $prod_min_mgn : self::default_min_margin(),
-				'source'             => 'product',
-			);
+		// 1. Establish baseline from category (if configured) or global settings.
+		$cat_rule = self::resolve_category_cost_rule( $term_ids );
+		if ( null !== $cat_rule ) {
+			$base_comm_pct = (float) $cat_rule['commission_percent'];
+			$base_comm_fix = (float) $cat_rule['commission_fixed'];
+			$base_pkg      = (float) $cat_rule['packaging_cost'];
+			$base_ship     = (float) $cat_rule['shipping_cost'];
+			$base_min_mgn  = (float) $cat_rule['min_margin'];
+			$source        = 'category';
+		} else {
+			$base_comm_pct = (float) Settings::get( 'marketplace_commission_percent', 0.0 );
+			$base_comm_fix = (float) Settings::get( 'marketplace_commission_fixed', 0.0 );
+			$base_pkg      = (float) Settings::get( 'marketplace_packaging_cost', 0.0 );
+			$base_ship     = (float) Settings::get( 'marketplace_shipping_cost', 0.0 );
+			$base_min_mgn  = self::default_min_margin();
+			$source        = 'global';
 		}
 
-		// If variation has no direct overrides, check parent product overrides.
+		// 2. Parent product overrides for variation items.
+		$parent_cost = null;
 		if ( null !== $parent_id && $parent_id > 0 && $parent_id !== $product_id ) {
 			$parent_comm_pct = get_post_meta( $parent_id, self::META_COMMISSION_PERCENT, true );
 			$parent_comm_fix = get_post_meta( $parent_id, self::META_COMMISSION_FIXED, true );
 			$parent_pkg      = get_post_meta( $parent_id, self::META_PACKAGING_COST, true );
 			$parent_ship     = get_post_meta( $parent_id, self::META_SHIPPING_COST, true );
-			$parent_cost     = self::read_cost_meta( $parent_id );
 			$parent_min_mgn  = get_post_meta( $parent_id, self::META_MIN_MARGIN, true );
+			$parent_cost     = self::read_cost_meta( $parent_id );
 
-			$has_parent_rule = '' !== $parent_comm_pct
+			$has_parent_pricing = '' !== $parent_comm_pct
 				|| '' !== $parent_comm_fix
 				|| '' !== $parent_pkg
 				|| '' !== $parent_ship
-				|| null !== $parent_cost
 				|| '' !== $parent_min_mgn;
 
-			if ( $has_parent_rule ) {
-				return array(
-					'commission_percent' => '' !== $parent_comm_pct ? (float) $parent_comm_pct : (float) Settings::get( 'marketplace_commission_percent', 0.0 ),
-					'commission_fixed'   => '' !== $parent_comm_fix ? (float) $parent_comm_fix : (float) Settings::get( 'marketplace_commission_fixed', 0.0 ),
-					'packaging_cost'     => '' !== $parent_pkg ? (float) $parent_pkg : (float) Settings::get( 'marketplace_packaging_cost', 0.0 ),
-					'shipping_cost'      => '' !== $parent_ship ? (float) $parent_ship : (float) Settings::get( 'marketplace_shipping_cost', 0.0 ),
-					'cost_price'         => $parent_cost,
-					'min_margin'         => '' !== $parent_min_mgn ? (float) $parent_min_mgn : self::default_min_margin(),
-					'source'             => 'variation_parent',
-				);
+			if ( $has_parent_pricing ) {
+				if ( '' !== $parent_comm_pct ) {
+					$base_comm_pct = (float) $parent_comm_pct;
+				}
+				if ( '' !== $parent_comm_fix ) {
+					$base_comm_fix = (float) $parent_comm_fix;
+				}
+				if ( '' !== $parent_pkg ) {
+					$base_pkg = (float) $parent_pkg;
+				}
+				if ( '' !== $parent_ship ) {
+					$base_ship = (float) $parent_ship;
+				}
+				if ( '' !== $parent_min_mgn ) {
+					$base_min_mgn = (float) $parent_min_mgn;
+				}
+				$source = 'variation_parent';
 			}
 		}
 
-		// 2. Category-level overrides.
-		$cat_rule = self::resolve_category_cost_rule( $term_ids );
-		if ( null !== $cat_rule ) {
-			// Cost of goods (acquisition cost) is product-specific, not category-level.
-			$cat_rule['cost_price'] = $prod_cost;
-			return $cat_rule;
+		// 3. Product-level overrides.
+		$prod_comm_pct = get_post_meta( $product_id, self::META_COMMISSION_PERCENT, true );
+		$prod_comm_fix = get_post_meta( $product_id, self::META_COMMISSION_FIXED, true );
+		$prod_pkg      = get_post_meta( $product_id, self::META_PACKAGING_COST, true );
+		$prod_ship     = get_post_meta( $product_id, self::META_SHIPPING_COST, true );
+		$prod_min_mgn  = get_post_meta( $product_id, self::META_MIN_MARGIN, true );
+		$prod_cost     = self::read_cost_meta( $product_id );
+
+		$has_prod_pricing = '' !== $prod_comm_pct
+			|| '' !== $prod_comm_fix
+			|| '' !== $prod_pkg
+			|| '' !== $prod_ship
+			|| '' !== $prod_min_mgn;
+
+		if ( $has_prod_pricing ) {
+			if ( '' !== $prod_comm_pct ) {
+				$base_comm_pct = (float) $prod_comm_pct;
+			}
+			if ( '' !== $prod_comm_fix ) {
+				$base_comm_fix = (float) $prod_comm_fix;
+			}
+			if ( '' !== $prod_pkg ) {
+				$base_pkg = (float) $prod_pkg;
+			}
+			if ( '' !== $prod_ship ) {
+				$base_ship = (float) $prod_ship;
+			}
+			if ( '' !== $prod_min_mgn ) {
+				$base_min_mgn = (float) $prod_min_mgn;
+			}
+			$source = 'product';
 		}
 
-		// 3. Global fallback settings.
+		$effective_cost = null !== $prod_cost ? $prod_cost : $parent_cost;
+
 		return array(
-			'commission_percent' => (float) Settings::get( 'marketplace_commission_percent', 0.0 ),
-			'commission_fixed'   => (float) Settings::get( 'marketplace_commission_fixed', 0.0 ),
-			'packaging_cost'     => (float) Settings::get( 'marketplace_packaging_cost', 0.0 ),
-			'shipping_cost'      => (float) Settings::get( 'marketplace_shipping_cost', 0.0 ),
-			'cost_price'         => $prod_cost,
-			'min_margin'         => self::default_min_margin(),
-			'source'             => 'global',
+			'commission_percent' => max( 0.0, min( 100.0, $base_comm_pct ) ),
+			'commission_fixed'   => max( 0.0, $base_comm_fix ),
+			'packaging_cost'     => max( 0.0, $base_pkg ),
+			'shipping_cost'      => max( 0.0, $base_ship ),
+			'cost_price'         => null !== $effective_cost ? max( 0.0, $effective_cost ) : null,
+			'min_margin'         => max( 0.0, min( 100.0, $base_min_mgn ) ),
+			'source'             => $source,
 		);
 	}
 

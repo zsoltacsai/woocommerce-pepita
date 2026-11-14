@@ -628,13 +628,15 @@ $suite->add(
 		// 5. Test signature mismatch fail-closed behavior directly
 		$mismatched_ptr = $final_ptr;
 		$mismatched_ptr['active']['stock_signature'] = 'incompatible-signature';
-		Storage::write_pointer( $mismatched_ptr );
+		file_put_contents( Storage::pointer_path(), json_encode( $mismatched_ptr, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
+		Storage::clear_pointer_cache();
 
 		WPS_Assert::false( Storage::exists( 'stock' ), 'Signature mismatch must cause exists() to return false' );
 		$mismatched_path = Storage::feed_path( 'stock' );
 		WPS_Assert::true( false !== strpos( $mismatched_path, 'mismatched-stock-generation.xml' ), 'Signature mismatch must return mismatched sentinel' );
 
 		// Restore clean pointer
-		Storage::write_pointer( $final_ptr );
+		file_put_contents( Storage::pointer_path(), json_encode( $final_ptr, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
+		Storage::clear_pointer_cache();
 	}
 );

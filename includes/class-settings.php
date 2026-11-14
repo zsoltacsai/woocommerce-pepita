@@ -517,7 +517,8 @@ final class Settings {
 			}
 
 			if ( isset( $floats[ $key ] ) ) {
-				$output[ $key ] = max( $floats[ $key ][0], min( $floats[ $key ][1], (float) $value ) );
+				$val = is_string( $value ) ? str_replace( ',', '.', trim( $value ) ) : $value;
+				$output[ $key ] = max( $floats[ $key ][0], min( $floats[ $key ][1], (float) $val ) );
 				continue;
 			}
 

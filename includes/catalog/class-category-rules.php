@@ -302,16 +302,16 @@ final class Category_Rules {
 			if ( '' === $buf ) {
 				delete_term_meta( $term_id, Marketplace_Inventory::TERM_META_BUFFER );
 			} else {
-				update_term_meta( $term_id, Marketplace_Inventory::TERM_META_BUFFER, max( 0, (int) $buf ) );
+				update_term_meta( $term_id, Marketplace_Inventory::TERM_META_BUFFER, max( 0, min( 999999, (int) $buf ) ) );
 			}
 		}
 
 		if ( array_key_exists( 'inventory_max_qty', $data ) ) {
 			$max = trim( (string) $data['inventory_max_qty'] );
-			if ( '' === $max ) {
+			if ( '' === $max || (int) $max <= 0 ) {
 				delete_term_meta( $term_id, Marketplace_Inventory::TERM_META_MAX_QTY );
 			} else {
-				update_term_meta( $term_id, Marketplace_Inventory::TERM_META_MAX_QTY, max( 1, (int) $max ) );
+				update_term_meta( $term_id, Marketplace_Inventory::TERM_META_MAX_QTY, min( 999999, (int) $max ) );
 			}
 		}
 
@@ -320,7 +320,7 @@ final class Category_Rules {
 			if ( '' === $comm ) {
 				delete_term_meta( $term_id, Marketplace_Pricing::TERM_META_COMMISSION_PERCENT );
 			} else {
-				update_term_meta( $term_id, Marketplace_Pricing::TERM_META_COMMISSION_PERCENT, max( 0.0, (float) str_replace( ',', '.', $comm ) ) );
+				update_term_meta( $term_id, Marketplace_Pricing::TERM_META_COMMISSION_PERCENT, max( 0.0, min( 100.0, (float) str_replace( ',', '.', $comm ) ) ) );
 			}
 		}
 
@@ -329,7 +329,7 @@ final class Category_Rules {
 			if ( '' === $mgn ) {
 				delete_term_meta( $term_id, Marketplace_Pricing::TERM_META_MIN_MARGIN );
 			} else {
-				update_term_meta( $term_id, Marketplace_Pricing::TERM_META_MIN_MARGIN, max( 0.0, (float) str_replace( ',', '.', $mgn ) ) );
+				update_term_meta( $term_id, Marketplace_Pricing::TERM_META_MIN_MARGIN, max( 0.0, min( 100.0, (float) str_replace( ',', '.', $mgn ) ) ) );
 			}
 		}
 
