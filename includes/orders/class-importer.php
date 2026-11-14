@@ -33,6 +33,7 @@ final class Importer {
 	public const META_PACKAGE_LABEL  = '_wps_pepita_package_label';
 	public const META_CUSTOMER_MSG   = '_wps_pepita_customer_message';
 	public const META_COURIER_MSG    = '_wps_pepita_courier_message';
+	public const META_IN_PROGRESS    = '_wps_pepita_in_progress';
 
 	/**
 	 * Import one payload.

@@ -384,7 +384,7 @@ $suite->add(
 
 		try {
 			$admin->handle_retry_order();
-		} catch ( \Throwable $t ) {
+		} catch ( \RuntimeException $e ) {
 			// redirect
 		}
 
@@ -423,7 +423,7 @@ $suite->add(
 
 		try {
 			$admin->handle_recover_order();
-		} catch ( \Throwable $t ) {
+		} catch ( \RuntimeException $e ) {
 			// redirect
 		}
 
@@ -453,7 +453,7 @@ $suite->add(
 
 		try {
 			$admin->handle_recover_order();
-		} catch ( \Throwable $t ) {
+		} catch ( \RuntimeException $e ) {
 			// redirect
 		}
 
