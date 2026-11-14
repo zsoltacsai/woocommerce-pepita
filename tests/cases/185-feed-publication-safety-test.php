@@ -515,7 +515,9 @@ $suite->add(
 			|| ( function_exists( 'as_has_scheduled_action' ) && as_has_scheduled_action( Scheduler::HOOK_QUEUE_FULL, array(), Scheduler::GROUP ) );
 		WPS_Assert::true( $has_rescheduled, 'Deferral must reschedule HOOK_QUEUE_FULL' );
 
-		// When in-progress continuation state exists, option is recognized
+		// When in-progress continuation state exists, option is recognized and run_full() executes continuation without deferring
+		wp_clear_scheduled_hook( Scheduler::HOOK_QUEUE_FULL );
+
 		update_option(
 			'wps_pepita_generation_full',
 			array(
@@ -528,6 +530,11 @@ $suite->add(
 
 		$is_cont = (bool) get_option( 'wps_pepita_generation_' . Generator::TYPE_FULL, false );
 		WPS_Assert::true( $is_cont, 'In-progress state option must be recognized' );
+
+		( new Scheduler() )->run_full();
+
+		$deferred_again = ( false !== wp_next_scheduled( Scheduler::HOOK_QUEUE_FULL ) );
+		WPS_Assert::false( $deferred_again, 'Continuation execution must not defer to next off-peak window' );
 
 		delete_option( 'wps_pepita_generation_full' );
 		wp_clear_scheduled_hook( Scheduler::HOOK_QUEUE_FULL );

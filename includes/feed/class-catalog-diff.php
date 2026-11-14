@@ -401,7 +401,19 @@ final class Catalog_Diff {
 				$item_name = '';
 				$item_eid  = '';
 
-				if ( false !== $prev_fh && ( count( $samples['removed'] ) < $sample_limit || count( $samples['quality_excluded'] ) < $sample_limit ) ) {
+				$is_qual = false;
+				if ( class_exists( '\WPS\Pepita\Catalog\Product_Selection' ) ) {
+					$sel = \WPS\Pepita\Catalog\Product_Selection::resolve( (int) $pid );
+					if ( \WPS\Pepita\Catalog\Product_Selection::SOURCE_QUALITY_EXCLUDED === ( $sel['source'] ?? '' ) ) {
+						$is_qual = true;
+						++$quality_excluded_count;
+					}
+				}
+
+				$need_removed_sample = count( $samples['removed'] ) < $sample_limit;
+				$need_qual_sample    = $is_qual && ( count( $samples['quality_excluded'] ) < $sample_limit );
+
+				if ( false !== $prev_fh && ( $need_removed_sample || $need_qual_sample ) ) {
 					fseek( $prev_fh, (int) $prev_item['pos'] );
 					$line = fgets( $prev_fh );
 					if ( false !== $line ) {
@@ -413,25 +425,16 @@ final class Catalog_Diff {
 					}
 				}
 
-				$is_qual = false;
-				if ( class_exists( '\WPS\Pepita\Catalog\Product_Selection' ) ) {
-					$sel = \WPS\Pepita\Catalog\Product_Selection::resolve( (int) $pid );
-					if ( \WPS\Pepita\Catalog\Product_Selection::SOURCE_QUALITY_EXCLUDED === ( $sel['source'] ?? '' ) ) {
-						$is_qual = true;
-						++$quality_excluded_count;
-
-						if ( count( $samples['quality_excluded'] ) < $sample_limit ) {
-							$samples['quality_excluded'][] = array(
-								'pid'    => (int) $pid,
-								'eid'    => $item_eid,
-								'name'   => $item_name,
-								'reason' => 'quality_excluded',
-							);
-						}
-					}
+				if ( $need_qual_sample ) {
+					$samples['quality_excluded'][] = array(
+						'pid'    => (int) $pid,
+						'eid'    => $item_eid,
+						'name'   => $item_name,
+						'reason' => 'quality_excluded',
+					);
 				}
 
-				if ( count( $samples['removed'] ) < $sample_limit ) {
+				if ( $need_removed_sample ) {
 					$samples['removed'][] = array(
 						'pid'              => (int) $pid,
 						'eid'              => $item_eid,

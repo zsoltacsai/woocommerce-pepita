@@ -232,14 +232,18 @@ final class Scheduler {
 	}
 
 	private function run( string $type ): void {
-		if ( Lock::is_locked( $type ) ) {
+		$is_continuation = false;
+		if ( Generator::TYPE_FULL === $type ) {
+			$is_continuation = (bool) get_option( 'wps_pepita_generation_' . $type, false );
+		}
+
+		if ( ! $is_continuation && Lock::is_locked( $type ) ) {
 			Logger::debug( 'feed_schedule', 'A generálás már fut, az ütemezett kérés kihagyva.', array( 'type' => $type ) );
 
 			return;
 		}
 
 		if ( Generator::TYPE_FULL === $type && (bool) Settings::get( 'offpeak_schedule_enabled', false ) ) {
-			$is_continuation = (bool) get_option( 'wps_pepita_generation_' . $type, false );
 			if ( ! $is_continuation && ! self::is_in_offpeak_window() ) {
 				$next_window_ts = self::next_offpeak_window_timestamp();
 
