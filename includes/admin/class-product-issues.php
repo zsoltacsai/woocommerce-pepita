@@ -22,6 +22,7 @@ defined( 'ABSPATH' ) || exit;
 final class Product_Issues {
 
 	public const ISSUE_IMAGE_DIM     = 'image_dim';
+	public const ISSUE_IMAGE_INVALID = 'invalid_image';
 	public const ISSUE_MISSING_IMAGE = 'missing_image';
 	public const ISSUE_WEBP          = 'webp';
 	public const ISSUE_NAME          = 'missing_name';
@@ -77,12 +78,7 @@ final class Product_Issues {
 					$primary_id = $compliant_gallery;
 				} else {
 					$primary_id = $featured_id;
-					$issues[]   = array(
-						'category'    => __( 'Képméret', 'wp-pepita-sync' ),
-						'code'        => self::ISSUE_IMAGE_DIM,
-						'description' => $dim_warning['message'],
-						'blocking'    => true,
-					);
+					$issues[]   = self::image_issue( $dim_warning );
 				}
 			}
 		} else {
@@ -96,12 +92,7 @@ final class Product_Issues {
 				if ( $primary_id > 0 ) {
 					$dim_warning = Image_Converter::check_dimensions( $primary_id );
 					if ( null !== $dim_warning ) {
-						$issues[] = array(
-							'category'    => __( 'Képméret', 'wp-pepita-sync' ),
-							'code'        => self::ISSUE_IMAGE_DIM,
-							'description' => $dim_warning['message'],
-							'blocking'    => true,
-						);
+						$issues[] = self::image_issue( $dim_warning );
 					}
 				}
 			}
@@ -118,16 +109,27 @@ final class Product_Issues {
 			$img_warnings = array();
 			$url          = Image_Converter::resolve_attachment_url( $primary_id, $img_warnings );
 			if ( '' === $url ) {
-				$issues[] = array(
-					'category'    => __( 'WebP hiba', 'wp-pepita-sync' ),
-					'code'        => self::ISSUE_WEBP,
-					'description' => sprintf(
-						/* translators: %d: attachment ID */
-						__( 'A(z) #%d azonosítójú WebP kép nem alakítható át JPEG formátumra, és nem áll rendelkezésre kompatibilis kép.', 'wp-pepita-sync' ),
-						$primary_id
-					),
-					'blocking'    => true,
-				);
+				$has_image_issue = false;
+				foreach ( $issues as $existing_issue ) {
+					if ( in_array( $existing_issue['code'], array( self::ISSUE_IMAGE_DIM, self::ISSUE_IMAGE_INVALID, self::ISSUE_WEBP ), true ) ) {
+						$has_image_issue = true;
+						break;
+					}
+				}
+				if ( ! $has_image_issue ) {
+					$warning = $img_warnings[0] ?? array(
+						'code'    => 'webp_conversion_failed',
+						'message' => sprintf( 'A(z) #%d azonosítójú kép nem alakítható át ellenőrzött, kompatibilis képpé.', $primary_id ),
+					);
+					$issues[] = 'webp_conversion_failed' === $warning['code']
+						? array(
+							'category'    => __( 'WebP hiba', 'wp-pepita-sync' ),
+							'code'        => self::ISSUE_WEBP,
+							'description' => $warning['message'],
+							'blocking'    => true,
+						)
+						: self::image_issue( $warning );
+				}
 			}
 		}
 
@@ -212,6 +214,17 @@ final class Product_Issues {
 		}
 
 		return self::$issues_cache[ $product_id ] = $issues;
+	}
+
+	/** @param array{code: string, message: string} $warning */
+	private static function image_issue( array $warning ): array {
+		$is_dimension = 'insufficient_image_dimensions' === ( $warning['code'] ?? '' );
+		return array(
+			'category'    => $is_dimension ? __( 'Képméret', 'wp-pepita-sync' ) : __( 'Képfájl', 'wp-pepita-sync' ),
+			'code'        => $is_dimension ? self::ISSUE_IMAGE_DIM : self::ISSUE_IMAGE_INVALID,
+			'description' => (string) ( $warning['message'] ?? __( 'A kép nem ellenőrizhető.', 'wp-pepita-sync' ) ),
+			'blocking'    => true,
+		);
 	}
 
 	/**

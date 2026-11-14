@@ -63,6 +63,86 @@ $suite->add(
 );
 
 $suite->add(
+	'm9e images: original sources fail closed on unsupported MIME, mismatch, corrupt, missing, or unknown source',
+	static function (): void {
+		WPS_Test_State::reset();
+		$warnings = array();
+
+		WPS_Test_State::add_attachment( 840, 'https://example.test/unsupported.gif' );
+		WPS_Assert::same( '', Image_Converter::resolve_attachment_url( 840, $warnings ) );
+		WPS_Assert::same( 'unsupported_image_format', $warnings[0]['code'] );
+
+		WPS_Test_State::add_attachment( 841, 'https://example.test/mime-mismatch.jpg' );
+		WPS_Test_State::$mime_types[ 841 ] = 'image/png';
+		$mismatch_warnings = array();
+		WPS_Assert::same( '', Image_Converter::resolve_attachment_url( 841, $mismatch_warnings ) );
+		WPS_Assert::same( 'image_mime_mismatch', $mismatch_warnings[0]['code'] );
+
+		WPS_Test_State::add_attachment( 842, 'https://example.test/missing.jpg' );
+		WPS_Test_State::$attached_files[ 842 ] = sys_get_temp_dir() . '/wps-image-missing-' . uniqid() . '.jpg';
+		$missing_warnings = array();
+		WPS_Assert::same( '', Image_Converter::resolve_attachment_url( 842, $missing_warnings ) );
+		WPS_Assert::same( 'image_source_unavailable', $missing_warnings[0]['code'] );
+
+		$corrupt_path = sys_get_temp_dir() . '/wps-image-corrupt-' . uniqid() . '.jpg';
+		file_put_contents( $corrupt_path, 'not an image' );
+		WPS_Test_State::add_attachment( 843, 'https://example.test/corrupt.jpg' );
+		WPS_Test_State::$attached_files[ 843 ] = $corrupt_path;
+		$corrupt_warnings = array();
+		WPS_Assert::same( '', Image_Converter::resolve_attachment_url( 843, $corrupt_warnings ) );
+		WPS_Assert::same( 'invalid_image_file', $corrupt_warnings[0]['code'] );
+		@unlink( $corrupt_path );
+
+		WPS_Test_State::add_attachment( 844, 'https://cdn.example.test/no-local-source' );
+		unset( WPS_Test_State::$attachment_metadata[ 844 ] );
+		WPS_Test_State::$attached_files[ 844 ] = '';
+		WPS_Assert::same( 'image_source_unavailable', Image_Converter::check_dimensions( 844 )['code'] );
+		$offloaded_warnings = array();
+		WPS_Assert::same( '', Image_Converter::resolve_attachment_url( 844, $offloaded_warnings ) );
+		WPS_Assert::same( 'image_source_unavailable', $offloaded_warnings[0]['code'] );
+
+		WPS_Test_State::add_attachment( 847, '' );
+		WPS_Test_State::$attached_files[ 847 ] = __DIR__ . '/../fixtures/images/pepita-compatible-1200x630.jpg';
+		unset( WPS_Test_State::$attachment_metadata[ 847 ] );
+		WPS_Assert::same( null, Image_Converter::check_dimensions( 847 ), 'The local file supplies verifiable dimensions when metadata is absent.' );
+		$missing_url_warnings = array();
+		WPS_Assert::same( '', Image_Converter::resolve_attachment_url( 847, $missing_url_warnings ) );
+		WPS_Assert::same( 'image_url_unavailable', $missing_url_warnings[0]['code'] );
+
+		$truncated_path = sys_get_temp_dir() . '/wps-image-truncated-' . uniqid() . '.jpg';
+		$jpeg_bytes     = file_get_contents( __DIR__ . '/../fixtures/images/pepita-compatible-1200x630.jpg' );
+		file_put_contents( $truncated_path, substr( (string) $jpeg_bytes, 0, 80 ) );
+		WPS_Test_State::add_attachment( 848, 'https://example.test/truncated.jpg' );
+		WPS_Test_State::$attached_files[ 848 ] = $truncated_path;
+		$truncated_warnings = array();
+		WPS_Assert::same( '', Image_Converter::resolve_attachment_url( 848, $truncated_warnings ) );
+		WPS_Assert::same( 'invalid_image_file', $truncated_warnings[0]['code'] );
+		@unlink( $truncated_path );
+	}
+);
+
+$suite->add(
+	'm9e images: WebP original fallback is used only when its local JPEG bytes validate',
+	static function (): void {
+		WPS_Test_State::reset();
+		WPS_Test_State::add_attachment( 845, 'https://example.test/source.webp' );
+		WPS_Test_State::$mime_types[ 845 ]          = 'image/webp';
+		WPS_Test_State::$attached_files[ 845 ]      = sys_get_temp_dir() . '/missing-webp-source';
+		WPS_Test_State::$original_image_urls[ 845 ] = 'https://example.test/original.jpg';
+		WPS_Test_State::$original_image_files[ 845 ] = __DIR__ . '/../fixtures/images/pepita-compatible-1200x630.jpg';
+
+		WPS_Assert::same( null, Image_Converter::check_dimensions( 845 ), 'A validated compatible original can satisfy WebP dimension checks.' );
+		WPS_Assert::same( 'https://example.test/original.jpg', Image_Converter::resolve_attachment_url( 845 ) );
+
+		WPS_Test_State::$original_image_urls[ 845 ] = 'https://example.test/original.gif';
+		WPS_Test_State::$original_image_files[ 845 ] = __DIR__ . '/../fixtures/images/pepita-unsupported-1200x630.gif';
+		$warnings = array();
+		WPS_Assert::same( '', Image_Converter::resolve_attachment_url( 845, $warnings ) );
+		WPS_Assert::true( in_array( 'unsupported_image_format', array_column( $warnings, 'code' ), true ) );
+	}
+);
+
+$suite->add(
 	'm9e images: generate_jpeg_derivative automatically purges corrupt cached derivative',
 	static function () use ( $valid_jpeg_binary ): void {
 		WPS_Test_State::reset();
@@ -80,8 +160,8 @@ $suite->add(
 		WPS_Test_State::$attached_files[ 701 ] = $source_file;
 		WPS_Test_State::$mime_types[ 701 ]     = 'image/webp';
 
-		$mtime               = (int) filemtime( $source_file );
-		$hash                = substr( md5( '701-' . $mtime . '-' . filesize( $source_file ) ), 0, 12 );
+		$source_hash          = hash_file( 'sha256', $source_file );
+		$hash                 = substr( hash( 'sha256', '701:' . $source_hash ), 0, 16 );
 		$derivative_filename = sprintf( 'att-%d-%s.jpg', 701, $hash );
 		$derivative_path     = $target_dir . '/' . $derivative_filename;
 
@@ -95,6 +175,12 @@ $suite->add(
 
 		// Because source was dummy, conversion fails and corrupt file should have been deleted.
 		WPS_Assert::false( file_exists( $derivative_path ) );
+
+		// A symlink must never be treated as a trusted derivative cache entry.
+		$symlink_path = $target_dir . '/att-701-' . $hash . '.jpg';
+		WPS_Assert::true( symlink( __DIR__ . '/../fixtures/images/pepita-compatible-1200x630.jpg', $symlink_path ) );
+		Image_Converter::generate_jpeg_derivative( 701 );
+		WPS_Assert::false( is_link( $symlink_path ) );
 
 		@unlink( $source_file );
 	}
@@ -493,6 +579,53 @@ $suite->add(
 		WPS_Assert::same( $full_rows, $stock_rows );
 		WPS_Assert::true( $full_first !== file_get_contents( Storage::feed_path( 'full' ) ) );
 		WPS_Assert::true( $stock_first !== file_get_contents( Storage::feed_path( 'stock' ) ) );
+	}
+);
+
+$suite->add(
+	'm9e exclusion: invalid image formats are listed and omitted from the full feed',
+	static function (): void {
+		WPS_Test_State::reset();
+		Settings::update( array( 'default_included' => true, 'exclude_quality_issues' => true ) );
+		WPS_Test_State::add_term( 100, 'Kategória 100' );
+
+		foreach (
+			array(
+				8461 => array( 'name' => 'Kompatibilis képű termék', 'image' => 'https://example.test/good.jpg' ),
+				8462 => array( 'name' => 'Nem támogatott képű termék', 'image' => 'https://example.test/bad.gif' ),
+			) as $id => $values
+		) {
+			WPS_Test_State::add_attachment( $id, $values['image'] );
+			WPS_Test_State::add_product(
+				array(
+					'id'          => $id,
+					'name'        => $values['name'],
+					'description' => 'Érvényes termékleírás',
+					'price'       => 1000,
+					'sku'         => 'SKU-' . $id,
+					'image_id'    => $id,
+				)
+			);
+			WPS_Test_State::assign_term( $id, 100 );
+		}
+
+		WPS_Assert::true( Product_Selection::is_included( 8461 ) );
+		WPS_Assert::false( Product_Selection::is_included( 8462 ) );
+		WPS_Assert::true(
+			in_array( Product_Issues::ISSUE_IMAGE_INVALID, array_column( Product_Issues::inspect( 8462 ), 'code' ), true )
+		);
+
+		$generator = new Generator();
+		$result    = $generator->run( 'full', array( 'max_runtime' => 0 ) );
+		$attempts  = 0;
+		while ( 'running' === ( $result['status'] ?? '' ) && ++$attempts < 20 ) {
+			$result = $generator->run( 'full', array( 'max_runtime' => 0 ) );
+		}
+		WPS_Assert::same( 'completed', $result['status'] );
+		$document = simplexml_load_file( Storage::feed_path( 'full' ) );
+		$document->registerXPathNamespace( 'p', 'https://pepita.hu/feed/1.0' );
+		$ids = array_map( 'strval', $document->xpath( '//p:Product/p:Id' ) );
+		WPS_Assert::same( array( 'wps-8461' ), $ids );
 	}
 );
 

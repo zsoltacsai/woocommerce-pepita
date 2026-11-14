@@ -57,6 +57,7 @@ $auto_exclude_on = Settings::exclude_quality_issues();
 		<select name="issue_type">
 			<option value="all" <?php selected( $filters['issue_type'], 'all' ); ?>><?php esc_html_e( 'Minden hibatípus', 'wp-pepita-sync' ); ?></option>
 			<option value="image_dim" <?php selected( $filters['issue_type'], 'image_dim' ); ?>><?php esc_html_e( 'Képméret (< 1200x630)', 'wp-pepita-sync' ); ?></option>
+			<option value="invalid_image" <?php selected( $filters['issue_type'], 'invalid_image' ); ?>><?php esc_html_e( 'Nem ellenőrizhető vagy nem támogatott kép', 'wp-pepita-sync' ); ?></option>
 			<option value="missing_image" <?php selected( $filters['issue_type'], 'missing_image' ); ?>><?php esc_html_e( 'Hiányzó kép', 'wp-pepita-sync' ); ?></option>
 			<option value="webp" <?php selected( $filters['issue_type'], 'webp' ); ?>><?php esc_html_e( 'WebP konverziós hiba', 'wp-pepita-sync' ); ?></option>
 			<option value="invalid_price" <?php selected( $filters['issue_type'], 'invalid_price' ); ?>><?php esc_html_e( 'Érvénytelen ár', 'wp-pepita-sync' ); ?></option>

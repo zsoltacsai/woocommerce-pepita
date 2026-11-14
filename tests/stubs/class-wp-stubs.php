@@ -1017,7 +1017,15 @@ function wp_get_attachment_metadata( int $attachment_id ) {
 }
 
 function get_attached_file( int $attachment_id, bool $unfiltered = false ): string {
-	return WPS_Test_State::$attached_files[ $attachment_id ] ?? ( WPS_Test_State::$attachments[ $attachment_id ] ?? '' );
+	return WPS_Test_State::$attached_files[ $attachment_id ] ?? '';
+}
+
+function wp_get_original_image_url( int $attachment_id ): string {
+	return WPS_Test_State::$original_image_urls[ $attachment_id ] ?? '';
+}
+
+function wp_get_original_image_path( int $attachment_id ): string {
+	return WPS_Test_State::$original_image_files[ $attachment_id ] ?? '';
 }
 
 function get_post_mime_type( $post = null ): string {

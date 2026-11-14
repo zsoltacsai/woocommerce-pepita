@@ -8,7 +8,7 @@
 
 | Mérföldkő | Státusz | Branch / HEAD | PR | CI | QA / AppSec | Blokkoló / következő feladat |
 |---|---|---|---|---|---|---|
-| M9-E | PARTIAL | `feature/m9e-image-fallback-product-issues` / `72668e193f3fd440c83bdb537c7283e9dce112a4` | [#10](https://github.com/zsoltacsai/woocommerce-pepita/pull/10), Draft | `43542471186` PASS ezen a HEAD-en; az új full/stock regressziós teszt még nincs lefuttatva | Független exact-head review még nincs | Új full/stock konzisztencia- és szabályváltási regressziós eset hozzáadása, friss CI és független review |
+| M9-E | PARTIAL | `feature/m9e-image-fallback-product-issues` / helyi, még nem publikált javítások a `426b6bf` fölött | [#10](https://github.com/zsoltacsai/woocommerce-pepita/pull/10), Draft | `43565687402` a korábbi `426b6bf` HEAD-en futott; az új javításokra még nincs CI | A `426b6bf` exact-head QA és AppSec review egyaránt CHANGES_REQUIRED volt; a blocking képfájl-ellenőrzési hiány javítva lett a helyi változatban, új exact-head review szükséges | Kód és regressziós esetek rögzítése, friss ZIP/CI, új független QA és AppSec |
 | M9-F | HOLD | — | — | — | — | M9-E elfogadási kapui után indul |
 | M9-G | HOLD | — | — | — | — | M9-E/M9-F függőségek után |
 | M9-H | HOLD | — | — | — | — | M9-E–M9-G után |
@@ -32,13 +32,16 @@
 
 ### Jelenlegi korrekció
 
-- Hozzáadva egy determinisztikus full/stock regressziós eset: a minőségi kizárás változása után stock-only publikálásnak meg kell tagadnia az eltérő termékkészletet, megőriznie az előző stock fájlt, majd új full és matching stock generálás után az ID-k, árak és készletek soronként egyeznek.
-- Ez a módosítás a teljes CI és exact-head független review előtt még nem tekinthető ellenőrzöttnek.
+- A full/stock minőségi szabályváltási regressziós teszt továbbra is az M9-E kapu része: eltérő snapshot esetén a stock-only publikálás megáll, az előző stock feed megmarad, majd új full és matching stock generálás után az ID-k, árak és készletek egyeznek.
+- A `426b6bf` exact-head független QA és AppSec review egyaránt blocking hibát talált: a nem-WebP képek validálás nélkül juthattak a feedbe, és hiányzó helyi fájlnál/metadata esetén a méret ellenőrzése UNKNOWN helyett compliant állapotot adott.
+- Helyi javítás: JPEG/PNG MIME, URL, helyi fájl, tényleges dekódolhatóság és 1200×630 dimenzió fail-closed ellenőrzése; ellenőrzött eredeti WebP fallback; tartalomhash-alapú cache-kulcs; biztonságos temp fájl + atomic rename; sérült vagy symlink cache elutasítása; új blocking `invalid_image` adminhiba és automatikus kizárási teszt.
+- Új tesztek fedik az unsupported GIF-et, MIME-ütközést, hiányzó/sérült/truncated/offloaded fájlt, hiányzó URL-t, metadata nélküli de fájlból igazolható méretet, WebP eredeti fallbackot, symlink cache-t és quality-excluded full XML-t.
+- Tesztfuttatás helyben **NOT RUN**: a környezetben nincs PHP CLI, a Docker daemon nem hozzáférhető. A korábbi `43565687402` futás a régi `426b6bf` HEAD-hez tartozik, ezért az új kód ellenőrzésére nem használható. A `git diff --check` PASS; a friss ZIP elkészült, SHA-256: `97001c144960ccc8ea699e960dabda71028d8133991ebed0a7e0e5923261a548`.
 
 ### Visszaállítási pont
 
-- Utolsó, CI-vel igazolt M9-E kódpont: `72668e193f3fd440c83bdb537c7283e9dce112a4`.
-- A tesztváltozás elkülönített munkafája a meglévő M9-E feature branch. Sikertelen CI esetén a tesztcommit visszavonható új, nem force-pusholt revert commitként; a védett `main` és a korábbi Draft PR-lánc érintetlen.
+- Utolsó korábbi, CI-vel igazolt M9-E kódpont: `426b6bf124cb8006a8b1dbfcd5dd860df701e11f` (a jelenlegi nem publikált képfájl-javításokat nem tartalmazza).
+- A módosítások a meglévő M9-E Draft PR branchben maradnak; a védett `main` és a korábbi Draft PR-lánc érintetlen.
 
 ## Következő végrehajtási kapu
 

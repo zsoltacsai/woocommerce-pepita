@@ -4,6 +4,13 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased — M9-E Image Fallback & Product Issues
+
+### Added & Hardened
+- **Fail-closed image inspection:** Feed images must have a verifiable local source, a matching supported JPEG/PNG format, a valid public URL, and dimensions of at least 1200×630. When GD or Imagick is available, the complete source is decoded under a bounded pixel-memory budget; unreadable, unsupported, mismatched, truncated or unverifiable images are blocking product issues. Offloaded images without a verifiable local source remain blocked.
+- **Safe WebP fallback:** A compatible original is validated before use. Otherwise a content-addressed JPEG derivative is generated through a unique same-directory temporary file, verified before atomic rename, and corrupt or symlinked cache entries are discarded. The WooCommerce original is never modified; failed validation or publication cannot produce a successful feed URL.
+- **Automatic quality exclusion:** Invalid image sources are listed under `Pepita → Hibás termékek` and are excluded when the quality-exclusion setting is enabled; the full/stock matching-snapshot guard remains in force.
+
 ## Unreleased — M9-D Beta: FN-DECO Real Catalog Validation & Import Fixes
 
 ### Added & Fixed (FN-DECO Real Catalog Compatibility)
@@ -11,7 +18,7 @@ All notable changes are recorded here. The format follows
 - **Single Primary Category Hierarchy (P0)**: Guaranteed exactly one `<Categories>` element per product in full feeds. Resolved via deterministic hierarchy: (1) explicit metabox override `_wps_primary_category_id`, (2) Yoast SEO (`_yoast_wpseo_primary_product_cat`) or Rank Math (`rank_math_primary_product_cat`), (3) configurable fallback strategy (`deepest` [default], `lowest_id`, `highest_id`, `alphabetical`). Category exclusion and beta allowlists are strictly enforced.
 - **Gross / Net Price-Source Configuration (P0)**: Added `price_tax_mode` (`auto`, `gross`, `net`, default `auto`). In `gross` mode, source catalog prices are treated as tax-inclusive without double taxation (e.g. FN-DECO 1300 HUF gross with 27% VAT exports `<Price>1300</Price>` and `<VatPercent>27</VatPercent>`). In `net` mode, prices are converted to gross.
 - **SKU to ProductNumber (MPN) Mapping (P0)**: Native WooCommerce SKU (`$product->get_sku()`) is automatically mapped to `<ProductNumber>` when no explicit `_wps_mpn` override is set. SKU is never mapped to `<StructuredId>` (reserved for GTIN/EAN). Stable export ID (`wps-<id>`) remains unchanged.
-- **WebP Image Compatibility & Derivative Generation (P0)**: `Image_Converter` automatically generates compliant JPEG derivatives for WebP images in `uploads/wps-derivatives/` with `.htaccess` and `index.php` protection. Evaluates image dimensions and logs `insufficient_image_dimensions` warnings if resolution < 300x300 without upscaling. Fails gracefully if no compliant image can be generated without using fake extensions.
+- **WebP Image Compatibility & Derivative Generation (P0)**: `Image_Converter` generates JPEG derivatives for WebP images in `uploads/wps-derivatives/` with `.htaccess` and `index.php` protection. Pepita image eligibility is evaluated against the current 1200×630 minimum, without upscaling; current exact behavior and known local-source limitation are recorded in M9-E above.
 - **Admin Preflight Catalog Audit Report**: New Hungarian admin screen **Pepita -> Feed ellenőrzés** (`wps-pepita-preflight`) displaying category breakdown, eligible/excluded products, ready vs review counts, capped quantities, WebP conversions, dimension warnings, SKU warnings, and tax mode status with full CSV export (`wps_pepita_export_preflight`).
 - **Comprehensive Regression Tests**: Added `tests/cases/210-fndeco-catalog-compatibility-test.php` covering all P0 requirements.
 

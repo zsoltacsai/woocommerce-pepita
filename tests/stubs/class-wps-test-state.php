@@ -62,6 +62,10 @@ final class WPS_Test_State {
 
 	/** @var array<int, array<string, mixed>> attachment_id => metadata */
 	public static array $attachment_metadata = array();
+	/** @var array<int, string> */
+	public static array $original_image_urls = array();
+	/** @var array<int, string> */
+	public static array $original_image_files = array();
 
 	/** @var array<string, array<int, array<string, mixed>>> tax class => rates */
 	public static array $tax_rates = array();
@@ -129,6 +133,8 @@ final class WPS_Test_State {
 		self::$attached_files = array();
 		self::$mime_types     = array();
 		self::$attachment_metadata = array();
+		self::$original_image_urls = array();
+		self::$original_image_files = array();
 		self::$tax_rates      = array();
 		self::$tax_enabled    = false;
 		self::$ssl            = false;
@@ -184,6 +190,19 @@ final class WPS_Test_State {
 
 	public static function add_attachment( int $id, string $url ): void {
 		self::$attachments[ $id ] = $url;
+		$extension = strtolower( pathinfo( (string) wp_parse_url( $url, PHP_URL_PATH ), PATHINFO_EXTENSION ) );
+		$fixtures  = array(
+			'jpg'  => array( 'image/jpeg', 'pepita-compatible-1200x630.jpg', 1200, 630 ),
+			'jpeg' => array( 'image/jpeg', 'pepita-compatible-1200x630.jpg', 1200, 630 ),
+			'png'  => array( 'image/png', 'pepita-compatible-1200x630.png', 1200, 630 ),
+			'gif'  => array( 'image/gif', 'pepita-unsupported-1200x630.gif', 1200, 630 ),
+		);
+		if ( isset( $fixtures[ $extension ] ) ) {
+			[ $mime, $filename, $width, $height ] = $fixtures[ $extension ];
+			self::$mime_types[ $id ] = self::$mime_types[ $id ] ?? $mime;
+			self::$attachment_metadata[ $id ] = self::$attachment_metadata[ $id ] ?? array( 'width' => $width, 'height' => $height );
+			self::$attached_files[ $id ] = self::$attached_files[ $id ] ?? __DIR__ . '/../fixtures/images/' . $filename;
+		}
 	}
 
 	public static function add_attribute_label( string $name, string $label ): void {
