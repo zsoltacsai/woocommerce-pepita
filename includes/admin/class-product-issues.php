@@ -33,6 +33,7 @@ final class Product_Issues {
 	public const ISSUE_GTIN          = 'missing_gtin';
 	public const ISSUE_SKU           = 'missing_sku';
 	public const ISSUE_GENERIC       = 'validation_error';
+	private const MAX_QUERY_PAGE     = 1000;
 
 	/** @var array<string, int> Internal diagnostic penalties, not Pepita scoring rules. */
 	private const QUALITY_PENALTIES = array(
@@ -393,7 +394,7 @@ final class Product_Issues {
 		$issue_type  = (string) ( $filters['issue_type'] ?? 'all' );
 		$feed_filter = (string) ( $filters['feed_status'] ?? 'all' );
 		$per_page    = max( 1, min( 50, (int) ( $filters['per_page'] ?? 25 ) ) );
-		$page        = max( 1, (int) ( $filters['page'] ?? 1 ) );
+		$page        = max( 1, min( self::MAX_QUERY_PAGE, (int) ( $filters['page'] ?? 1 ) ) );
 
 		$query_args = array(
 			'limit'    => $per_page,
@@ -407,6 +408,13 @@ final class Product_Issues {
 
 		if ( '' !== $search ) {
 			$sku_id = function_exists( 'wc_get_product_id_by_sku' ) ? (int) wc_get_product_id_by_sku( $search ) : 0;
+			$sku_product = $sku_id > 0 && function_exists( 'wc_get_product' ) ? wc_get_product( $sku_id ) : null;
+
+			// The issue center lists catalog products. A variation SKU therefore
+			// resolves to its parent row, whose issues and edit screen are actionable.
+			if ( $sku_product instanceof \WC_Product_Variation ) {
+				$sku_id = (int) $sku_product->get_parent_id();
+			}
 
 			if ( ctype_digit( $search ) ) {
 				// Numeric searches are treated as exact product IDs; WooCommerce's `s`
