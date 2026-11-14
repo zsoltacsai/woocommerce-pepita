@@ -382,6 +382,10 @@ final class Generator {
 		$state['counters']['warnings'] += count( $validation['warnings'] );
 
 		foreach ( $validation['warnings'] as $warning ) {
+			if ( 'margin_below_threshold' === ( $warning['code'] ?? '' ) ) {
+				$state['counters']['margin_below_threshold'] = ( $state['counters']['margin_below_threshold'] ?? 0 ) + 1;
+			}
+
 			if ( count( $state['warnings'] ) < 20 ) {
 				$state['warnings'][] = array(
 					'product_id' => $product_id,
@@ -616,9 +620,9 @@ final class Generator {
 		if ( self::TYPE_FULL === $type ) {
 			$catalog_diff = Catalog_Diff::compare( $index_temp, Storage::catalog_index_path() );
 
-			// Check for pricing strategy margin below threshold warnings.
-			$margin_warning_count = 0;
-			if ( ! empty( $state['warnings'] ) ) {
+			// Check for pricing strategy margin below threshold warnings via uncapped counter or sample list.
+			$margin_warning_count = (int) ( $state['counters']['margin_below_threshold'] ?? 0 );
+			if ( 0 === $margin_warning_count && ! empty( $state['warnings'] ) ) {
 				foreach ( $state['warnings'] as $w ) {
 					if ( is_array( $w ) && 'margin_below_threshold' === ( $w['code'] ?? '' ) ) {
 						++$margin_warning_count;

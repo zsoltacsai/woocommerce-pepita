@@ -592,4 +592,61 @@ $suite->add(
 		WPS_Assert::same( 6, $simulated, 'Simulation mode forces rule calculation even when master switch is OFF' );
 	}
 );
+
+$suite->add(
+	'strategy: generator safety gate trips on low margin even after 20 earlier warnings (uncapped counter)',
+	static function (): void {
+		Settings::update(
+			array(
+				'pricing_strategy_enabled'       => true,
+				'marketplace_commission_percent' => 15.0,
+				'marketplace_min_margin_percent' => 20.0,
+				'feed_safety_require_approval'   => true,
+			)
+		);
+
+		WPS_Test_State::add_term( 10, 'Kategória' );
+		WPS_Test_State::add_attachment( 500, 'https://example.test/img.jpg' );
+
+		// 1. Create 25 products with non-margin warnings (long name > 500 chars)
+		$long_name = str_repeat( 'Hosszú terméknév teszt ', 30 );
+		for ( $i = 1; $i <= 25; $i++ ) {
+			WPS_Test_State::add_product(
+				array(
+					'id'          => 2000 + $i,
+					'name'        => $long_name . ' ' . $i,
+					'description' => 'Leírás',
+					'price'       => '5000',
+					'image_id'    => 500,
+				)
+			);
+			WPS_Test_State::assign_term( 2000 + $i, 10 );
+		}
+
+		// 2. Product #26 has a margin below threshold warning
+		WPS_Test_State::add_product(
+			array(
+				'id'          => 2026,
+				'name'        => 'Alacsony árrés termék 26',
+				'description' => 'Leírás',
+				'price'       => '1000',
+				'image_id'    => 500,
+			)
+		);
+		WPS_Test_State::assign_term( 2026, 10 );
+		update_post_meta( 2026, Marketplace_Pricing::META_COST_PRICE, 900.0 );
+
+		// Run generator
+		$generator = new \WPS\Pepita\Feed\Generator();
+		$generator->run( \WPS\Pepita\Feed\Generator::TYPE_FULL, 100 );
+
+		// The uncapped counter must record the margin warning and stage for approval
+		WPS_Assert::true( \WPS\Pepita\Storage::is_staged(), 'Feed must be staged for approval when margin is below threshold' );
+		$staged = \WPS\Pepita\Storage::read_staged_full();
+		WPS_Assert::true( null !== $staged, 'Staged metadata exists' );
+		WPS_Assert::same( 'approval_required', $staged['diff']['overall_impact'] );
+
+		// Cleanup
+		\WPS\Pepita\Storage::clear_staged();
+	}
 );

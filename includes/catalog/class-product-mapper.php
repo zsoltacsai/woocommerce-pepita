@@ -309,6 +309,7 @@ final class Product_Mapper {
 		$sum_qty    = 0;
 		$manages    = false;
 		$any_stock  = false;
+		$any_unmanaged_available = false;
 		$last_mod   = $data['last_mod'];
 
 		foreach ( $product->get_children() as $variation_id ) {
@@ -392,6 +393,9 @@ final class Product_Mapper {
 
 			if ( $available ) {
 				$any_stock = true;
+				if ( null === $quantity ) {
+					$any_unmanaged_available = true;
+				}
 			}
 
 			$image_url = '';
@@ -441,7 +445,7 @@ final class Product_Mapper {
 		$data['vat_percent']= Price_Calculator::vat_percent( $product );
 		if ( $manages ) {
 			$data['quantity'] = min( self::MAX_EXPORT_QUANTITY, $sum_qty );
-			if ( 0 === $sum_qty && ( ! method_exists( $product, 'backorders_allowed' ) || ! $product->backorders_allowed() ) ) {
+			if ( 0 === $sum_qty && ! $any_unmanaged_available && ( ! method_exists( $product, 'backorders_allowed' ) || ! $product->backorders_allowed() ) ) {
 				$any_stock = false;
 			}
 			if ( $sum_qty > self::MAX_EXPORT_QUANTITY ) {

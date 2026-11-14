@@ -23,7 +23,7 @@ $filters = array(
 	'search'        => isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['s'] ) ) : '', // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 	'category'      => isset( $_GET['cat'] ) ? (int) $_GET['cat'] : 0, // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 	'status_filter' => isset( $_GET['status_filter'] ) ? sanitize_key( wp_unslash( (string) $_GET['status_filter'] ) ) : 'all', // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-	'simulate'      => isset( $_GET['sim'] ) ? '1' === (string) $_GET['sim'] : true, // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+	'simulate'      => isset( $_GET['sim_submitted'] ) ? isset( $_GET['sim'] ) : ( isset( $_GET['sim'] ) ? '1' === (string) $_GET['sim'] : true ), // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 	'page'          => isset( $_GET['paged'] ) ? max( 1, (int) $_GET['paged'] ) : 1, // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 	'per_page'      => 25,
 );
@@ -95,6 +95,7 @@ $global_min_margin       = Settings::get( 'marketplace_min_margin_percent', null
 
 	<form method="get" action="<?php echo esc_url( admin_url( 'admin.php' ) ); ?>" class="wps-filters" style="margin-bottom: 20px;">
 		<input type="hidden" name="page" value="wps-pepita-strategy" />
+		<input type="hidden" name="sim_submitted" value="1" />
 
 		<input type="search" name="s" value="<?php echo esc_attr( $filters['search'] ); ?>" placeholder="<?php esc_attr_e( 'Név, SKU vagy ID…', 'wp-pepita-sync' ); ?>" />
 

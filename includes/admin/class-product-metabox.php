@@ -200,6 +200,7 @@ final class Product_Metabox {
 
 			<p class="wps-metabox__row">
 				<label>
+					<input type="hidden" name="wps_inventory_disabled" value="no" />
 					<input type="checkbox" name="wps_inventory_disabled" value="yes" <?php checked( $meta( \WPS\Pepita\Catalog\Marketplace_Inventory::META_DISABLED ), 'yes' ); ?> />
 					<?php esc_html_e( 'Készletstratégia mellőzése ennél a terméknél', 'wp-pepita-sync' ); ?>
 				</label>
