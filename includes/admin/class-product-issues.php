@@ -406,7 +406,13 @@ final class Product_Issues {
 		);
 
 		if ( '' !== $search ) {
-			$query_args['s'] = $search;
+			if ( ctype_digit( $search ) ) {
+				// Numeric searches are treated as exact product IDs; WooCommerce's `s`
+				// search covers titles and SKUs but does not promise post-ID matching.
+				$query_args['include'] = array( (int) $search );
+			} else {
+				$query_args['s'] = $search;
+			}
 		}
 
 		$product_page  = function_exists( 'wc_get_products' ) ? wc_get_products( $query_args ) : array();

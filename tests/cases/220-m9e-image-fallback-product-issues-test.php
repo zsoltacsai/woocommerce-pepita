@@ -845,6 +845,10 @@ $suite->add(
 		$second_page = Product_Issues::query( array( 'page' => 2, 'per_page' => 1 ) );
 		WPS_Assert::same( 1, $second_page['scanned'] );
 		WPS_Assert::same( 7102, $second_page['items'][0]['product_id'] );
+
+		$id_search = Product_Issues::query( array( 'search' => '7101' ) );
+		WPS_Assert::same( 1, $id_search['total_products'] );
+		WPS_Assert::same( 7101, $id_search['items'][0]['product_id'] );
 	}
 );
 
