@@ -229,6 +229,7 @@ final class Image_Converter {
 			$probe           = null;
 			$imagick         = null;
 			$canvas          = null;
+			$limits_restored = false;
 			if ( null !== $previous_limits ) {
 				try {
 					$probe = new \Imagick();
@@ -254,13 +255,18 @@ final class Image_Converter {
 				} finally {
 					foreach ( array( $probe, $imagick, $canvas ) as $image ) {
 						if ( $image instanceof \Imagick ) {
-							$image->clear();
-							$image->destroy();
+							try {
+								$image->clear();
+								$image->destroy();
+							} catch ( \Throwable ) {
+								$converted = false;
+							}
 						}
 					}
-					self::restore_imagick_limits( $previous_limits );
+					$limits_restored = self::restore_imagick_limits( $previous_limits );
 				}
 			}
+			$converted = $converted && $limits_restored;
 		}
 
 		$source_unchanged = hash_equals( $source_hash, (string) @hash_file( 'sha256', $source_path ) );
@@ -508,6 +514,9 @@ final class Image_Converter {
 		}
 
 		$mime = self::normalize_mime( (string) ( $size['mime'] ?? '' ) );
+		if ( 'image/jpeg' === $mime && ! self::jpeg_has_end_marker( $path ) ) {
+			return false;
+		}
 		$decoder = match ( $mime ) {
 			'image/jpeg' => 'imagecreatefromjpeg',
 			'image/png'  => 'imagecreatefrompng',
@@ -515,7 +524,20 @@ final class Image_Converter {
 			default      => '',
 		};
 		if ( '' !== $decoder && function_exists( $decoder ) ) {
-			$image = @$decoder( $path );
+			$decode_warning = false;
+			set_error_handler(
+				static function () use ( &$decode_warning ): bool {
+					$decode_warning = true;
+					return true;
+				}
+			);
+			try {
+				$image = $decoder( $path );
+			} catch ( \Throwable ) {
+				$image = false;
+			} finally {
+				restore_error_handler();
+			}
 			if ( false === $image || imagesx( $image ) !== $width || imagesy( $image ) !== $height ) {
 				if ( false !== $image ) {
 					imagedestroy( $image );
@@ -523,38 +545,41 @@ final class Image_Converter {
 				return false;
 			}
 			imagedestroy( $image );
-			return true;
+			return ! $decode_warning;
 		}
 		if ( class_exists( '\\Imagick' ) ) {
 			$previous_limits = self::set_imagick_limits( $decode_budget );
 			if ( null === $previous_limits ) {
 				return false;
 			}
+			$valid = false;
+			$probe = null;
+			$image = null;
 			try {
 				$probe = new \Imagick();
 				$probe->pingImage( $path );
 				$single_frame = 1 === $probe->getNumberImages();
-				$probe->clear();
-				$probe->destroy();
-				if ( ! $single_frame ) {
-					return false;
+				if ( $single_frame ) {
+					$image = new \Imagick();
+					$image->readImage( $path );
+					$valid = $image->getImageWidth() === $width && $image->getImageHeight() === $height;
 				}
-
-				$image = new \Imagick();
-				$image->readImage( $path );
-				if ( $image->getImageWidth() !== $width || $image->getImageHeight() !== $height ) {
-					$image->clear();
-					$image->destroy();
-					return false;
-				}
-				$image->clear();
-				$image->destroy();
-				return true;
 			} catch ( \Throwable ) {
-				return false;
+				$valid = false;
 			} finally {
-				self::restore_imagick_limits( $previous_limits );
+				foreach ( array( $probe, $image ) as $instance ) {
+					if ( $instance instanceof \Imagick ) {
+						try {
+							$instance->clear();
+							$instance->destroy();
+						} catch ( \Throwable ) {
+							$valid = false;
+						}
+					}
+				}
 			}
+			$limits_restored = self::restore_imagick_limits( $previous_limits );
+			return $valid && $limits_restored;
 		}
 		return false;
 	}
@@ -573,6 +598,19 @@ final class Image_Converter {
 		};
 	}
 
+	/** JPEG streams without the final EOI marker are incomplete, even if a decoder recovers them. */
+	private static function jpeg_has_end_marker( string $path ): bool {
+		$handle = @fopen( $path, 'rb' );
+		if ( false === $handle ) {
+			return false;
+		}
+		try {
+			return 0 === fseek( $handle, -2, SEEK_END ) && "\xFF\xD9" === fread( $handle, 2 );
+		} finally {
+			fclose( $handle );
+		}
+	}
+
 	/** @return array<int, int>|null Previous limits, or null if every cap could not be applied. */
 	private static function set_imagick_limits( int $decode_budget ): ?array {
 		$requested = array(
@@ -582,37 +620,57 @@ final class Image_Converter {
 			'RESOURCETYPE_AREA'   => intdiv( $decode_budget, 8 ),
 			'RESOURCETYPE_THREAD' => 1,
 		);
+		$limits = array();
+		foreach ( $requested as $name => $limit ) {
+			$constant = \Imagick::class . '::' . $name;
+			if ( ! defined( $constant ) ) {
+				return null;
+			}
+			$limits[ constant( $constant ) ] = $limit;
+		}
+
+		return self::apply_imagick_limits(
+			$limits,
+			static fn ( int $resource ): int => (int) \Imagick::getResourceLimit( $resource ),
+			static fn ( int $resource, int $limit ): bool => \Imagick::setResourceLimit( $resource, $limit )
+		);
+	}
+
+	/** @param array<int, int> $requested Resource IDs mapped to requested maximums. */
+	private static function apply_imagick_limits( array $requested, callable $get, callable $set ): ?array {
 		$previous = array();
 		try {
-			foreach ( $requested as $name => $limit ) {
-				$constant = \Imagick::class . '::' . $name;
-				if ( ! defined( $constant ) ) {
-					self::restore_imagick_limits( $previous );
-					return null;
-				}
-				$resource = constant( $constant );
-				$previous[ $resource ] = \Imagick::getResourceLimit( $resource );
-				$applied = \Imagick::setResourceLimit( $resource, max( 1, $limit ) );
-				if ( true !== $applied ) {
-					self::restore_imagick_limits( $previous );
+			foreach ( $requested as $resource => $limit ) {
+				$previous[ $resource ] = (int) $get( (int) $resource );
+				$current              = (int) $previous[ $resource ];
+				// Zero means unlimited in ImageMagick; apply this decoder's finite cap.
+				$target = $current > 0 ? min( $current, max( 1, (int) $limit ) ) : max( 1, (int) $limit );
+				if ( true !== $set( (int) $resource, $target ) || (int) $get( (int) $resource ) !== $target ) {
+					self::restore_imagick_limits( $previous, $set, $get );
 					return null;
 				}
 			}
 		} catch ( \Throwable ) {
-			self::restore_imagick_limits( $previous );
+			self::restore_imagick_limits( $previous, $set, $get );
 			return null;
 		}
 		return $previous;
 	}
 
 	/** @param array<int, int> $limits */
-	private static function restore_imagick_limits( array $limits ): void {
+	private static function restore_imagick_limits( array $limits, ?callable $set = null, ?callable $get = null ): bool {
+		$set      ??= static fn ( int $resource, int $limit ): bool => \Imagick::setResourceLimit( $resource, $limit );
+		$get      ??= static fn ( int $resource ): int => (int) \Imagick::getResourceLimit( $resource );
+		$restored = true;
 		foreach ( $limits as $resource => $limit ) {
 			try {
-				\Imagick::setResourceLimit( $resource, $limit );
+				if ( true !== $set( (int) $resource, (int) $limit ) || (int) $get( (int) $resource ) !== (int) $limit ) {
+					$restored = false;
+				}
 			} catch ( \Throwable ) {
-				// The operation is already failing closed; continue restoring other limits.
+				$restored = false;
 			}
 		}
+		return $restored;
 	}
 }

@@ -10,6 +10,7 @@
 defined( 'ABSPATH' ) || exit;
 
 use WPS\Pepita\Catalog\Category_Rules;
+use WPS\Pepita\Catalog\Image_Converter;
 use WPS\Pepita\Catalog\Product_Mapper;
 use WPS\Pepita\Catalog\Product_Selection;
 use WPS\Pepita\Feed\Lock;
@@ -267,6 +268,10 @@ update_term_meta( (int) $parent['term_id'], Category_Rules::META_INCLUDE_CHILDRE
 WP_CLI::log( 'Creating product image...' );
 
 $image_id = wps_it_seed_image();
+$image_warning = Image_Converter::check_dimensions( $image_id );
+if ( null !== $image_warning ) {
+	WP_CLI::error( 'Integration image failed plugin validation (code=' . (string) ( $image_warning['code'] ?? 'unknown' ) . ').' );
+}
 
 WP_CLI::log( 'Creating products...' );
 
@@ -387,6 +392,24 @@ Settings::update(
 );
 
 Product_Selection::clear_cache();
+
+// Keep CI diagnostics actionable without printing filesystem paths, URLs, or product data.
+foreach ( array( $p1, $p2, $variable['product_id'] ) as $diagnostic_id ) {
+	$mapped        = Product_Mapper::map( (int) $diagnostic_id );
+	$error_codes   = array_values( array_unique( array_map( 'strval', array_column( (array) ( $mapped['errors'] ?? array() ), 'code' ) ) ) );
+	$warning_codes = array_values( array_unique( array_map( 'strval', array_column( (array) ( $mapped['warnings'] ?? array() ), 'code' ) ) ) );
+	if ( array() !== $error_codes || empty( $mapped['photos'] ) ) {
+		WP_CLI::log(
+			sprintf(
+				'Integration mapping diagnostic: product=%d photos=%d errors=%s warnings=%s',
+				(int) $diagnostic_id,
+				count( (array) ( $mapped['photos'] ?? array() ) ),
+				implode( ',', $error_codes ),
+				implode( ',', $warning_codes )
+			)
+		);
+	}
+}
 
 delete_option( 'wps_it_mail_log' );
 delete_option( 'wps_it_email_gate_log' );

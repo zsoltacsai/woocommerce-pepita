@@ -120,6 +120,17 @@ $suite->add(
 		WPS_Assert::same( 'invalid_image_file', $truncated_warnings[0]['code'] );
 		@unlink( $truncated_path );
 
+		// This cut preserves a parseable full-size JPEG header/scan setup but omits image data and EOI.
+		$header_truncated_path = sys_get_temp_dir() . '/wps-image-header-truncated-' . uniqid() . '.jpg';
+		file_put_contents( $header_truncated_path, substr( (string) $jpeg_bytes, 0, 134 ) );
+		WPS_Assert::true( is_array( @getimagesize( $header_truncated_path ) ), 'The truncated fixture must retain a parseable JPEG header.' );
+		WPS_Test_State::add_attachment( 850, 'https://example.test/header-truncated.jpg' );
+		WPS_Test_State::$attached_files[ 850 ] = $header_truncated_path;
+		$header_truncated_warnings = array();
+		WPS_Assert::same( '', Image_Converter::resolve_attachment_url( 850, $header_truncated_warnings ) );
+		WPS_Assert::same( 'invalid_image_file', $header_truncated_warnings[0]['code'] );
+		@unlink( $header_truncated_path );
+
 		$oversized_path = sys_get_temp_dir() . '/wps-image-oversized-' . uniqid() . '.jpg';
 		copy( __DIR__ . '/../fixtures/images/pepita-compatible-1200x630.jpg', $oversized_path );
 		$oversized_file = fopen( $oversized_path, 'c' );
@@ -132,6 +143,44 @@ $suite->add(
 		WPS_Assert::same( '', Image_Converter::resolve_attachment_url( 849, $oversized_warnings ) );
 		WPS_Assert::same( 'invalid_image_file', $oversized_warnings[0]['code'] );
 		@unlink( $oversized_path );
+	}
+);
+
+$suite->add(
+	'm9e images: Imagick limits never relax stricter caps and failures fail closed',
+	static function (): void {
+		$method = new ReflectionMethod( Image_Converter::class, 'apply_imagick_limits' );
+		$method->setAccessible( true );
+
+		$limits = array( 1 => 128 );
+		$state  = array( 1 => 32 );
+		$set    = static function ( int $resource, int $value ) use ( &$state ): bool {
+			$state[ $resource ] = $value;
+			return true;
+		};
+		$get    = static fn ( int $resource ): int => $state[ $resource ];
+		$prior  = $method->invoke( null, $limits, $get, $set );
+		WPS_Assert::same( array( 1 => 32 ), $prior, 'The previous stricter resource cap must be preserved.' );
+		WPS_Assert::same( 32, $state[1], 'A larger requested cap must not relax an existing limit.' );
+
+		$reject_set = static fn ( int $resource, int $value ): bool => false;
+		WPS_Assert::same( null, $method->invoke( null, array( 1 => 128 ), $get, $reject_set ), 'A rejected Imagick limit must abort decoding.' );
+
+		$restorer = new ReflectionMethod( Image_Converter::class, 'restore_imagick_limits' );
+		$restorer->setAccessible( true );
+		$attempts = 0;
+		$restore_set = static function ( int $resource, int $value ) use ( &$attempts, &$state ): bool {
+			++$attempts;
+			if ( 1 === $attempts ) {
+				$state[ $resource ] = $value;
+				return true;
+			}
+			return false;
+		};
+		$restore_prior = $method->invoke( null, array( 1 => 128 ), static fn ( int $resource ): int => 32, $restore_set );
+		WPS_Assert::same( array( 1 => 32 ), $restore_prior );
+		$restore_ok = $restorer->invoke( null, $restore_prior, $restore_set, static fn ( int $resource ): int => $state[ $resource ] );
+		WPS_Assert::false( $restore_ok, 'Failure to restore a process resource cap must be reported.' );
 	}
 );
 
