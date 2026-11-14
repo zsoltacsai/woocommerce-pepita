@@ -46,6 +46,7 @@ final class Admin {
 		( new Product_Metabox() )->register();
 		( new Product_List() )->register();
 		( new Category_List() )->register();
+		( new Order_Admin() )->register();
 	}
 
 	public function register_menu(): void {
@@ -92,8 +93,9 @@ final class Admin {
 		$is_plugin_page = is_string( $hook ) && str_contains( $hook, 'wps-pepita' );
 		$screen         = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
 		$is_product     = $screen && in_array( (string) $screen->id, array( 'product', 'edit-product' ), true );
+		$is_order       = $screen && in_array( (string) $screen->id, array( 'shop_order', 'edit-shop_order', 'woocommerce_page_wc-orders' ), true );
 
-		if ( ! $is_plugin_page && ! $is_product ) {
+		if ( ! $is_plugin_page && ! $is_product && ! $is_order ) {
 			return;
 		}
 
@@ -651,6 +653,14 @@ final class Admin {
 			'logs_cleared'        => array( 'success', __( 'A napló törlésre került.', 'wp-pepita-sync' ) ),
 			'feeds_reset'         => array( 'success', __( 'A generált feedek törlésre kerültek.', 'wp-pepita-sync' ) ),
 			'reset_locked'        => array( 'error', __( 'A feedek nem törölhetők, amíg generálás fut.', 'wp-pepita-sync' ) ),
+			'order_not_found'     => array( 'error', __( 'A keresett Pepita rendelés nem található.', 'wp-pepita-sync' ) ),
+			'retry_no_payload'    => array( 'error', __( 'A rendeléshez nem tartozik tárolt adatcsomag (a megőrzés ki volt kapcsolva vagy lejárt). Kérjük, kezdeményezzen újraküldést a Pepita rendszeréből.', 'wp-pepita-sync' ) ),
+			'retry_success'       => array( 'success', __( 'A rendelés sikeresen újrafeldolgozva.', 'wp-pepita-sync' ) ),
+			'retry_failed'        => array( 'error', __( 'A rendelés újrafeldolgozása sikertelen volt.', 'wp-pepita-sync' ) ),
+			'recover_associated'  => array( 'success', __( 'A hiányzó kapcsolat sikeresen helyreállítva a meglévő WooCommerce rendeléshez.', 'wp-pepita-sync' ) ),
+			'recover_reopened'    => array( 'info', __( 'A lezárt státusz törölve: a rendelés újranyitva, a következő értesítéskor újra importálódik.', 'wp-pepita-sync' ) ),
+			'recover_already_open'=> array( 'info', __( 'A rendelés már nyitott állapotban van (feldolgozás alatt vagy hibás).', 'wp-pepita-sync' ) ),
+			'recover_failed'      => array( 'error', __( 'A rendelés kapcsolat helyreállítása meghiúsult.', 'wp-pepita-sync' ) ),
 		);
 
 		if ( ! isset( $messages[ $notice ] ) ) {

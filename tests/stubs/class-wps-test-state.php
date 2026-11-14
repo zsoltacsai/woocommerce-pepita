@@ -45,6 +45,9 @@ final class WPS_Test_State {
 	/** @var array<int, WC_Order> */
 	public static array $orders = array();
 
+	/** @var array<int, array<mixed>> */
+	public static array $meta_boxes = array();
+
 	/** @var int */
 	public static int $order_sequence = 0;
 
@@ -128,6 +131,7 @@ final class WPS_Test_State {
 		self::$products          = array();
 		self::$skus              = array();
 		self::$orders            = array();
+		self::$meta_boxes         = array();
 		self::$order_sequence    = 0;
 		self::$current_user_caps = array(
 			'manage_woocommerce'  => true,

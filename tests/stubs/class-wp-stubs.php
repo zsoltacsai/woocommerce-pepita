@@ -617,7 +617,7 @@ function wp_verify_nonce( $nonce, string $action = '-1' ): bool {
 }
 
 function check_admin_referer( string $action = '-1', string $query_arg = '_wpnonce' ): bool {
-	$nonce = isset( $_REQUEST[ $query_arg ] ) ? (string) $_REQUEST[ $query_arg ] : '';
+	$nonce = isset( $_REQUEST[ $query_arg ] ) ? (string) $_REQUEST[ $query_arg ] : ( isset( $_POST[ $query_arg ] ) ? (string) $_POST[ $query_arg ] : ( isset( $_GET[ $query_arg ] ) ? (string) $_GET[ $query_arg ] : '' ) );
 
 	if ( ! wp_verify_nonce( $nonce, $action ) ) {
 		throw new \RuntimeException( 'Invalid admin nonce: ' . $action );
@@ -1327,6 +1327,7 @@ function add_submenu_page( ...$args ) {
 }
 
 function add_meta_box( ...$args ): void {
+	WPS_Test_State::$meta_boxes[] = $args;
 }
 
 function register_rest_route( string $namespace, string $route, array $args = array(), bool $override = false ): bool {

@@ -358,6 +358,49 @@ final class Order_Repository {
 	}
 
 	/**
+	 * Associate a WooCommerce order with a claim during operator recovery.
+	 *
+	 * Transitions failed or processing claims to completed, or associates an unlinked completed claim.
+	 * Fences against overwriting an already linked completed claim pointing to a different order.
+	 *
+	 * @param string $external_id
+	 * @param int    $order_id
+	 * @return bool True if the claim was updated and is now in completed state for this order.
+	 */
+	public static function recover_orphan_order( string $external_id, int $order_id ): bool {
+		global $wpdb;
+
+		if ( $order_id <= 0 || '' === $external_id ) {
+			return false;
+		}
+
+		$table = self::table();
+		$res   = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table}
+				 SET status = %s, wc_order_id = %d, last_error = NULL, updated_at = %s
+				 WHERE external_id = %s AND (status = %s OR status = %s OR (status = %s AND (wc_order_id = 0 OR wc_order_id IS NULL OR wc_order_id = %d)))", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				self::STATUS_COMPLETED,
+				$order_id,
+				current_time( 'mysql', true ),
+				$external_id,
+				self::STATUS_FAILED,
+				self::STATUS_PROCESSING,
+				self::STATUS_COMPLETED,
+				$order_id
+			)
+		);
+
+		if ( false === $res ) {
+			return false;
+		}
+
+		$current = self::get( $external_id );
+
+		return null !== $current && self::STATUS_COMPLETED === ( $current['status'] ?? '' ) && (int) ( $current['wc_order_id'] ?? 0 ) === $order_id;
+	}
+
+	/**
 	 * Atomically fence cleanup of an incomplete shell order.
 	 *
 	 * Verifies that the current worker still owns the lease (status = 'processing'

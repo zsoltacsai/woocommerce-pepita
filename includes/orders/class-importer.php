@@ -33,6 +33,7 @@ final class Importer {
 	public const META_PACKAGE_LABEL  = '_wps_pepita_package_label';
 	public const META_CUSTOMER_MSG   = '_wps_pepita_customer_message';
 	public const META_COURIER_MSG    = '_wps_pepita_courier_message';
+	public const META_IN_PROGRESS    = '_wps_pepita_in_progress';
 
 	/**
 	 * Import one payload.
@@ -1734,7 +1735,7 @@ final class Importer {
 				$payload_email = strtolower( trim( (string) ( $validation['customer']['email'] ?? '' ) ) );
 				if ( '' !== $order_email && '' !== $payload_email && $order_email !== $payload_email ) {
 					$conflict  = true;
-					$reasons[] = sprintf( 'eltérő vásárlói email (tárolt: %s, új: %s)', $order_email, $payload_email );
+					$reasons[] = sprintf( 'eltérő vásárlói email (tárolt: %s, új: %s)', Redactor::mask_email( $order_email ), Redactor::mask_email( $payload_email ) );
 				}
 
 				// 5. Strict line items count & contents match
