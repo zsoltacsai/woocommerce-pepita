@@ -796,6 +796,187 @@ final class Storage {
 	}
 
 	/**
+	 * Stage full catalog XML feed and catalog index for manual review/approval.
+	 *
+	 * Does NOT alter the active generation pointer or live feed paths.
+	 * Stores staging files and persists pending metadata in wps_pepita_feed_staged_full option.
+	 *
+	 * @param string               $feed_temp     Path to temporary XML feed.
+	 * @param string               $index_temp    Path to temporary catalog index.
+	 * @param ?string              $generation_id Generation identifier.
+	 * @param ?string              $signature     Catalog identity signature.
+	 * @param array<string, mixed> $diff          Catalog difference summary.
+	 * @param string               $reason        Reason why feed was staged.
+	 * @return bool
+	 */
+	public static function stage_full( string $feed_temp, string $index_temp, ?string $generation_id = null, ?string $signature = null, array $diff = array(), string $reason = '' ): bool {
+		self::ensure_directory();
+
+		if ( ! is_file( $feed_temp ) || ! is_file( $index_temp ) || filesize( $feed_temp ) <= 0 ) {
+			return false;
+		}
+
+		$lock_handle = self::acquire_lock();
+		if ( false === $lock_handle ) {
+			@unlink( $feed_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			@unlink( $index_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return false;
+		}
+
+		try {
+			$gen          = $generation_id ?? ( gmdate( 'Ymd_His' ) . '_' . bin2hex( random_bytes( 4 ) ) );
+			$staged_feed  = sprintf( 'pepita-full.staged.%s.xml', $gen );
+			$staged_index = sprintf( 'catalog.staged.%s.jsonl', $gen );
+			$target_feed  = self::path( $staged_feed );
+			$target_index = self::path( $staged_index );
+
+			if ( ! @rename( $feed_temp, $target_feed ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				if ( ! @copy( $feed_temp, $target_feed ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+					return false;
+				}
+				@unlink( $feed_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+
+			if ( ! @rename( $index_temp, $target_index ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				if ( ! @copy( $index_temp, $target_index ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+					@unlink( $target_feed ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+					return false;
+				}
+				@unlink( $index_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+
+			$catalog_sig = $signature ?? Catalog_Index::compute_signature_from_file( $target_index );
+			$hash        = hash_file( 'sha256', $target_feed );
+
+			$staged_data = array(
+				'generation_id' => $gen,
+				'feed_file'     => $staged_feed,
+				'index_file'    => $staged_index,
+				'signature'     => $catalog_sig,
+				'hash'          => is_string( $hash ) ? $hash : '',
+				'staged_at'     => time(),
+				'diff'          => $diff,
+				'reason'        => $reason,
+			);
+
+			update_option( 'wps_pepita_feed_staged_full', $staged_data, false );
+
+			clearstatcache( true, $target_feed );
+			clearstatcache( true, $target_index );
+
+			return true;
+		} finally {
+			self::release_lock( $lock_handle );
+		}
+	}
+
+	/**
+	 * Whether a full feed is staged and waiting for manual approval.
+	 */
+	public static function has_staged_full(): bool {
+		$staged = get_option( 'wps_pepita_feed_staged_full', null );
+		if ( ! is_array( $staged ) || empty( $staged['feed_file'] ) || empty( $staged['index_file'] ) ) {
+			return false;
+		}
+
+		$feed_path = self::path( (string) $staged['feed_file'] );
+		return is_file( $feed_path ) && filesize( $feed_path ) > 0;
+	}
+
+	/**
+	 * Get staged feed metadata if present.
+	 *
+	 * @return array<string, mixed>|null
+	 */
+	public static function get_staged_full(): ?array {
+		if ( ! self::has_staged_full() ) {
+			return null;
+		}
+
+		$staged = get_option( 'wps_pepita_feed_staged_full', null );
+		if ( ! is_array( $staged ) ) {
+			return null;
+		}
+
+		$staged['feed_path']  = self::path( (string) $staged['feed_file'] );
+		$staged['index_path'] = self::path( (string) $staged['index_file'] );
+
+		return $staged;
+	}
+
+	/**
+	 * Atomically approve and promote a staged full feed to live publication.
+	 */
+	public static function approve_staged_full(): bool {
+		$staged = self::get_staged_full();
+		if ( null === $staged ) {
+			return false;
+		}
+
+		$feed_path  = (string) $staged['feed_path'];
+		$index_path = (string) $staged['index_path'];
+
+		if ( ! is_file( $feed_path ) || ! is_file( $index_path ) ) {
+			delete_option( 'wps_pepita_feed_staged_full' );
+			return false;
+		}
+
+		$published = self::publish_full(
+			$feed_path,
+			$index_path,
+			(string) ( $staged['generation_id'] ?? '' ),
+			(string) ( $staged['signature'] ?? '' )
+		);
+
+		if ( ! $published ) {
+			return false;
+		}
+
+		delete_option( 'wps_pepita_feed_staged_full' );
+
+		if ( ! empty( $staged['diff'] ) && is_array( $staged['diff'] ) ) {
+			update_option( \WPS\Pepita\Feed\Catalog_Diff::OPTION_DIFF_FULL, $staged['diff'], false );
+		}
+
+		$feed_state = get_option( 'wps_pepita_feed_state_full', array() );
+		$feed_state = is_array( $feed_state ) ? $feed_state : array();
+		$feed_state['last_success'] = time();
+		$feed_state['last_attempt'] = time();
+		$feed_state['file_size']    = self::size( 'full' );
+		$feed_state['hash']         = (string) ( $staged['hash'] ?? '' );
+		update_option( 'wps_pepita_feed_state_full', $feed_state, false );
+
+		\WPS\Pepita\Logger::info(
+			'feed_safety',
+			'Jóváhagyásra váró feed sikeresen jóváhagyva és közzétéve.',
+			array( 'generation_id' => $staged['generation_id'] )
+		);
+
+		return true;
+	}
+
+	/**
+	 * Discard a staged full feed and remove temporary staging artifacts.
+	 */
+	public static function discard_staged_full(): bool {
+		$staged = get_option( 'wps_pepita_feed_staged_full', null );
+		if ( is_array( $staged ) ) {
+			if ( ! empty( $staged['feed_file'] ) ) {
+				@unlink( self::path( (string) $staged['feed_file'] ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+			if ( ! empty( $staged['index_file'] ) ) {
+				@unlink( self::path( (string) $staged['index_file'] ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+		}
+
+		delete_option( 'wps_pepita_feed_staged_full' );
+
+		\WPS\Pepita\Logger::info( 'feed_safety', 'Jóváhagyásra váró feed elvetve az adminisztrátor által.' );
+
+		return true;
+	}
+
+	/**
 	 * Remove old versioned generation files that are no longer active or previous.
 	 *
 	 * @param array<string, mixed> $pointer
@@ -835,6 +1016,16 @@ final class Storage {
 			$keep[] = $pointer['previous']['stock_feed'];
 		}
 
+		$staged = get_option( 'wps_pepita_feed_staged_full', null );
+		if ( is_array( $staged ) ) {
+			if ( ! empty( $staged['feed_file'] ) ) {
+				$keep[] = (string) $staged['feed_file'];
+			}
+			if ( ! empty( $staged['index_file'] ) ) {
+				$keep[] = (string) $staged['index_file'];
+			}
+		}
+
 		$files = glob( self::dir() . '/*' );
 		if ( ! is_array( $files ) ) {
 			return;
@@ -866,6 +1057,7 @@ final class Storage {
 	 */
 	public static function purge(): void {
 		self::$pointer_cache = null;
+		delete_option( 'wps_pepita_feed_staged_full' );
 		$dir                 = self::dir();
 
 		if ( ! is_dir( $dir ) ) {

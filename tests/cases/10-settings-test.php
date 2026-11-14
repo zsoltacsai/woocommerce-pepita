@@ -196,7 +196,7 @@ $suite->add(
 );
 
 $suite->add(
-	'settings: Admin::settings_input preserves attribute_name_map from POST payload',
+	'settings: Admin::settings_input preserves attribute_name_map and M9-G settings from POST payload',
 	static function (): void {
 		$admin  = new \WPS\Pepita\Admin\Admin();
 		$ref    = new \ReflectionClass( $admin );
@@ -204,11 +204,29 @@ $suite->add(
 		$method->setAccessible( true );
 
 		$raw = array(
-			'attribute_name_map' => "pa_color=Szín\npa_size=Méret",
+			'attribute_name_map'                 => "pa_color=Szín\npa_size=Méret",
+			'feed_safety_require_approval'       => '1',
+			'feed_safety_max_price_drop_percent' => '45',
+			'feed_alert_email_enabled'           => '1',
+			'feed_alert_email'                   => 'admin@shop.test',
+			'feed_alert_webhook_enabled'         => '1',
+			'feed_alert_webhook_url'             => 'https://webhook.test/alerts',
+			'offpeak_schedule_enabled'           => '1',
+			'offpeak_start_hour'                 => '2',
+			'offpeak_end_hour'                   => '6',
 		);
 
 		$parsed = $method->invoke( $admin, $raw );
 
 		WPS_Assert::same( "pa_color=Szín\npa_size=Méret", $parsed['attribute_name_map'] );
+		WPS_Assert::true( $parsed['feed_safety_require_approval'] );
+		WPS_Assert::same( '45', (string) $parsed['feed_safety_max_price_drop_percent'] );
+		WPS_Assert::true( $parsed['feed_alert_email_enabled'] );
+		WPS_Assert::same( 'admin@shop.test', $parsed['feed_alert_email'] );
+		WPS_Assert::true( $parsed['feed_alert_webhook_enabled'] );
+		WPS_Assert::same( 'https://webhook.test/alerts', $parsed['feed_alert_webhook_url'] );
+		WPS_Assert::true( $parsed['offpeak_schedule_enabled'] );
+		WPS_Assert::same( '2', (string) $parsed['offpeak_start_hour'] );
+		WPS_Assert::same( '6', (string) $parsed['offpeak_end_hour'] );
 	}
 );

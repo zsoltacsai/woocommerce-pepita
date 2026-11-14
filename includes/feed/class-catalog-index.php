@@ -155,6 +155,10 @@ final class Catalog_Index {
 			'sale'       => null !== $data['sale_price'] ? (float) $data['sale_price'] : null,
 			'currency'   => (string) $data['currency'],
 			'vat'        => (float) $data['vat_percent'],
+			'qty'        => isset( $data['quantity'] ) ? (int) $data['quantity'] : null,
+			'avail'      => (bool) ( $data['available'] ?? false ),
+			'cat'        => (string) ( ( $data['categories'] ?? array() )[0] ?? '' ),
+			'qual_ex'    => (bool) ( $data['quality_excluded'] ?? false ),
 			'vars'       => $vars,
 			'retired_at' => $retired_at,
 		);

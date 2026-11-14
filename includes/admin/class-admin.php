@@ -38,6 +38,8 @@ final class Admin {
 		add_action( 'admin_post_wps_pepita_export_logs', array( $this, 'handle_export_logs' ) );
 		add_action( 'admin_post_wps_pepita_export_preflight', array( $this, 'handle_export_preflight' ) );
 		add_action( 'admin_post_wps_pepita_reset_feeds', array( $this, 'handle_reset_feeds' ) );
+		add_action( 'admin_post_wps_pepita_approve_staged_feed', array( $this, 'handle_approve_staged_feed' ) );
+		add_action( 'admin_post_wps_pepita_reject_staged_feed', array( $this, 'handle_reject_staged_feed' ) );
 		add_action( 'admin_notices', array( $this, 'render_notices' ) );
 
 		( new Ajax() )->register();
@@ -267,6 +269,10 @@ final class Admin {
 			'delete_data_on_uninstall',
 			'feed_safety_block_publication',
 			'feed_safety_variation_change_warning',
+			'feed_safety_require_approval',
+			'feed_alert_email_enabled',
+			'feed_alert_webhook_enabled',
+			'offpeak_schedule_enabled',
 		);
 
 		$input = array();
@@ -303,6 +309,13 @@ final class Admin {
 			'full_feed_interval',
 			'stock_feed_interval',
 			'feed_safety_drop_threshold',
+			'feed_safety_max_price_drop_percent',
+			'feed_safety_max_price_spikes',
+			'feed_safety_max_quality_exclusions',
+			'feed_alert_email',
+			'feed_alert_webhook_url',
+			'offpeak_start_hour',
+			'offpeak_end_hour',
 			'removal_policy',
 			'removal_grace_days',
 			'feed_cache_max_age',
@@ -549,6 +562,27 @@ final class Admin {
 		$this->redirect( 'wps-pepita-feeds', array( 'wps_notice' => 'feeds_reset' ) );
 	}
 
+	public function handle_approve_staged_feed(): void {
+		$this->guard( true );
+
+		check_admin_referer( 'wps_pepita_approve_staged_feed' );
+
+		$success = Storage::approve_staged_full();
+		$notice  = $success ? 'feed_approved' : 'generation_error';
+
+		$this->redirect( 'wps-pepita-feeds', array( 'wps_notice' => $notice ) );
+	}
+
+	public function handle_reject_staged_feed(): void {
+		$this->guard( true );
+
+		check_admin_referer( 'wps_pepita_reject_staged_feed' );
+
+		Storage::discard_staged_full();
+
+		$this->redirect( 'wps-pepita-feeds', array( 'wps_notice' => 'feed_rejected' ) );
+	}
+
 	/* ---------------------------------------------------------------------
 	 * Notices and helpers
 	 * ------------------------------------------------------------------ */
@@ -564,6 +598,16 @@ final class Admin {
 			return;
 		}
 
+		if ( Storage::has_staged_full() ) {
+			printf(
+				'<div class="notice notice-warning inline" style="border-left-color: #dba617;"><p><strong>%s</strong> %s <a href="%s">%s</a></p></div>',
+				esc_html__( 'Figyelem:', 'wp-pepita-sync' ),
+				esc_html__( 'Egy új teljes termékfeed jóváhagyásra vár a biztonsági kapuban.', 'wp-pepita-sync' ),
+				esc_url( admin_url( 'admin.php?page=wps-pepita-feeds' ) ),
+				esc_html__( 'Megtekintés és jóváhagyás &rarr;', 'wp-pepita-sync' )
+			);
+		}
+
 		$notice = isset( $_GET['wps_notice'] ) ? sanitize_key( wp_unslash( (string) $_GET['wps_notice'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 
 		if ( '' === $notice ) {
@@ -577,6 +621,9 @@ final class Admin {
 			'generation_started'  => array( 'info', __( 'A feed generálása elindult.', 'wp-pepita-sync' ) ),
 			'generation_skipped'  => array( 'warning', __( 'A generálás nem indult el, mert már fut egy folyamat ehhez a feedhez.', 'wp-pepita-sync' ) ),
 			'generation_error'    => array( 'error', __( 'A feed generálása sikertelen volt. A korábbi feed megmaradt. A részletek a naplóban találhatók.', 'wp-pepita-sync' ) ),
+			'generation_staged'   => array( 'warning', __( 'A feed elkészült, de a biztonsági kapu aktiválódott: jóváhagyásra vár a közzététel előtt.', 'wp-pepita-sync' ) ),
+			'feed_approved'       => array( 'success', __( 'A jóváhagyott feed sikeresen publikálásra került.', 'wp-pepita-sync' ) ),
+			'feed_rejected'       => array( 'info', __( 'A jóváhagyásra váró feed elvetve. Az előző érvényes feed maradt aktív.', 'wp-pepita-sync' ) ),
 			'feed_missing'        => array( 'error', __( 'A kért feed még nem készült el.', 'wp-pepita-sync' ) ),
 			'secret_regenerated'  => array( 'success', __( 'Az új titkos kulcs elkészült. A régi kulcs azonnal érvénytelenné vált.', 'wp-pepita-sync' ) ),
 			'secret_constant'     => array( 'warning', __( 'A kulcs a wp-config.php fájlban van meghatározva, ezért az admin felületről nem módosítható.', 'wp-pepita-sync' ) ),

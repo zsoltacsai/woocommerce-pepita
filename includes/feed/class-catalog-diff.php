@@ -36,7 +36,11 @@ final class Catalog_Diff {
 
 		$drop_threshold          = (int) ( $options['drop_threshold'] ?? Settings::get( 'feed_safety_drop_threshold', 20 ) );
 		$warn_variation_changes = (bool) ( $options['warn_variation_changes'] ?? Settings::get( 'feed_safety_variation_change_warning', true ) );
-		$sample_limit            = max( 5, (int) ( $options['sample_limit'] ?? 50 ) );
+		$max_price_drop_percent = (int) ( $options['max_price_drop_percent'] ?? Settings::get( 'feed_safety_max_price_drop_percent', 50 ) );
+		$max_price_spikes       = (int) ( $options['max_price_spikes'] ?? Settings::get( 'feed_safety_max_price_spikes', 10 ) );
+		$max_quality_exclusions = (int) ( $options['max_quality_exclusions'] ?? Settings::get( 'feed_safety_max_quality_exclusions', 50 ) );
+		$require_approval       = (bool) ( $options['require_approval'] ?? Settings::get( 'feed_safety_require_approval', false ) );
+		$sample_limit           = max( 5, (int) ( $options['sample_limit'] ?? 50 ) );
 
 		$has_current  = is_file( $current_path ) && filesize( $current_path ) > 0;
 		$has_previous = is_file( $previous_path ) && filesize( $previous_path ) > 0;
@@ -53,16 +57,25 @@ final class Catalog_Diff {
 				'removed_count'              => 0,
 				'unavailable_count'          => 0,
 				'price_changed_count'        => 0,
+				'price_spike_count'          => 0,
+				'stock_changed_count'        => 0,
+				'category_changed_count'     => 0,
 				'variation_changed_count'    => 0,
+				'quality_excluded_count'     => 0,
 				'tax_currency_changed_count' => 0,
 				'drop_percent'               => 0.0,
+				'overall_impact'             => 'none',
 				'warnings'                   => array(),
 				'samples'                    => array(
 					'added'                => array(),
 					'removed'              => array(),
 					'unavailable'          => array(),
 					'price_changed'        => array(),
+					'price_spike'          => array(),
+					'stock_changed'        => array(),
+					'category_changed'     => array(),
 					'variation_changed'    => array(),
+					'quality_excluded'     => array(),
 					'tax_currency_changed' => array(),
 				),
 				'message'                    => __( 'Nincs publikált teljes feed katalógus index.', 'wp-pepita-sync' ),
@@ -93,16 +106,25 @@ final class Catalog_Diff {
 				'removed_count'              => 0,
 				'unavailable_count'          => $unavailable_count,
 				'price_changed_count'        => 0,
+				'price_spike_count'          => 0,
+				'stock_changed_count'        => 0,
+				'category_changed_count'     => 0,
 				'variation_changed_count'    => 0,
+				'quality_excluded_count'     => 0,
 				'tax_currency_changed_count' => 0,
 				'drop_percent'               => 0.0,
+				'overall_impact'             => 'safe',
 				'warnings'                   => array(),
 				'samples'                    => array(
 					'added'                => array(),
 					'removed'              => array(),
 					'unavailable'          => array(),
 					'price_changed'        => array(),
+					'price_spike'          => array(),
+					'stock_changed'        => array(),
+					'category_changed'     => array(),
 					'variation_changed'    => array(),
+					'quality_excluded'     => array(),
 					'tax_currency_changed' => array(),
 				),
 				'message'                    => __( 'Első generálás — nincs korábbi összehasonlítási alap.', 'wp-pepita-sync' ),
@@ -130,6 +152,10 @@ final class Catalog_Diff {
 				'sale'       => isset( $row['sale'] ) && null !== $row['sale'] ? (float) $row['sale'] : null,
 				'vat'        => (float) ( $row['vat'] ?? 0.0 ),
 				'currency'   => (string) ( $row['currency'] ?? '' ),
+				'qty'        => isset( $row['qty'] ) ? (int) $row['qty'] : null,
+				'avail'      => isset( $row['avail'] ) ? (bool) $row['avail'] : ( 0 === $retired_at ),
+				'cat'        => (string) ( $row['cat'] ?? '' ),
+				'qual_ex'    => (bool) ( $row['qual_ex'] ?? false ),
 				'vars'       => (array) ( $row['vars'] ?? array() ),
 				'retired_at' => $retired_at,
 			);
@@ -140,7 +166,11 @@ final class Catalog_Diff {
 		$curr_unavailable_count     = 0;
 		$added_count                = 0;
 		$price_changed_count        = 0;
+		$price_spike_count          = 0;
+		$stock_changed_count        = 0;
+		$category_changed_count     = 0;
 		$variation_changed_count    = 0;
+		$quality_excluded_count     = 0;
 		$tax_currency_changed_count = 0;
 
 		$samples = array(
@@ -148,7 +178,11 @@ final class Catalog_Diff {
 			'removed'              => array(),
 			'unavailable'          => array(),
 			'price_changed'        => array(),
+			'price_spike'          => array(),
+			'stock_changed'        => array(),
+			'category_changed'     => array(),
 			'variation_changed'    => array(),
+			'quality_excluded'     => array(),
 			'tax_currency_changed' => array(),
 		);
 
@@ -191,27 +225,103 @@ final class Catalog_Diff {
 					}
 				}
 
-				// 2. Price changes.
+				// 2. Price changes and price spikes.
 				$curr_price = (float) ( $row['price'] ?? 0.0 );
 				$curr_sale  = isset( $row['sale'] ) && null !== $row['sale'] ? (float) $row['sale'] : null;
 
 				if ( abs( $prev['price'] - $curr_price ) > 0.001 || $prev['sale'] !== $curr_sale ) {
 					++$price_changed_count;
 
+					$drop_pct = 0.0;
+					if ( $prev['price'] > 0.0 && $curr_price < $prev['price'] ) {
+						$drop_pct = round( ( ( $prev['price'] - $curr_price ) / $prev['price'] ) * 100, 1 );
+						if ( $drop_pct >= $max_price_drop_percent ) {
+							++$price_spike_count;
+							if ( count( $samples['price_spike'] ) < $sample_limit ) {
+								$samples['price_spike'][] = array(
+									'pid'          => $pid,
+									'eid'          => (string) ( $row['eid'] ?? '' ),
+									'name'         => (string) ( $row['name'] ?? '' ),
+									'old_price'    => $prev['price'],
+									'new_price'    => $curr_price,
+									'drop_percent' => $drop_pct,
+								);
+							}
+						}
+					}
+
 					if ( count( $samples['price_changed'] ) < $sample_limit ) {
 						$samples['price_changed'][] = array(
-							'pid'       => $pid,
-							'eid'       => (string) ( $row['eid'] ?? '' ),
-							'name'      => (string) ( $row['name'] ?? '' ),
-							'old_price' => $prev['price'],
-							'new_price' => $curr_price,
-							'old_sale'  => $prev['sale'],
-							'new_sale'  => $curr_sale,
+							'pid'          => $pid,
+							'eid'          => (string) ( $row['eid'] ?? '' ),
+							'name'         => (string) ( $row['name'] ?? '' ),
+							'old_price'    => $prev['price'],
+							'new_price'    => $curr_price,
+							'old_sale'     => $prev['sale'],
+							'new_sale'     => $curr_sale,
+							'drop_percent' => $drop_pct,
 						);
 					}
 				}
 
-				// 3. Variation identity changes.
+				// 3. Stock changes: availability or quantity.
+				$prev_avail = $prev['avail'];
+				$curr_avail = isset( $row['avail'] ) ? (bool) $row['avail'] : ( 0 === $retired_at );
+				$prev_qty   = $prev['qty'];
+				$curr_qty   = isset( $row['qty'] ) ? (int) $row['qty'] : null;
+
+				if ( $prev_avail !== $curr_avail || ( null !== $prev_qty && null !== $curr_qty && $prev_qty !== $curr_qty ) ) {
+					++$stock_changed_count;
+
+					if ( count( $samples['stock_changed'] ) < $sample_limit ) {
+						$samples['stock_changed'][] = array(
+							'pid'       => $pid,
+							'eid'       => (string) ( $row['eid'] ?? '' ),
+							'name'      => (string) ( $row['name'] ?? '' ),
+							'old_avail' => $prev_avail,
+							'new_avail' => $curr_avail,
+							'old_qty'   => $prev_qty,
+							'new_qty'   => $curr_qty,
+						);
+					}
+				}
+
+				// 4. Category changes.
+				$prev_cat = (string) ( $prev['cat'] ?? '' );
+				$curr_cat = (string) ( $row['cat'] ?? '' );
+
+				if ( '' !== $prev_cat && '' !== $curr_cat && $prev_cat !== $curr_cat ) {
+					++$category_changed_count;
+
+					if ( count( $samples['category_changed'] ) < $sample_limit ) {
+						$samples['category_changed'][] = array(
+							'pid'     => $pid,
+							'eid'     => (string) ( $row['eid'] ?? '' ),
+							'name'    => (string) ( $row['name'] ?? '' ),
+							'old_cat' => $prev_cat,
+							'new_cat' => $curr_cat,
+						);
+					}
+				}
+
+				// 5. Quality exclusion changes.
+				$prev_qual = (bool) ( $prev['qual_ex'] ?? false );
+				$curr_qual = (bool) ( $row['qual_ex'] ?? false );
+
+				if ( $curr_qual && ! $prev_qual ) {
+					++$quality_excluded_count;
+
+					if ( count( $samples['quality_excluded'] ) < $sample_limit ) {
+						$samples['quality_excluded'][] = array(
+							'pid'    => $pid,
+							'eid'    => (string) ( $row['eid'] ?? '' ),
+							'name'   => (string) ( $row['name'] ?? '' ),
+							'reason' => 'quality_excluded',
+						);
+					}
+				}
+
+				// 6. Variation identity changes.
 				$curr_vars = (array) ( $row['vars'] ?? array() );
 
 				if ( $prev['vars'] !== $curr_vars ) {
@@ -228,7 +338,7 @@ final class Catalog_Diff {
 					}
 				}
 
-				// 4. Tax / Currency changes.
+				// 7. Tax / Currency changes.
 				$curr_vat = (float) ( $row['vat'] ?? 0.0 );
 				$curr_cur = (string) ( $row['currency'] ?? '' );
 
@@ -257,12 +367,31 @@ final class Catalog_Diff {
 			if ( 0 === (int) $prev_item['retired_at'] ) {
 				++$removed_count;
 
+				$is_qual = false;
+				if ( class_exists( '\WPS\Pepita\Catalog\Product_Selection' ) ) {
+					$sel = \WPS\Pepita\Catalog\Product_Selection::resolve( (int) $prev_item['pid'] );
+					if ( \WPS\Pepita\Catalog\Product_Selection::SOURCE_QUALITY_EXCLUDED === ( $sel['source'] ?? '' ) ) {
+						$is_qual = true;
+						++$quality_excluded_count;
+
+						if ( count( $samples['quality_excluded'] ) < $sample_limit ) {
+							$samples['quality_excluded'][] = array(
+								'pid'    => (int) $prev_item['pid'],
+								'eid'    => (string) $prev_item['eid'],
+								'name'   => (string) $prev_item['name'],
+								'reason' => 'quality_excluded',
+							);
+						}
+					}
+				}
+
 				if ( count( $samples['removed'] ) < $sample_limit ) {
 					$samples['removed'][] = array(
-						'pid'   => (int) $prev_item['pid'],
-						'eid'   => (string) $prev_item['eid'],
-						'name'  => (string) $prev_item['name'],
-						'price' => (float) $prev_item['price'],
+						'pid'              => (int) $prev_item['pid'],
+						'eid'              => (string) $prev_item['eid'],
+						'name'             => (string) $prev_item['name'],
+						'price'            => (float) $prev_item['price'],
+						'quality_excluded' => $is_qual,
 					);
 				}
 			}
@@ -310,6 +439,45 @@ final class Catalog_Diff {
 			);
 		}
 
+		// Safety warning 3: unexpected drastic price spikes.
+		if ( $price_spike_count >= $max_price_spikes ) {
+			if ( 'ok' === $status ) {
+				$status = 'warn';
+			}
+
+			$warnings[] = sprintf(
+				/* translators: 1: count of price spikes, 2: drop percentage */
+				__( 'Drasztikus árcsökkenés észlelve: %1$d termék ára esett több mint %2$d%%-kal.', 'wp-pepita-sync' ),
+				$price_spike_count,
+				$max_price_drop_percent
+			);
+		}
+
+		// Safety warning 4: mass quality exclusions.
+		if ( $quality_excluded_count >= $max_quality_exclusions ) {
+			if ( 'ok' === $status ) {
+				$status = 'warn';
+			}
+
+			$warnings[] = sprintf(
+				/* translators: %d: count */
+				__( 'Tömeges minőségi kizárás: %d termék került kizárásra minőségi hibák miatt.', 'wp-pepita-sync' ),
+				$quality_excluded_count
+			);
+		}
+
+		// Determine overall impact.
+		$overall_impact = 'safe';
+		if ( 'fail' === $status ) {
+			$overall_impact = 'critical';
+		} elseif ( 'warn' === $status ) {
+			$overall_impact = 'warn';
+		}
+
+		if ( $require_approval && ( 'warn' === $status || 'fail' === $status || $drop_percent > 0 || $price_spike_count > 0 || $quality_excluded_count > 0 ) ) {
+			$overall_impact = 'approval_required';
+		}
+
 		return array(
 			'status'                     => $status,
 			'is_initial'                 => false,
@@ -321,9 +489,14 @@ final class Catalog_Diff {
 			'removed_count'              => $removed_count,
 			'unavailable_count'          => $curr_unavailable_count,
 			'price_changed_count'        => $price_changed_count,
+			'price_spike_count'          => $price_spike_count,
+			'stock_changed_count'        => $stock_changed_count,
+			'category_changed_count'     => $category_changed_count,
 			'variation_changed_count'    => $variation_changed_count,
+			'quality_excluded_count'     => $quality_excluded_count,
 			'tax_currency_changed_count' => $tax_currency_changed_count,
 			'drop_percent'               => $drop_percent,
+			'overall_impact'             => $overall_impact,
 			'warnings'                   => $warnings,
 			'samples'                    => $samples,
 			'message'                    => '',

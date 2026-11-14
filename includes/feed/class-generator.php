@@ -12,6 +12,7 @@
 
 namespace WPS\Pepita\Feed;
 
+use WPS\Pepita\Alerts;
 use WPS\Pepita\Catalog\Category_Rules;
 use WPS\Pepita\Catalog\Product_Mapper;
 use WPS\Pepita\Catalog\Product_Selection;
@@ -622,11 +623,58 @@ final class Generator {
 			}
 
 			if ( (bool) Settings::get( 'feed_safety_block_publication', false ) && 'ok' !== $catalog_diff['status'] && ! empty( $catalog_diff['warnings'] ) ) {
+				Alerts::trigger(
+					Alerts::EVENT_SAFETY_GATE_TRIGGERED,
+					array(
+						'diff'     => $catalog_diff,
+						'warnings' => $catalog_diff['warnings'],
+						'message'  => sprintf( 'A publikálás a feed biztonsági védelem miatt megszakítva: %s', implode( ' ', $catalog_diff['warnings'] ) ),
+					)
+				);
+
 				return $this->abort(
 					$type,
 					$state,
 					sprintf( 'A publikálás a feed biztonsági védelem miatt megszakítva: %s', implode( ' ', $catalog_diff['warnings'] ) )
 				);
+			}
+
+			$require_approval = (bool) Settings::get( 'feed_safety_require_approval', false );
+			if ( $require_approval && ( 'warn' === $catalog_diff['status'] || 'fail' === $catalog_diff['status'] || ! empty( $catalog_diff['warnings'] ) ) ) {
+				$reason = implode( ' ', $catalog_diff['warnings'] );
+				if ( '' === $reason ) {
+					$reason = __( 'Kockázatos változások észlelve, kézi jóváhagyás szükséges.', 'wp-pepita-sync' );
+				}
+
+				if ( Storage::stage_full( $feed_temp, $index_temp, (string) $state['lock_token'], (string) $state['signature'], $catalog_diff, $reason ) ) {
+					Alerts::trigger(
+						Alerts::EVENT_STAGED_APPROVAL,
+						array(
+							'diff'     => $catalog_diff,
+							'warnings' => $catalog_diff['warnings'],
+							'message'  => $reason,
+						)
+					);
+
+					Logger::warning( 'feed_safety', 'A teljes feed publikálása jóváhagyásra vár.', array( 'reason' => $reason ) );
+
+					@unlink( (string) $state['ids_file'] );
+					delete_option( $this->state_option( $type ) );
+					Lock::release( $type, (string) $state['lock_token'] );
+					Scheduler::clear_dirty( $type );
+
+					$feed_state                   = $this->get_feed_state( $type );
+					$feed_state['last_attempt']   = time();
+					$feed_state['last_error']     = '';
+					$feed_state['attempt_counts'] = $state['counters'] ?? array();
+					update_option( $this->feed_state_option( $type ), $feed_state, false );
+
+					return array(
+						'status'  => 'staged',
+						'message' => __( 'A feed elkészült, de jóváhagyásra vár a közzététel előtt.', 'wp-pepita-sync' ),
+						'counts'  => $state['counters'],
+					);
+				}
 			}
 		}
 
@@ -729,6 +777,16 @@ final class Generator {
 			array(
 				'counts' => $state['counters'] ?? array(),
 				'errors' => array_slice( (array) ( $state['errors'] ?? array() ), 0, 20 ),
+			)
+		);
+
+		Alerts::trigger(
+			Alerts::EVENT_GENERATION_FAILED,
+			array(
+				'message'  => $message,
+				'type'     => $type,
+				'counts'   => $state['counters'] ?? array(),
+				'warnings' => array_slice( (array) ( $state['warnings'] ?? array() ), 0, 10 ),
 			)
 		);
 

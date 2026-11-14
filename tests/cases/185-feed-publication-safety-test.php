@@ -9,7 +9,9 @@
  * @package WPS\Pepita\Tests
  */
 
+use WPS\Pepita\Alerts;
 use WPS\Pepita\Feed\Generator;
+use WPS\Pepita\Feed\Scheduler;
 use WPS\Pepita\Settings;
 use WPS\Pepita\Storage;
 
@@ -144,5 +146,219 @@ $suite->add(
 
 		// Catalog index was not changed
 		WPS_Assert::same( $index_content, file_get_contents( Storage::catalog_index_path() ) );
+	}
+);
+
+$suite->add(
+	'staging: stage_full preserves active generation pointer and leaves live feed intact',
+	static function () use ( $setup_storage ): void {
+		$setup_storage();
+
+		// Establish published live state (V1)
+		$f1 = sys_get_temp_dir() . '/live1_' . uniqid() . '.xml';
+		$i1 = sys_get_temp_dir() . '/live1_' . uniqid() . '.jsonl';
+		file_put_contents( $f1, '<Catalog><Product><Id>LIVE-1</Id></Product></Catalog>' );
+		file_put_contents( $i1, '{"pid":"LIVE-1"}' . "\n" );
+		Storage::publish_full( $f1, $i1 );
+
+		$live_feed_content = file_get_contents( Storage::feed_path( 'full' ) );
+		$live_index_content = file_get_contents( Storage::catalog_index_path() );
+
+		// Prepare candidate (V2) to stage
+		$f2 = sys_get_temp_dir() . '/staged2_' . uniqid() . '.xml';
+		$i2 = sys_get_temp_dir() . '/staged2_' . uniqid() . '.jsonl';
+		file_put_contents( $f2, '<Catalog><Product><Id>STAGED-2</Id></Product></Catalog>' );
+		file_put_contents( $i2, '{"pid":"STAGED-2"}' . "\n" );
+
+		$staged = Storage::stage_full( $f2, $i2, 'gen-test-stage', 'sig-test-stage', array( 'status' => 'warn' ), 'Price spike detected' );
+		WPS_Assert::true( $staged, 'Storage::stage_full must return true' );
+		WPS_Assert::true( Storage::has_staged_full(), 'Storage::has_staged_full must be true' );
+
+		// Live files and pointer must remain 100% on V1
+		WPS_Assert::same( $live_feed_content, file_get_contents( Storage::feed_path( 'full' ) ) );
+		WPS_Assert::same( $live_index_content, file_get_contents( Storage::catalog_index_path() ) );
+
+		$staged_info = Storage::get_staged_full();
+		WPS_Assert::true( is_array( $staged_info ) );
+		WPS_Assert::same( 'gen-test-stage', $staged_info['generation_id'] );
+		WPS_Assert::same( 'Price spike detected', $staged_info['reason'] );
+		WPS_Assert::true( is_file( $staged_info['feed_path'] ) );
+		WPS_Assert::true( is_file( $staged_info['index_path'] ) );
+		WPS_Assert::contains( 'STAGED-2', file_get_contents( $staged_info['feed_path'] ) );
+
+		// Discard staged feed
+		$discarded = Storage::discard_staged_full();
+		WPS_Assert::true( $discarded );
+		WPS_Assert::false( Storage::has_staged_full() );
+		WPS_Assert::false( is_file( $staged_info['feed_path'] ) );
+		WPS_Assert::false( is_file( $staged_info['index_path'] ) );
+
+		// Live feed still unaffected
+		WPS_Assert::same( $live_feed_content, file_get_contents( Storage::feed_path( 'full' ) ) );
+	}
+);
+
+$suite->add(
+	'staging: approve_staged_full atomically promotes staged feed to active generation',
+	static function () use ( $setup_storage ): void {
+		$setup_storage();
+
+		// Establish published live state (V1)
+		$f1 = sys_get_temp_dir() . '/live1_' . uniqid() . '.xml';
+		$i1 = sys_get_temp_dir() . '/live1_' . uniqid() . '.jsonl';
+		file_put_contents( $f1, '<Catalog><Product><Id>PREV-1</Id></Product></Catalog>' );
+		file_put_contents( $i1, '{"pid":"PREV-1"}' . "\n" );
+		Storage::publish_full( $f1, $i1 );
+
+		// Stage candidate (V2)
+		$f2 = sys_get_temp_dir() . '/staged2_' . uniqid() . '.xml';
+		$i2 = sys_get_temp_dir() . '/staged2_' . uniqid() . '.jsonl';
+		file_put_contents( $f2, '<Catalog><Product><Id>APPROVED-2</Id></Product></Catalog>' );
+		file_put_contents( $i2, '{"pid":"APPROVED-2"}' . "\n" );
+
+		Storage::stage_full( $f2, $i2, 'gen-approved', 'sig-approved', array( 'status' => 'warn' ), 'Pending review' );
+		WPS_Assert::true( Storage::has_staged_full() );
+
+		// Approve and promote
+		$approved = Storage::approve_staged_full();
+		WPS_Assert::true( $approved, 'Storage::approve_staged_full must succeed' );
+		WPS_Assert::false( Storage::has_staged_full(), 'Staged flag must be cleared' );
+
+		// Live feed is now V2
+		WPS_Assert::contains( 'APPROVED-2', file_get_contents( Storage::feed_path( 'full' ) ) );
+		WPS_Assert::contains( 'APPROVED-2', file_get_contents( Storage::catalog_index_path() ) );
+
+		// Previous backup is V1
+		WPS_Assert::contains( 'PREV-1', file_get_contents( Storage::previous_feed_path( 'full' ) ) );
+		WPS_Assert::contains( 'PREV-1', file_get_contents( Storage::previous_catalog_index_path() ) );
+	}
+);
+
+$suite->add(
+	'alerts: email and webhook telemetry dispatch and suppression',
+	static function (): void {
+		WPS_Test_State::reset();
+		Alerts::clear_suppression( Alerts::EVENT_SAFETY_GATE_TRIGGERED );
+
+		Settings::update(
+			array(
+				'feed_alert_email_enabled'   => true,
+				'feed_alert_email'           => 'alerts@shop.test',
+				'feed_alert_webhook_enabled' => true,
+				'feed_alert_webhook_url'     => 'https://api.example.com/telemetry',
+			)
+		);
+
+		$context = array(
+			'message'  => 'Feed drop threshold exceeded',
+			'warnings' => array( '30% catalog drop' ),
+			'diff'     => array(
+				'status'              => 'warn',
+				'overall_impact'      => 'warn',
+				'current_count'       => 70,
+				'previous_count'      => 100,
+				'added_count'         => 0,
+				'removed_count'       => 30,
+				'drop_percent'        => 30.0,
+				'price_changed_count' => 5,
+				'price_spike_count'   => 2,
+				'stock_changed_count' => 10,
+			),
+		);
+
+		Alerts::trigger( Alerts::EVENT_SAFETY_GATE_TRIGGERED, $context );
+
+		// Verify email was sent
+		WPS_Assert::same( 1, count( WPS_Test_State::$mails ) );
+		WPS_Assert::same( 'alerts@shop.test', WPS_Test_State::$mails[0]['to'] );
+		WPS_Assert::contains( 'Feed publikálás leállítva', WPS_Test_State::$mails[0]['subject'] );
+		WPS_Assert::contains( '30% catalog drop', WPS_Test_State::$mails[0]['message'] );
+
+		// Verify webhook was sent
+		WPS_Assert::same( 1, count( WPS_Test_State::$remote_posts ) );
+		WPS_Assert::same( 'https://api.example.com/telemetry', WPS_Test_State::$remote_posts[0]['url'] );
+		$body = json_decode( WPS_Test_State::$remote_posts[0]['args']['body'], true );
+		WPS_Assert::same( Alerts::EVENT_SAFETY_GATE_TRIGGERED, $body['event'] );
+		WPS_Assert::same( 70, $body['counts']['current'] );
+		WPS_Assert::same( 30, $body['counts']['removed'] );
+
+		// Second call within 1 hour is suppressed
+		Alerts::trigger( Alerts::EVENT_SAFETY_GATE_TRIGGERED, $context );
+		WPS_Assert::same( 1, count( WPS_Test_State::$mails ), 'Suppressed alert must not send second email' );
+		WPS_Assert::same( 1, count( WPS_Test_State::$remote_posts ), 'Suppressed alert must not send second webhook' );
+
+		Alerts::clear_suppression( Alerts::EVENT_SAFETY_GATE_TRIGGERED );
+	}
+);
+
+$suite->add(
+	'alerts: SSRF protection strictly rejects loopback, private and malformed webhook URLs',
+	static function (): void {
+		// Empty and malformed
+		WPS_Assert::false( Alerts::is_safe_webhook_url( '' ) );
+		WPS_Assert::false( Alerts::is_safe_webhook_url( 'not-a-url' ) );
+		WPS_Assert::false( Alerts::is_safe_webhook_url( 'ftp://example.com/upload' ) );
+
+		// Loopback and internal domains
+		WPS_Assert::false( Alerts::is_safe_webhook_url( 'http://localhost/hook' ) );
+		WPS_Assert::false( Alerts::is_safe_webhook_url( 'http://127.0.0.1/hook' ) );
+		WPS_Assert::false( Alerts::is_safe_webhook_url( 'http://127.0.0.2:8080/hook' ) );
+		WPS_Assert::false( Alerts::is_safe_webhook_url( 'http://0.0.0.0/' ) );
+		WPS_Assert::false( Alerts::is_safe_webhook_url( 'https://internal.test/hook' ) );
+		WPS_Assert::false( Alerts::is_safe_webhook_url( 'https://service.local/hook' ) );
+
+		// Private IPv4 ranges
+		WPS_Assert::false( Alerts::is_safe_webhook_url( 'http://10.0.0.1/hook' ) );
+		WPS_Assert::false( Alerts::is_safe_webhook_url( 'http://192.168.1.1/hook' ) );
+		WPS_Assert::false( Alerts::is_safe_webhook_url( 'http://172.16.0.1/hook' ) );
+	}
+);
+
+$suite->add(
+	'scheduler: is_in_offpeak_window correctly checks time boundaries',
+	static function (): void {
+		// Standard window 01:00 - 05:00
+		Settings::update(
+			array(
+				'offpeak_start_hour' => 1,
+				'offpeak_end_hour'   => 5,
+			)
+		);
+
+		// 00:30 -> false
+		$t_0030 = strtotime( '2026-11-14 00:30:00' );
+		WPS_Assert::false( Scheduler::is_in_offpeak_window( $t_0030 ) );
+
+		// 02:00 -> true
+		$t_0200 = strtotime( '2026-11-14 02:00:00' );
+		WPS_Assert::true( Scheduler::is_in_offpeak_window( $t_0200 ) );
+
+		// 05:00 -> false (exclusive upper bound)
+		$t_0500 = strtotime( '2026-11-14 05:00:00' );
+		WPS_Assert::false( Scheduler::is_in_offpeak_window( $t_0500 ) );
+
+		// 14:00 -> false
+		$t_1400 = strtotime( '2026-11-14 14:00:00' );
+		WPS_Assert::false( Scheduler::is_in_offpeak_window( $t_1400 ) );
+
+		// Midnight wrap-around window: 22:00 - 04:00
+		Settings::update(
+			array(
+				'offpeak_start_hour' => 22,
+				'offpeak_end_hour'   => 4,
+			)
+		);
+
+		// 23:30 -> true
+		$t_2330 = strtotime( '2026-11-14 23:30:00' );
+		WPS_Assert::true( Scheduler::is_in_offpeak_window( $t_2330 ) );
+
+		// 03:15 -> true
+		$t_0315 = strtotime( '2026-11-14 03:15:00' );
+		WPS_Assert::true( Scheduler::is_in_offpeak_window( $t_0315 ) );
+
+		// 12:00 -> false
+		$t_1200 = strtotime( '2026-11-14 12:00:00' );
+		WPS_Assert::false( Scheduler::is_in_offpeak_window( $t_1200 ) );
 	}
 );

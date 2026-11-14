@@ -109,6 +109,15 @@ final class Health {
 
 		$checks[] = self::stock_feed_check();
 
+		if ( Storage::has_staged_full() ) {
+			$checks[] = array(
+				'label'  => __( 'Biztonsági kapu', 'wp-pepita-sync' ),
+				'status' => self::STATUS_WARN,
+				'value'  => __( 'jóváhagyásra vár', 'wp-pepita-sync' ),
+				'hint'   => __( 'Egy új generált teljes feed jóváhagyásra vár a Pepita feedek oldalon.', 'wp-pepita-sync' ),
+			);
+		}
+
 		$checks[] = array(
 			'label'  => __( 'Zárolás', 'wp-pepita-sync' ),
 			'status' => Lock::is_locked( Generator::TYPE_FULL ) || Lock::is_locked( Generator::TYPE_STOCK ) ? self::STATUS_WARN : self::STATUS_OK,

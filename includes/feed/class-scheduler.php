@@ -192,11 +192,46 @@ final class Scheduler {
 		$this->run( Generator::TYPE_STOCK );
 	}
 
+	/**
+	 * Check whether the given timestamp (or current time) falls within the configured off-peak window.
+	 */
+	public static function is_in_offpeak_window( ?int $timestamp = null ): bool {
+		$hour  = (int) ( null !== $timestamp ? wp_date( 'G', $timestamp ) : current_time( 'G' ) );
+		$start = (int) Settings::get( 'offpeak_start_hour', 1 );
+		$end   = (int) Settings::get( 'offpeak_end_hour', 5 );
+
+		if ( $start === $end ) {
+			return true;
+		}
+
+		if ( $start < $end ) {
+			return $hour >= $start && $hour < $end;
+		}
+
+		return $hour >= $start || $hour < $end;
+	}
+
 	private function run( string $type ): void {
 		if ( Lock::is_locked( $type ) ) {
 			Logger::debug( 'feed_schedule', 'A generálás már fut, az ütemezett kérés kihagyva.', array( 'type' => $type ) );
 
 			return;
+		}
+
+		if ( Generator::TYPE_FULL === $type && (bool) Settings::get( 'offpeak_schedule_enabled', false ) ) {
+			if ( ! self::is_in_offpeak_window() ) {
+				Logger::info(
+					'feed_schedule',
+					'A teljes feed ütemezett generálása elhalasztva az off-peak időszakon kívül.',
+					array(
+						'current_hour' => (int) current_time( 'G' ),
+						'start_hour'   => (int) Settings::get( 'offpeak_start_hour', 1 ),
+						'end_hour'     => (int) Settings::get( 'offpeak_end_hour', 5 ),
+					)
+				);
+
+				return;
+			}
 		}
 
 		$result = ( new Generator() )->run( $type );

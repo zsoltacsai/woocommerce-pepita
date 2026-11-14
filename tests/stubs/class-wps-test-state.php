@@ -106,6 +106,12 @@ final class WPS_Test_State {
 	/** @var bool|null value of the new order e-mail gate observed during WC_Order::save() */
 	public static ?bool $last_save_email_enabled = null;
 
+	/** @var array<int, array{to: string, subject: string, message: string}> */
+	public static array $mails = array();
+
+	/** @var array<int, array{url: string, args: array}> */
+	public static array $remote_posts = array();
+
 	/** @var bool force WC_Order::save() to fail, for orphan-cleanup tests */
 	public static bool $fail_order_save = false;
 
@@ -143,6 +149,8 @@ final class WPS_Test_State {
 		self::$permalinks     = array();
 		self::$users_by_email = array();
 		self::$taxonomies     = array( 'product_cat', 'product_tag', 'product_brand', 'pa_color', 'pa_size' );
+		self::$mails          = array();
+		self::$remote_posts   = array();
 		self::$attribute_labels = array();
 		self::$home_url       = 'https://example.test';
 		self::$site_url       = 'https://example.test';
