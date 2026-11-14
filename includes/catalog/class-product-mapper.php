@@ -261,8 +261,12 @@ final class Product_Mapper {
 			}
 		}
 
-		$data['available'] = $product->is_in_stock();
 		$data['quantity']  = self::quantity( $product, $data['warnings'], $term_ids );
+		$available         = $product->is_in_stock();
+		if ( null !== $data['quantity'] && 0 === $data['quantity'] && ( ! method_exists( $product, 'backorders_allowed' ) || ! $product->backorders_allowed() ) ) {
+			$available = false;
+		}
+		$data['available'] = $available;
 		$data['restock_date'] = self::restock_date( $data['product_id'] );
 	}
 
@@ -382,6 +386,9 @@ final class Product_Mapper {
 			}
 
 			$available = $variation->is_in_stock();
+			if ( null !== $quantity && 0 === $quantity && ( ! method_exists( $variation, 'backorders_allowed' ) || ! $variation->backorders_allowed() ) ) {
+				$available = false;
+			}
 
 			if ( $available ) {
 				$any_stock = true;
@@ -432,9 +439,11 @@ final class Product_Mapper {
 		$data['price']      = $parent_price > 0 ? $parent_price : self::min_variation_price( $variations );
 		$data['sale_price'] = null;
 		$data['vat_percent']= Price_Calculator::vat_percent( $product );
-		$data['available']  = $any_stock;
 		if ( $manages ) {
 			$data['quantity'] = min( self::MAX_EXPORT_QUANTITY, $sum_qty );
+			if ( 0 === $sum_qty && ( ! method_exists( $product, 'backorders_allowed' ) || ! $product->backorders_allowed() ) ) {
+				$any_stock = false;
+			}
 			if ( $sum_qty > self::MAX_EXPORT_QUANTITY ) {
 				$data['warnings'][] = self::warning(
 					'stock_quantity_capped',
@@ -443,9 +452,13 @@ final class Product_Mapper {
 			}
 		} elseif ( $product->managing_stock() ) {
 			$data['quantity'] = self::quantity( $product, $data['warnings'], $term_ids );
+			if ( null !== $data['quantity'] && 0 === $data['quantity'] && ( ! method_exists( $product, 'backorders_allowed' ) || ! $product->backorders_allowed() ) ) {
+				$any_stock = false;
+			}
 		} else {
 			$data['quantity'] = null;
 		}
+		$data['available']  = $any_stock;
 		$data['restock_date'] = self::restock_date( $data['product_id'] );
 
 		if ( (bool) Settings::get( 'include_purchase_net', false ) && $data['price'] > 0 ) {

@@ -516,7 +516,46 @@ $suite->add(
 		$html = ob_get_clean();
 
 		WPS_Assert::true( is_string( $html ) && '' !== $html, 'Strategy view rendered output string' );
-		WPS_Assert::true( false !== strpos( $html, 'Készlet és árazás stratégia' ), 'Contains Hungarian title' );
-		WPS_Assert::true( false !== strpos( $html, 'wp-pepita-strategy-table' ), 'Contains strategy table container' );
+		WPS_Assert::true( false !== strpos( $html, 'Piactéri készlet- és árazási stratégia előnézet' ), 'Contains Hungarian view title' );
+		WPS_Assert::true( false !== strpos( $html, 'wps-strategy-summary' ), 'Contains strategy summary container' );
+		WPS_Assert::true( false !== strpos( $html, 'wps-table' ), 'Contains table container' );
+		WPS_Assert::true( false !== strpos( $html, 'Készletstratégia állapota' ), 'Contains inventory summary card' );
+		WPS_Assert::true( false !== strpos( $html, 'Árazási és árrés modell állapota' ), 'Contains pricing summary card' );
+	}
+);
+
+$suite->add(
+	'strategy: inventory buffer reducing stock to 0 sets available to false (no contradiction)',
+	static function (): void {
+		Settings::update(
+			array(
+				'inventory_strategy_enabled' => true,
+				'inventory_buffer'           => 5,
+			)
+		);
+
+		WPS_Test_State::add_term( 10, 'Kategória' );
+		WPS_Test_State::add_attachment( 500, 'https://example.test/img.jpg' );
+
+		// Product has 3 items in stock (instock), but buffer is 5 -> exported quantity is 0
+		$product = WPS_Test_State::add_product(
+			array(
+				'id'             => 1080,
+				'name'           => 'Buffer teszt termék',
+				'description'    => 'Leírás',
+				'price'          => '5000',
+				'image_id'       => 500,
+				'manage_stock'   => true,
+				'stock_quantity' => 3,
+				'stock_status'   => 'instock',
+			)
+		);
+		WPS_Test_State::assign_term( 1080, 10 );
+
+		$mapped = Product_Mapper::map( 1080 );
+
+		WPS_Assert::same( 0, $mapped['quantity'] );
+		// Available MUST be false when exported quantity is 0 and backorders are not allowed
+		WPS_Assert::same( false, $mapped['available'] );
 	}
 );
