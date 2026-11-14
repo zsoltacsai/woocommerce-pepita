@@ -599,7 +599,9 @@ final class Storage {
 			}
 			$gen             = $generation_id ?? ( gmdate( 'Ymd_His' ) . '_' . bin2hex( random_bytes( 4 ) ) );
 
-			$catalog_sig     = $signature ?? Catalog_Index::compute_signature_from_file( $index_temp );
+			$catalog_sig     = ( null !== $signature && '' !== $signature )
+				? $signature
+				: Catalog_Index::compute_signature_from_file( $index_temp );
 			$versioned_feed  = sprintf( 'pepita-full.%s.xml', $gen );
 			$versioned_index = sprintf( 'catalog.%s.jsonl', $gen );
 			$target_feed     = self::path( $versioned_feed );
@@ -1016,11 +1018,13 @@ final class Storage {
 			return false;
 		}
 
+		$staged_sig = ! empty( $staged['signature'] ) ? (string) $staged['signature'] : null;
+
 		$published = self::publish_full(
 			$feed_path,
 			$index_path,
 			(string) ( $staged['generation_id'] ?? '' ),
-			(string) ( $staged['signature'] ?? '' ),
+			$staged_sig,
 			$base_gen,
 			true
 		);

@@ -540,3 +540,102 @@ $suite->add(
 		wp_clear_scheduled_hook( Scheduler::HOOK_QUEUE_FULL );
 	}
 );
+
+$suite->add(
+	'staging: approving staged full with changed catalog signature fails closed on incompatible old stock feed',
+	static function (): void {
+		Storage::ensure_directory();
+
+		// 1. Establish an initial active full feed and matching stock feed with 'sig-v1'.
+		$full_tmp = sys_get_temp_dir() . '/full_v1_' . uniqid() . '.xml';
+		$idx_tmp  = sys_get_temp_dir() . '/idx_v1_' . uniqid() . '.jsonl';
+		$stk_tmp  = sys_get_temp_dir() . '/stk_v1_' . uniqid() . '.xml';
+
+		file_put_contents( $full_tmp, '<?xml version="1.0"?><products><product><id>1</id></product></products>' );
+		file_put_contents( $idx_tmp, '{"pid":1,"eid":"1","name":"P1","price":100}' . "\n" );
+		file_put_contents( $stk_tmp, '<?xml version="1.0"?><items><item><id>1</id><qty>5</qty></item></items>' );
+
+		$pub_full = Storage::publish_full( $full_tmp, $idx_tmp, 'gen-v1', 'sig-v1' );
+		WPS_Assert::true( $pub_full, 'Initial full publish should succeed' );
+
+		$pub_stock = Storage::publish_stock( $stk_tmp, 'stock-gen-v1', 'sig-v1' );
+		WPS_Assert::true( $pub_stock, 'Initial stock publish should succeed' );
+
+		WPS_Assert::true( Storage::exists( 'full' ), 'Active full feed exists' );
+		WPS_Assert::true( Storage::exists( 'stock' ), 'Active stock feed exists' );
+
+		$ptr = Storage::read_pointer();
+		WPS_Assert::same( 'sig-v1', $ptr['active']['catalog_signature'] );
+		WPS_Assert::same( 'sig-v1', $ptr['active']['stock_signature'] );
+
+		// 2. Stage a new full feed with a DIFFERENT catalog signature 'sig-v2'.
+		$staged_full_tmp = sys_get_temp_dir() . '/staged_full_v2_' . uniqid() . '.xml';
+		$staged_idx_tmp  = sys_get_temp_dir() . '/staged_idx_v2_' . uniqid() . '.jsonl';
+
+		file_put_contents( $staged_full_tmp, '<?xml version="1.0"?><products><product><id>1</id></product><product><id>2</id></product></products>' );
+		file_put_contents( $staged_idx_tmp, '{"pid":1,"eid":"1","name":"P1","price":100}' . "\n" . '{"pid":2,"eid":"2","name":"P2","price":200}' . "\n" );
+
+		$staged = Storage::stage_full(
+			$staged_full_tmp,
+			$staged_idx_tmp,
+			'gen-v2',
+			'gen-v1',
+			array( 'added_count' => 1 ),
+			'approval_required',
+			array(),
+			array(),
+			'sig-v2'
+		);
+		WPS_Assert::true( $staged, 'Staging full feed should succeed' );
+		WPS_Assert::true( Storage::has_staged_full(), 'Staged feed should be recognized' );
+
+		// While staged, the active stock feed remains served because publication hasn't happened.
+		WPS_Assert::true( Storage::exists( 'stock' ), 'Stock feed remains valid while full feed is only staged' );
+
+		// 3. Approve the staged full feed.
+		wp_clear_scheduled_hook( Scheduler::HOOK_QUEUE_STOCK );
+		$approved = Storage::approve_staged_full( 'gen-v2' );
+		WPS_Assert::true( $approved, 'Staged approval should succeed' );
+
+		$new_ptr = Storage::read_pointer();
+		WPS_Assert::same( 'gen-v2', $new_ptr['active']['generation_id'] );
+		WPS_Assert::same( 'sig-v2', $new_ptr['active']['catalog_signature'] );
+
+		// Invariant: Because catalog signature changed, the incompatible old stock feed MUST NOT be preserved.
+		WPS_Assert::same( '', $new_ptr['active']['stock_feed'], 'Stock feed pointer must be cleared' );
+		WPS_Assert::same( '', $new_ptr['active']['stock_signature'], 'Stock signature must be cleared' );
+
+		// Crucial safety check: Storage::exists('stock') must fail closed!
+		WPS_Assert::false( Storage::exists( 'stock' ), 'Stock feed must fail closed until regenerated' );
+		$stock_path = Storage::feed_path( 'stock' );
+		WPS_Assert::true( false !== strpos( $stock_path, 'missing-stock-generation.xml' ), 'feed_path must return missing stock sentinel' );
+
+		// Stock regeneration hook must have been scheduled
+		$next_stock = wp_next_scheduled( Scheduler::HOOK_QUEUE_STOCK );
+		WPS_Assert::true( false !== $next_stock || function_exists( 'as_next_scheduled_action' ), 'Stock queue must be scheduled' );
+
+		// 4. Simulate the scheduled matching stock feed completing with 'sig-v2'
+		$new_stk_tmp = sys_get_temp_dir() . '/stk_v2_' . uniqid() . '.xml';
+		file_put_contents( $new_stk_tmp, '<?xml version="1.0"?><items><item><id>1</id><qty>5</qty></item><item><id>2</id><qty>10</qty></item></items>' );
+
+		$pub_new_stock = Storage::publish_stock( $new_stk_tmp, 'stock-gen-v2', 'sig-v2' );
+		WPS_Assert::true( $pub_new_stock, 'Publishing matching stock feed should succeed' );
+
+		$final_ptr = Storage::read_pointer();
+		WPS_Assert::same( 'sig-v2', $final_ptr['active']['catalog_signature'] );
+		WPS_Assert::same( 'sig-v2', $final_ptr['active']['stock_signature'] );
+		WPS_Assert::true( Storage::exists( 'stock' ), 'Stock feed is once again valid after matching generation' );
+
+		// 5. Test signature mismatch fail-closed behavior directly
+		$mismatched_ptr = $final_ptr;
+		$mismatched_ptr['active']['stock_signature'] = 'incompatible-signature';
+		Storage::write_pointer( $mismatched_ptr );
+
+		WPS_Assert::false( Storage::exists( 'stock' ), 'Signature mismatch must cause exists() to return false' );
+		$mismatched_path = Storage::feed_path( 'stock' );
+		WPS_Assert::true( false !== strpos( $mismatched_path, 'mismatched-stock-generation.xml' ), 'Signature mismatch must return mismatched sentinel' );
+
+		// Restore clean pointer
+		Storage::write_pointer( $final_ptr );
+	}
+);
