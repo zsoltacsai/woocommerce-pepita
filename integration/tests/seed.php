@@ -268,6 +268,9 @@ update_term_meta( (int) $parent['term_id'], Category_Rules::META_INCLUDE_CHILDRE
 WP_CLI::log( 'Creating product image...' );
 
 $image_id = wps_it_seed_image();
+$image_memory_limit    = (string) ini_get( 'memory_limit' );
+$image_memory_used     = memory_get_usage( false );
+$image_memory_reserved = memory_get_usage( true );
 $image_warning = Image_Converter::check_dimensions( $image_id );
 if ( null !== $image_warning ) {
 	$image_path = (string) get_attached_file( $image_id );
@@ -304,7 +307,7 @@ if ( null !== $image_warning ) {
 	}
 	WP_CLI::log(
 		sprintf(
-			'Integration image diagnostic: bytes=%d header=%s mime=%s eoi=%s gd_available=%s gd_decoded=%s gd_dimensions=%s gd_warnings=%d',
+			'Integration image diagnostic: bytes=%d header=%s mime=%s eoi=%s gd_available=%s gd_decoded=%s gd_dimensions=%s gd_warnings=%d memory_limit=%s memory_used_before=%d memory_reserved_before=%d',
 			(int) @filesize( $image_path ),
 			is_array( $image_info ) ? ( (int) $image_info[0] . 'x' . (int) $image_info[1] ) : 'UNAVAILABLE',
 			is_array( $image_info ) ? (string) ( $image_info['mime'] ?? 'UNAVAILABLE' ) : 'UNAVAILABLE',
@@ -312,7 +315,10 @@ if ( null !== $image_warning ) {
 			function_exists( 'imagecreatefromjpeg' ) ? 'YES' : 'NO',
 			$gd_decoded ? 'YES' : 'NO',
 			$gd_dimensions,
-			$gd_warnings
+			$gd_warnings,
+			$image_memory_limit,
+			$image_memory_used,
+			$image_memory_reserved
 		)
 	);
 	WP_CLI::error( 'Integration image failed plugin validation (code=' . (string) ( $image_warning['code'] ?? 'unknown' ) . ').' );

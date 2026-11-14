@@ -223,8 +223,7 @@ final class Image_Converter {
 
 		// 2. Try Imagick if GD was not available or failed.
 		if ( ! $converted && class_exists( '\Imagick' ) ) {
-			$memory_limit    = self::memory_limit_bytes( ini_get( 'memory_limit' ) );
-			$decode_budget   = min( 128 * 1024 * 1024, max( 1, $memory_limit - memory_get_usage( true ) ) );
+			$decode_budget   = self::decode_memory_budget( ini_get( 'memory_limit' ), memory_get_usage( false ) );
 			$previous_limits = self::set_imagick_limits( $decode_budget );
 			$probe           = null;
 			$imagick         = null;
@@ -504,9 +503,7 @@ final class Image_Converter {
 		}
 
 		// Avoid allocating an unbounded image buffer during admin/feed inspection.
-		$memory_limit  = self::memory_limit_bytes( ini_get( 'memory_limit' ) );
-		$available     = $memory_limit > 0 ? max( 0, $memory_limit - memory_get_usage( true ) ) : 128 * 1024 * 1024;
-		$decode_budget = min( $available, 128 * 1024 * 1024 );
+		$decode_budget = self::decode_memory_budget( ini_get( 'memory_limit' ), memory_get_usage( false ) );
 		$width         = (int) $size[0];
 		$height        = (int) $size[1];
 		if ( $height <= 0 || $width > intdiv( $decode_budget, max( 1, $height * 8 ) ) ) {
@@ -596,6 +593,22 @@ final class Image_Converter {
 			'k' => $value * 1024,
 			default => $value,
 		};
+	}
+
+	/**
+	 * Return a bounded decoder budget from PHP's actual memory use.
+	 *
+	 * memory_get_usage( true ) reports allocator pages reserved from the system,
+	 * including unused capacity. Subtracting that value can reject decodable
+	 * images when the process has reused reserved pages. Callers pass
+	 * memory_get_usage( false ), which is PHP's accounted active allocation.
+	 *
+	 * @param string|false $limit Configured PHP memory limit.
+	 * @param int           $used  Actual PHP memory in use.
+	 */
+	private static function decode_memory_budget( string|false $limit, int $used ): int {
+		$memory_limit = self::memory_limit_bytes( $limit );
+		return min( 128 * 1024 * 1024, max( 0, $memory_limit - max( 0, $used ) ) );
 	}
 
 	/** JPEG streams without the final EOI marker are incomplete, even if a decoder recovers them. */

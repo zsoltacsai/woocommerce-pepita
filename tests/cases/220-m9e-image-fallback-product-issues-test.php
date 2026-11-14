@@ -63,6 +63,19 @@ $suite->add(
 );
 
 $suite->add(
+	'm9e images: decoder budget uses active PHP memory and remains capped',
+	static function (): void {
+		$method = new ReflectionMethod( Image_Converter::class, 'decode_memory_budget' );
+		$method->setAccessible( true );
+
+		WPS_Assert::same( 4 * 1024 * 1024, $method->invoke( null, '64M', 60 * 1024 * 1024 ) );
+		WPS_Assert::same( 0, $method->invoke( null, '64M', 64 * 1024 * 1024 ) );
+		WPS_Assert::same( 128 * 1024 * 1024, $method->invoke( null, '-1', 0 ) );
+		WPS_Assert::same( 128 * 1024 * 1024, $method->invoke( null, '512M', 8 * 1024 * 1024 ) );
+	}
+);
+
+$suite->add(
 	'm9e images: original sources fail closed on unsupported MIME, mismatch, corrupt, missing, or unknown source',
 	static function (): void {
 		WPS_Test_State::reset();
