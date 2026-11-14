@@ -511,11 +511,11 @@ $suite->add(
 			)
 		);
 
-		$term1 = WPS_Test_State::add_term( 2503, 'Bútor', 0, Category_Rules::TAXONOMY );
+		$term1 = WPS_Test_State::add_term( 2503, 'Bútor', 0, Category_Rules::TAXONOMY, 'butor' );
 		update_term_meta( 2503, Category_Rules::META_INCLUDE, 'include' );
 		update_term_meta( 2503, Category_Rules::META_PRICE_VALUE, '20.0' );
 
-		$term2 = WPS_Test_State::add_term( 2504, 'Világítás', 0, Category_Rules::TAXONOMY );
+		$term2 = WPS_Test_State::add_term( 2504, 'Világítás', 0, Category_Rules::TAXONOMY, 'vilagitas' );
 		update_term_meta( 2504, Category_Rules::META_INCLUDE, 'exclude' );
 		update_term_meta( 2504, Category_Rules::META_PRICE_VALUE, '10.0' );
 

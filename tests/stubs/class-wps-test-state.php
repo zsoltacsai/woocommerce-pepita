@@ -163,12 +163,15 @@ final class WPS_Test_State {
 		self::$fail_order_save = false;
 	}
 
-	public static function add_term( int $id, string $name, int $parent = 0, string $taxonomy = 'product_cat' ): WP_Term {
+	public static function add_term( int $id, string $name, int $parent = 0, string $taxonomy = 'product_cat', string $slug = '' ): WP_Term {
+		if ( '' === $slug ) {
+			$slug = strtolower( preg_replace( '/[^a-z0-9]+/i', '-', $name ) ?? (string) $id );
+		}
 		$term                = new WP_Term(
 			array(
 				'term_id'  => $id,
 				'name'     => $name,
-				'slug'     => strtolower( preg_replace( '/[^a-z0-9]+/i', '-', $name ) ?? (string) $id ),
+				'slug'     => $slug,
 				'parent'   => $parent,
 				'taxonomy' => $taxonomy,
 				'count'    => 0,
