@@ -388,9 +388,14 @@ final class Product_Metabox {
 			if ( in_array( $field, array( 'wps_commission_percent', 'wps_min_margin' ), true ) ) {
 				$value = trim( $value );
 				if ( '' !== $value ) {
-					$val = (float) str_replace( ',', '.', $value );
-					if ( $val >= 0.0 ) {
-						update_post_meta( $post_id, $meta_key, min( 100.0, $val ) );
+					$normalized = str_replace( ',', '.', $value );
+					if ( is_numeric( $normalized ) ) {
+						$val = (float) $normalized;
+						if ( $val >= 0.0 ) {
+							update_post_meta( $post_id, $meta_key, min( 100.0, $val ) );
+						} else {
+							delete_post_meta( $post_id, $meta_key );
+						}
 					} else {
 						delete_post_meta( $post_id, $meta_key );
 					}
@@ -404,9 +409,14 @@ final class Product_Metabox {
 			if ( 'wps_cost_price' === $field ) {
 				$value = trim( $value );
 				if ( '' !== $value ) {
-					$val = (float) str_replace( ',', '.', $value );
-					if ( $val >= 0.0 ) {
-						update_post_meta( $post_id, $meta_key, min( 1000000000.0, $val ) );
+					$normalized = str_replace( ',', '.', $value );
+					if ( is_numeric( $normalized ) ) {
+						$val = (float) $normalized;
+						if ( $val >= 0.0 ) {
+							update_post_meta( $post_id, $meta_key, min( 1000000000.0, $val ) );
+						} else {
+							delete_post_meta( $post_id, $meta_key );
+						}
 					} else {
 						delete_post_meta( $post_id, $meta_key );
 					}

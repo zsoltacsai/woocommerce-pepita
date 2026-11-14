@@ -247,8 +247,9 @@ final class Product_Mapper {
 		}
 
 		if ( Marketplace_Pricing::is_enabled() && $data['price'] > 0 ) {
-			$cost_inputs  = Marketplace_Pricing::resolve_cost_inputs( $data['product_id'], $term_ids );
-			$pricing_calc = Marketplace_Pricing::calculate( $product, (float) $data['price'], $cost_inputs );
+			$cost_inputs     = Marketplace_Pricing::resolve_cost_inputs( $data['product_id'], $term_ids );
+			$effective_price = ( null !== $data['sale_price'] && $data['sale_price'] > 0 ) ? (float) $data['sale_price'] : (float) $data['price'];
+			$pricing_calc    = Marketplace_Pricing::calculate( $product, $effective_price, $cost_inputs );
 			if ( 'below_threshold' === ( $pricing_calc['margin_status'] ?? '' ) ) {
 				$data['warnings'][] = self::warning(
 					'margin_below_threshold',
@@ -371,8 +372,9 @@ final class Product_Mapper {
 			}
 
 			if ( Marketplace_Pricing::is_enabled() && $price > 0 ) {
-				$cost_inputs  = Marketplace_Pricing::resolve_cost_inputs( $variation_id, $term_ids, $product->get_id() );
-				$pricing_calc = Marketplace_Pricing::calculate( $variation, (float) $price, $cost_inputs );
+				$cost_inputs     = Marketplace_Pricing::resolve_cost_inputs( $variation_id, $term_ids, $product->get_id() );
+				$effective_price = ( null !== $sale && $sale > 0 ) ? (float) $sale : (float) $price;
+				$pricing_calc    = Marketplace_Pricing::calculate( $variation, $effective_price, $cost_inputs );
 				if ( 'below_threshold' === ( $pricing_calc['margin_status'] ?? '' ) ) {
 					$data['warnings'][] = self::warning(
 						'margin_below_threshold',

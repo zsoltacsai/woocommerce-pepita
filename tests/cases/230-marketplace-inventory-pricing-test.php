@@ -660,3 +660,79 @@ $suite->add(
 		\WPS\Pepita\Storage::discard_staged_full();
 	}
 );
+
+$suite->add(
+	'strategy appsec: metabox persists and clears inventory disabled and rejects non-numeric cost price',
+	static function (): void {
+		$metabox = new \WPS\Pepita\Admin\Product_Metabox();
+		$pid     = 3001;
+
+		WPS_Test_State::add_product(
+			array(
+				'id'    => $pid,
+				'name'  => 'Metabox teszt termék',
+				'price' => '1000',
+			)
+		);
+
+		WPS_Test_State::$current_user_caps['edit_product'] = true;
+		$_POST['wps_pepita_product_nonce']                 = wp_create_nonce( 'wps_pepita_product_save' );
+
+		// 1. Checkbox checked (posts 'yes')
+		$_POST['wps_inventory_disabled'] = 'yes';
+		$_POST['wps_cost_price']         = '450.50';
+		$metabox->save( $pid );
+
+		WPS_Assert::same( 'yes', get_post_meta( $pid, Marketplace_Inventory::META_DISABLED, true ) );
+		WPS_Assert::equals( 450.50, (float) get_post_meta( $pid, Marketplace_Pricing::META_COST_PRICE, true ) );
+
+		// 2. Checkbox cleared (posts companion hidden field 'no')
+		$_POST['wps_inventory_disabled'] = 'no';
+		$metabox->save( $pid );
+		WPS_Assert::same( '', (string) get_post_meta( $pid, Marketplace_Inventory::META_DISABLED, true ) );
+
+		// 3. Non-numeric cost price is rejected (removes meta rather than defaulting to 0.0)
+		$_POST['wps_cost_price'] = 'not-a-number';
+		$metabox->save( $pid );
+		WPS_Assert::same( '', (string) get_post_meta( $pid, Marketplace_Pricing::META_COST_PRICE, true ) );
+	}
+);
+
+$suite->add(
+	'strategy appsec: discounted sale price dropping margin below threshold triggers warning',
+	static function (): void {
+		Settings::update(
+			array(
+				'pricing_strategy_enabled'       => true,
+				'marketplace_commission_percent' => 10.0,
+				'marketplace_min_margin_percent' => 15.0,
+			)
+		);
+
+		WPS_Test_State::add_term( 10, 'Kategória' );
+		WPS_Test_State::add_attachment( 500, 'https://example.test/img.jpg' );
+
+		// Regular price 2000, cost 1400.
+		// At 2000: comm = 200, net after fees = 1800, profit = 400, margin = 20.0% >= 15% (ok)
+		// At sale price 1500: comm = 150, net after fees = 1350, profit = -50, margin = -3.3% < 15% (below_threshold!)
+		$product = WPS_Test_State::add_product(
+			array(
+				'id'          => 3002,
+				'name'        => 'Akciós termék',
+				'description' => 'Leírás',
+				'sku'         => 'SKU-3002',
+				'price'       => '2000',
+				'sale_price'  => '1500',
+				'image_id'    => 500,
+			)
+		);
+		WPS_Test_State::assign_term( 3002, 10 );
+		update_post_meta( 3002, Marketplace_Pricing::META_COST_PRICE, 1400.0 );
+
+		$mapped = Product_Mapper::map( 3002 );
+
+		// Warning must be present because effective selling price is 1500
+		$codes = array_column( $mapped['warnings'], 'code' );
+		WPS_Assert::true( in_array( 'margin_below_threshold', $codes, true ), 'Effective sale price must trip margin check' );
+	}
+);

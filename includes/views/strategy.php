@@ -10,6 +10,10 @@
 
 defined( 'ABSPATH' ) || exit;
 
+if ( ! current_user_can( 'manage_woocommerce' ) ) {
+	wp_die( esc_html__( 'Nincs jogosultságod az oldal megtekintéséhez.', 'wp-pepita-sync' ), 403 );
+}
+
 use WPS\Pepita\Admin\Admin;
 use WPS\Pepita\Catalog\Category_Rules;
 use WPS\Pepita\Catalog\Marketplace_Inventory;
