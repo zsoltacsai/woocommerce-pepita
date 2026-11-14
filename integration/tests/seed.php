@@ -270,6 +270,51 @@ WP_CLI::log( 'Creating product image...' );
 $image_id = wps_it_seed_image();
 $image_warning = Image_Converter::check_dimensions( $image_id );
 if ( null !== $image_warning ) {
+	$image_path = (string) get_attached_file( $image_id );
+	$image_info = @getimagesize( $image_path );
+	$gd_warnings = 0;
+	$gd_image    = false;
+	if ( function_exists( 'imagecreatefromjpeg' ) ) {
+		set_error_handler(
+			static function () use ( &$gd_warnings ): bool {
+				++$gd_warnings;
+				return true;
+			}
+		);
+		try {
+			$gd_image = imagecreatefromjpeg( $image_path );
+		} catch ( Throwable ) {
+			$gd_image = false;
+		} finally {
+			restore_error_handler();
+		}
+	}
+	$gd_decoded   = is_resource( $gd_image ) || $gd_image instanceof GdImage;
+	$gd_dimensions = $gd_decoded
+		? imagesx( $gd_image ) . 'x' . imagesy( $gd_image )
+		: 'UNAVAILABLE';
+	if ( $gd_decoded ) {
+		imagedestroy( $gd_image );
+	}
+	$tail_handle = @fopen( $image_path, 'rb' );
+	$has_eoi     = false;
+	if ( false !== $tail_handle ) {
+		$has_eoi = 0 === fseek( $tail_handle, -2, SEEK_END ) && "\xFF\xD9" === fread( $tail_handle, 2 );
+		fclose( $tail_handle );
+	}
+	WP_CLI::log(
+		sprintf(
+			'Integration image diagnostic: bytes=%d header=%s mime=%s eoi=%s gd_available=%s gd_decoded=%s gd_dimensions=%s gd_warnings=%d',
+			(int) @filesize( $image_path ),
+			is_array( $image_info ) ? ( (int) $image_info[0] . 'x' . (int) $image_info[1] ) : 'UNAVAILABLE',
+			is_array( $image_info ) ? (string) ( $image_info['mime'] ?? 'UNAVAILABLE' ) : 'UNAVAILABLE',
+			$has_eoi ? 'YES' : 'NO',
+			function_exists( 'imagecreatefromjpeg' ) ? 'YES' : 'NO',
+			$gd_decoded ? 'YES' : 'NO',
+			$gd_dimensions,
+			$gd_warnings
+		)
+	);
 	WP_CLI::error( 'Integration image failed plugin validation (code=' . (string) ( $image_warning['code'] ?? 'unknown' ) . ').' );
 }
 
