@@ -543,13 +543,13 @@ final class Product_Mapper {
 		return max( 0, $qty );
 	}
 
-	private static function name( \WC_Product $product ): string {
+	public static function name( \WC_Product $product ): string {
 		$override = Description_Sanitizer::line( get_post_meta( $product->get_id(), self::META_TITLE_OVERRIDE, true ) );
 
 		return '' !== $override ? $override : Description_Sanitizer::line( $product->get_name() );
 	}
 
-	private static function description( \WC_Product $product ): string {
+	public static function description( \WC_Product $product ): string {
 		$override = Description_Sanitizer::clean( get_post_meta( $product->get_id(), self::META_DESCRIPTION_OVERRIDE, true ) );
 
 		if ( '' !== $override ) {
@@ -634,7 +634,7 @@ final class Product_Mapper {
 		return false;
 	}
 
-	private static function gtin( int $product_id ): string {
+	public static function gtin( int $product_id ): string {
 		foreach ( Settings::gtin_meta_keys() as $key ) {
 			$raw = get_post_meta( $product_id, $key, true );
 
@@ -820,11 +820,31 @@ final class Product_Mapper {
 			}
 		}
 
+		// Also discover eligible ancestor categories for hierarchical selection.
+		$candidate_ancestors = array();
+		foreach ( $eligible_terms as $tid ) {
+			$anc = get_ancestors( $tid, Category_Rules::TAXONOMY, 'taxonomy' );
+			if ( is_array( $anc ) ) {
+				foreach ( $anc as $aid ) {
+					$aid = (int) $aid;
+					if ( Category_Rules::DECISION_EXCLUDE === Category_Rules::decision( $aid ) ) {
+						continue;
+					}
+					if ( Settings::is_beta_feed_only() && Category_Rules::DECISION_INCLUDE !== Category_Rules::decision( $aid ) ) {
+						continue;
+					}
+					$candidate_ancestors[] = $aid;
+				}
+			}
+		}
+
+		$all_eligible_candidates = array_values( array_unique( array_merge( $eligible_terms, $candidate_ancestors ) ) );
+
 		$primary_id = 0;
 
 		// Priority 1: Explicit plugin metabox override.
 		$override = (int) get_post_meta( $product_id, self::META_PRIMARY_CATEGORY, true );
-		if ( $override > 0 && in_array( $override, $eligible_terms, true ) ) {
+		if ( $override > 0 && in_array( $override, $all_eligible_candidates, true ) ) {
 			$primary_id = $override;
 		}
 
@@ -832,7 +852,7 @@ final class Product_Mapper {
 		if ( 0 === $primary_id && function_exists( 'get_post_meta' ) ) {
 			foreach ( self::THIRD_PARTY_PRIMARY_CAT_KEYS as $meta_key ) {
 				$seo_term_id = (int) get_post_meta( $product_id, $meta_key, true );
-				if ( $seo_term_id > 0 && in_array( $seo_term_id, $eligible_terms, true ) ) {
+				if ( $seo_term_id > 0 && in_array( $seo_term_id, $all_eligible_candidates, true ) ) {
 					$primary_id = $seo_term_id;
 					break;
 				}
@@ -844,6 +864,60 @@ final class Product_Mapper {
 			$strategy = Settings::primary_category_strategy();
 
 			switch ( $strategy ) {
+				case 'approved_parent':
+					$approved_candidates = array();
+					foreach ( $eligible_terms as $tid ) {
+						$anc = get_ancestors( $tid, Category_Rules::TAXONOMY, 'taxonomy' );
+						$anc = array_reverse( array_map( 'intval', is_array( $anc ) ? $anc : array() ) );
+						$lineage = array_merge( $anc, array( $tid ) );
+
+						foreach ( $lineage as $lid ) {
+							$is_explicit = Category_Rules::DECISION_INCLUDE === (string) get_term_meta( $lid, Category_Rules::META_INCLUDE, true );
+							if ( $is_explicit ) {
+								$anc_lid = get_ancestors( $lid, Category_Rules::TAXONOMY, 'taxonomy' );
+								$depth   = is_array( $anc_lid ) ? count( $anc_lid ) : 0;
+								$approved_candidates[] = array(
+									'id'    => $lid,
+									'depth' => $depth,
+								);
+							}
+						}
+					}
+
+					if ( array() !== $approved_candidates ) {
+						usort(
+							$approved_candidates,
+							static function ( array $a, array $b ): int {
+								if ( $a['depth'] !== $b['depth'] ) {
+									return $b['depth'] <=> $a['depth']; // Most specific (deepest) first
+								}
+								return $a['id'] <=> $b['id']; // Lowest ID tie-break
+							}
+						);
+						$primary_id = $approved_candidates[0]['id'];
+					} else {
+						// Fall back to deepest if no explicit approved ancestor exists.
+						$with_depth = array();
+						foreach ( $eligible_terms as $tid ) {
+							$anc = get_ancestors( $tid, Category_Rules::TAXONOMY, 'taxonomy' );
+							$with_depth[] = array(
+								'id'    => $tid,
+								'depth' => is_array( $anc ) ? count( $anc ) : 0,
+							);
+						}
+						usort(
+							$with_depth,
+							static function ( array $a, array $b ): int {
+								if ( $a['depth'] !== $b['depth'] ) {
+									return $b['depth'] <=> $a['depth'];
+								}
+								return $a['id'] <=> $b['id'];
+							}
+						);
+						$primary_id = $with_depth[0]['id'];
+					}
+					break;
+
 				case 'lowest_id':
 					$primary_id = min( $eligible_terms );
 					break;
@@ -1022,6 +1096,35 @@ final class Product_Mapper {
 	}
 
 	/**
+	 * Find a gallery image that meets Pepita dimension requirements (min 1200x630).
+	 *
+	 * @param \WC_Product $product
+	 * @return int Attachment ID of compliant gallery image or 0 if none.
+	 */
+	public static function find_compliant_gallery_image( \WC_Product $product ): int {
+		$gallery_ids = $product->get_gallery_image_ids();
+		if ( ! is_array( $gallery_ids ) || array() === $gallery_ids ) {
+			return 0;
+		}
+
+		foreach ( $gallery_ids as $gid ) {
+			$gid = (int) $gid;
+			if ( $gid <= 0 ) {
+				continue;
+			}
+			$dim_warning = Image_Converter::check_dimensions( $gid );
+			if ( null === $dim_warning ) {
+				$url = Image_Converter::resolve_attachment_url( $gid );
+				if ( '' !== $url ) {
+					return $gid;
+				}
+			}
+		}
+
+		return 0;
+	}
+
+	/**
 	 * Featured, gallery and variation images.
 	 *
 	 * @param array<string, mixed>|null                             $variations
@@ -1033,9 +1136,29 @@ final class Product_Mapper {
 		$seen   = array();
 
 		$featured_id = (int) $product->get_image_id();
+		$primary_id  = 0;
 
 		if ( $featured_id > 0 ) {
-			$url = Image_Converter::resolve_attachment_url( $featured_id, $warnings );
+			$dim_warning = Image_Converter::check_dimensions( $featured_id );
+			if ( null === $dim_warning ) {
+				$primary_id = $featured_id;
+			} else {
+				// Primary image is undersized (< 1200x630). Fall back to compliant gallery image if available.
+				$compliant_gallery = self::find_compliant_gallery_image( $product );
+				$primary_id        = $compliant_gallery > 0 ? $compliant_gallery : $featured_id;
+			}
+		} else {
+			$compliant_gallery = self::find_compliant_gallery_image( $product );
+			if ( $compliant_gallery > 0 ) {
+				$primary_id = $compliant_gallery;
+			} else {
+				$gallery_ids = $product->get_gallery_image_ids();
+				$primary_id  = ( is_array( $gallery_ids ) && ! empty( $gallery_ids ) ) ? (int) $gallery_ids[0] : 0;
+			}
+		}
+
+		if ( $primary_id > 0 ) {
+			$url = Image_Converter::resolve_attachment_url( $primary_id, $warnings );
 
 			if ( '' !== $url ) {
 				$photos[] = array(
@@ -1052,7 +1175,12 @@ final class Product_Mapper {
 		$max_gallery = max( 0, (int) Settings::get( 'max_gallery_images', 10 ) );
 
 		foreach ( array_slice( $gallery_ids, 0, $max_gallery ) as $image_id ) {
-			$url = Image_Converter::resolve_attachment_url( (int) $image_id, $warnings );
+			$image_id = (int) $image_id;
+			if ( $image_id === $primary_id ) {
+				continue;
+			}
+
+			$url = Image_Converter::resolve_attachment_url( $image_id, $warnings );
 
 			if ( '' === $url || isset( $seen[ $url ] ) ) {
 				continue;

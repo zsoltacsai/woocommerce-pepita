@@ -292,8 +292,7 @@ final class Validator {
 			return false;
 		}
 
-		return (bool) preg_match( '/\.(jpe?g|png|gif|webp|avif|bmp|svg)(\?.*)?$/i', $url )
-			|| false !== strpos( $url, '/wp-content/uploads/' );
+		return (bool) preg_match( '/\.(jpe?g|png)(\?.*)?$/i', $url );
 	}
 
 	/**

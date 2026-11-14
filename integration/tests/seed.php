@@ -10,6 +10,7 @@
 defined( 'ABSPATH' ) || exit;
 
 use WPS\Pepita\Catalog\Category_Rules;
+use WPS\Pepita\Catalog\Image_Converter;
 use WPS\Pepita\Catalog\Product_Mapper;
 use WPS\Pepita\Catalog\Product_Selection;
 use WPS\Pepita\Feed\Lock;
@@ -62,12 +63,12 @@ function wps_it_seed_cleanup(): void {
  * Create the shared product image.
  */
 function wps_it_seed_image(): int {
-	$png = base64_decode(
-		'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFElEQVR4nGP8z8AARMAgYKSJAQAJ'
-		. 'xwH/2n0l4QAAAABJRU5ErkJggg=='
-	);
+	$image = file_get_contents( __DIR__ . '/../fixtures/pepita-compatible-1200x630.jpg' );
+	if ( false === $image ) {
+		WP_CLI::error( 'Compliant integration image fixture could not be read.' );
+	}
 
-	$upload = wp_upload_bits( 'wps-it-product.png', null, $png );
+	$upload = wp_upload_bits( 'wps-it-product.jpg', null, $image );
 
 	if ( ! empty( $upload['error'] ) ) {
 		WP_CLI::error( 'Image upload failed: ' . $upload['error'] );
@@ -75,7 +76,7 @@ function wps_it_seed_image(): int {
 
 	$attachment_id = wp_insert_attachment(
 		array(
-			'post_mime_type' => 'image/png',
+		'post_mime_type' => 'image/jpeg',
 			'post_title'     => 'WPS Integration Product Image',
 			'post_content'   => '',
 			'post_status'    => 'inherit',
@@ -267,6 +268,61 @@ update_term_meta( (int) $parent['term_id'], Category_Rules::META_INCLUDE_CHILDRE
 WP_CLI::log( 'Creating product image...' );
 
 $image_id = wps_it_seed_image();
+$image_memory_limit    = (string) ini_get( 'memory_limit' );
+$image_memory_used     = memory_get_usage( false );
+$image_memory_reserved = memory_get_usage( true );
+$image_warning = Image_Converter::check_dimensions( $image_id );
+if ( null !== $image_warning ) {
+	$image_path = (string) get_attached_file( $image_id );
+	$image_info = @getimagesize( $image_path );
+	$gd_warnings = 0;
+	$gd_image    = false;
+	if ( function_exists( 'imagecreatefromjpeg' ) ) {
+		set_error_handler(
+			static function () use ( &$gd_warnings ): bool {
+				++$gd_warnings;
+				return true;
+			}
+		);
+		try {
+			$gd_image = imagecreatefromjpeg( $image_path );
+		} catch ( Throwable ) {
+			$gd_image = false;
+		} finally {
+			restore_error_handler();
+		}
+	}
+	$gd_decoded   = is_resource( $gd_image ) || $gd_image instanceof GdImage;
+	$gd_dimensions = $gd_decoded
+		? imagesx( $gd_image ) . 'x' . imagesy( $gd_image )
+		: 'UNAVAILABLE';
+	if ( $gd_decoded ) {
+		imagedestroy( $gd_image );
+	}
+	$tail_handle = @fopen( $image_path, 'rb' );
+	$has_eoi     = false;
+	if ( false !== $tail_handle ) {
+		$has_eoi = 0 === fseek( $tail_handle, -2, SEEK_END ) && "\xFF\xD9" === fread( $tail_handle, 2 );
+		fclose( $tail_handle );
+	}
+	WP_CLI::log(
+		sprintf(
+			'Integration image diagnostic: bytes=%d header=%s mime=%s eoi=%s gd_available=%s gd_decoded=%s gd_dimensions=%s gd_warnings=%d memory_limit=%s memory_used_before=%d memory_reserved_before=%d',
+			(int) @filesize( $image_path ),
+			is_array( $image_info ) ? ( (int) $image_info[0] . 'x' . (int) $image_info[1] ) : 'UNAVAILABLE',
+			is_array( $image_info ) ? (string) ( $image_info['mime'] ?? 'UNAVAILABLE' ) : 'UNAVAILABLE',
+			$has_eoi ? 'YES' : 'NO',
+			function_exists( 'imagecreatefromjpeg' ) ? 'YES' : 'NO',
+			$gd_decoded ? 'YES' : 'NO',
+			$gd_dimensions,
+			$gd_warnings,
+			$image_memory_limit,
+			$image_memory_used,
+			$image_memory_reserved
+		)
+	);
+	WP_CLI::error( 'Integration image failed plugin validation (code=' . (string) ( $image_warning['code'] ?? 'unknown' ) . ').' );
+}
 
 WP_CLI::log( 'Creating products...' );
 
@@ -387,6 +443,24 @@ Settings::update(
 );
 
 Product_Selection::clear_cache();
+
+// Keep CI diagnostics actionable without printing filesystem paths, URLs, or product data.
+foreach ( array( $p1, $p2, $variable['product_id'] ) as $diagnostic_id ) {
+	$mapped        = Product_Mapper::map( (int) $diagnostic_id );
+	$error_codes   = array_values( array_unique( array_map( 'strval', array_column( (array) ( $mapped['errors'] ?? array() ), 'code' ) ) ) );
+	$warning_codes = array_values( array_unique( array_map( 'strval', array_column( (array) ( $mapped['warnings'] ?? array() ), 'code' ) ) ) );
+	if ( array() !== $error_codes || empty( $mapped['photos'] ) ) {
+		WP_CLI::log(
+			sprintf(
+				'Integration mapping diagnostic: product=%d photos=%d errors=%s warnings=%s',
+				(int) $diagnostic_id,
+				count( (array) ( $mapped['photos'] ?? array() ) ),
+				implode( ',', $error_codes ),
+				implode( ',', $warning_codes )
+			)
+		);
+	}
+}
 
 delete_option( 'wps_it_mail_log' );
 delete_option( 'wps_it_email_gate_log' );

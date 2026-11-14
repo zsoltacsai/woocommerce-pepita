@@ -38,6 +38,7 @@ final class Settings {
 			'include_child_categories' => true,
 			'allowed_product_statuses' => array( 'publish' ),
 			'beta_feed_only'           => false,
+			'exclude_quality_issues'   => false,
 
 			// Pricing and tax.
 			'currency'                 => '',
@@ -342,6 +343,10 @@ final class Settings {
 		return (string) self::get( 'primary_category_strategy', 'deepest' );
 	}
 
+	public static function exclude_quality_issues(): bool {
+		return (bool) self::get( 'exclude_quality_issues', false );
+	}
+
 	/**
 	 * @return int[]
 	 */
@@ -384,6 +389,7 @@ final class Settings {
 			'feed_public',
 			'feed_emergency_disabled',
 			'beta_feed_only',
+			'exclude_quality_issues',
 			'order_api_enabled',
 			'order_api_require_https',
 			'order_api_keep_payloads',
@@ -424,7 +430,7 @@ final class Settings {
 			'warranty_type'             => array( 'None', 'Day', 'Week', 'Month', 'Year' ),
 			'description_source'        => array( 'long', 'short', 'long_short' ),
 			'brand_source'              => array( 'meta', 'taxonomy', 'none' ),
-			'primary_category_strategy' => array( 'deepest', 'lowest_id', 'highest_id', 'alphabetical' ),
+			'primary_category_strategy' => array( 'approved_parent', 'deepest', 'lowest_id', 'highest_id', 'alphabetical' ),
 			'removal_policy'            => array( 'omit', 'zero_stock' ),
 			'log_level'                 => array( 'debug', 'info', 'warning', 'error' ),
 		);

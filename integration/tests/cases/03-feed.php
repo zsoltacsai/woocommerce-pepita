@@ -83,11 +83,24 @@ WPS_IT::test(
 );
 
 $full_result = wps_it_generate( Generator::TYPE_FULL );
+$full_state  = ( new Generator() )->get_feed_state( Generator::TYPE_FULL );
 
 WPS_IT::test(
 	'The full feed generation completes with exact counters',
-	static function () use ( $full_result ): void {
-		WPS_IT::same( 'completed', (string) ( $full_result['status'] ?? '' ), 'Full feed did not complete: ' . (string) ( $full_result['message'] ?? '' ) );
+	static function () use ( $full_result, $full_state ): void {
+		$error_codes = array_values( array_unique( array_map( 'strval', array_column( (array) ( $full_state['attempt_errors'] ?? array() ), 'code' ) ) ) );
+		WPS_IT::same(
+			'completed',
+			(string) ( $full_result['status'] ?? '' ),
+			sprintf(
+				'Full feed did not complete: %s; processed=%d exported=%d invalid=%d errors=%s',
+				(string) ( $full_result['message'] ?? '' ),
+				(int) ( $full_result['counts']['processed'] ?? 0 ),
+				(int) ( $full_result['counts']['exported'] ?? 0 ),
+				(int) ( $full_result['counts']['invalid'] ?? 0 ),
+				implode( ',', $error_codes )
+			)
+		);
 		WPS_IT::same( 4, (int) $full_result['counts']['processed'], 'Unexpected processed count.' );
 		WPS_IT::same( 3, (int) $full_result['counts']['exported'], 'Unexpected exported count.' );
 		WPS_IT::same( 1, (int) $full_result['counts']['invalid'], 'Unexpected invalid count.' );
