@@ -598,6 +598,8 @@ $suite->add(
 	static function (): void {
 		Settings::update(
 			array(
+				'beta_feed_only'                 => false,
+				'default_included'               => true,
 				'pricing_strategy_enabled'       => true,
 				'marketplace_commission_percent' => 15.0,
 				'marketplace_min_margin_percent' => 20.0,
@@ -616,6 +618,7 @@ $suite->add(
 					'id'          => 2000 + $i,
 					'name'        => $long_name . ' ' . $i,
 					'description' => 'Leírás',
+					'sku'         => 'SKU-' . ( 2000 + $i ),
 					'price'       => '5000',
 					'image_id'    => 500,
 				)
@@ -629,6 +632,7 @@ $suite->add(
 				'id'          => 2026,
 				'name'        => 'Alacsony árrés termék 26',
 				'description' => 'Leírás',
+				'sku'         => 'SKU-2026',
 				'price'       => '1000',
 				'image_id'    => 500,
 			)
@@ -636,9 +640,15 @@ $suite->add(
 		WPS_Test_State::assign_term( 2026, 10 );
 		update_post_meta( 2026, Marketplace_Pricing::META_COST_PRICE, 900.0 );
 
-		// Run generator
+		// Run generator until complete or staged
 		$generator = new \WPS\Pepita\Feed\Generator();
-		$generator->run( \WPS\Pepita\Feed\Generator::TYPE_FULL, array( 'max_runtime' => 100 ) );
+		$result    = $generator->run( \WPS\Pepita\Feed\Generator::TYPE_FULL, array( 'max_runtime' => 0 ) );
+		$attempts  = 0;
+		while ( 'running' === ( $result['status'] ?? '' ) && ++$attempts < 20 ) {
+			$result = $generator->run( \WPS\Pepita\Feed\Generator::TYPE_FULL, array( 'max_runtime' => 0 ) );
+		}
+
+		WPS_Assert::same( 'staged', $result['status'] ?? '', 'Feed generation status must be staged' );
 
 		// The uncapped counter must record the margin warning and stage for approval
 		WPS_Assert::true( \WPS\Pepita\Storage::has_staged_full(), 'Feed must be staged for approval when margin is below threshold' );
