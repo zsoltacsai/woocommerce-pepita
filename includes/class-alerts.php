@@ -279,7 +279,6 @@ final class Alerts {
 				return false;
 			}
 		}
-		}
 
 		return true;
 	}
