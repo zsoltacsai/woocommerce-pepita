@@ -427,3 +427,246 @@ $suite->add(
 		unset( $_FILES['profile_file'] );
 	}
 );
+
+/* -------------------------------------------------------------------------
+ * 9. Profile Import Preview: Non-Destructive Diff Generation
+ * ---------------------------------------------------------------------- */
+
+$suite->add(
+	'm11 profile import preview: non-destructive diff generation without persistent modification',
+	static function (): void {
+		Settings::update(
+			array(
+				'shipping_delay'        => 2,
+				'price_adjustment_type' => 'none',
+				'price_adjustment_value'=> 0.0,
+			)
+		);
+
+		$term = WPS_Test_State::add_term( 2502, 'Kert', 0, Category_Rules::TAXONOMY );
+		update_term_meta( 2502, Category_Rules::META_INCLUDE, 'include' );
+		update_term_meta( 2502, Category_Rules::META_PRICE_VALUE, '5.0' );
+
+		$proposed_profile = array(
+			'schema_version' => 1,
+			'generator'      => 'wp-pepita-sync',
+			'profile_name'   => 'Staging Test Strategy',
+			'exported_at'    => '2026-11-15T00:00:00Z',
+			'settings'       => array(
+				'shipping_delay'        => 7, // Proposed change
+				'price_adjustment_type' => 'fixed', // Proposed change
+				'price_adjustment_value'=> 1000.0, // Proposed change
+			),
+			'category_rules' => array(
+				'kert' => array(
+					'name'  => 'Kert',
+					'rules' => array(
+						'include'     => 'exclude', // Proposed change
+						'price_value' => '10.0', // Proposed change
+					),
+				),
+				'non-existent-category' => array(
+					'name'  => 'Nem létező',
+					'rules' => array(
+						'include' => 'include',
+					),
+				),
+			),
+		);
+
+		// Compute preview.
+		$preview = Merchant_Profiles::preview_import( $proposed_profile );
+
+		WPS_Assert::true( $preview['valid'], 'Preview should be valid.' );
+		WPS_Assert::same( 3, count( $preview['settings_diff'] ), 'Three settings differences expected.' );
+		WPS_Assert::same( 2, $preview['settings_diff']['shipping_delay']['current'] );
+		WPS_Assert::same( 7, $preview['settings_diff']['shipping_delay']['proposed'] );
+
+		WPS_Assert::true( isset( $preview['category_diff']['kert'] ), 'Kert category diff must exist.' );
+		WPS_Assert::same( 'include', $preview['category_diff']['kert']['rule_diffs']['include']['current'] );
+		WPS_Assert::same( 'exclude', $preview['category_diff']['kert']['rule_diffs']['include']['proposed'] );
+
+		WPS_Assert::false( $preview['category_diff']['non-existent-category']['matched'], 'Unmatched category must be flagged.' );
+
+		// CRITICAL: Verify NO persistent settings or term meta were modified by preview.
+		WPS_Assert::same( 2, Settings::get( 'shipping_delay' ), 'Store settings must not be modified by preview.' );
+		WPS_Assert::same( 'none', Settings::get( 'price_adjustment_type' ), 'Store settings must not be modified by preview.' );
+		WPS_Assert::same( 'include', get_term_meta( 2502, Category_Rules::META_INCLUDE, true ), 'Term meta must not be modified by preview.' );
+	}
+);
+
+/* -------------------------------------------------------------------------
+ * 10. Profile Import Atomicity: Compensating Rollback
+ * ---------------------------------------------------------------------- */
+
+$suite->add(
+	'm11 profile import atomicity: compensating rollback on partial category failure restores settings and term meta',
+	static function (): void {
+		// Set baseline store state.
+		Settings::update(
+			array(
+				'shipping_delay'        => 3,
+				'price_adjustment_type' => 'percent',
+				'price_adjustment_value'=> 5.0,
+			)
+		);
+
+		$term = WPS_Test_State::add_term( 2503, 'Bútor', 0, Category_Rules::TAXONOMY );
+		update_term_meta( 2503, Category_Rules::META_INCLUDE, 'include' );
+		update_term_meta( 2503, Category_Rules::META_PRICE_VALUE, '20.0' );
+
+		// Profile proposing modifications.
+		$import_payload = array(
+			'schema_version' => 1,
+			'generator'      => 'wp-pepita-sync',
+			'profile_name'   => 'Failing Profile',
+			'settings'       => array(
+				'shipping_delay'        => 10,
+				'price_adjustment_type' => 'fixed',
+				'price_adjustment_value'=> 2500.0,
+			),
+			'category_rules' => array(
+				'butor' => array(
+					'name'  => 'Bútor',
+					'rules' => array(
+						'include'     => 'exclude',
+						'price_value' => '99.0',
+					),
+				),
+			),
+		);
+
+		// Execute import with simulated failure during category rules update.
+		$res = Merchant_Profiles::import_profile(
+			$import_payload,
+			array(
+				'simulate_failure_at_category' => true,
+			)
+		);
+
+		// Verification: import reported failure and executed rollback.
+		WPS_Assert::false( $res['success'], 'Import must fail when exception occurs.' );
+		WPS_Assert::true( $res['rolled_back'], 'Rollback must be triggered.' );
+
+		// Verification: Settings MUST be completely restored to baseline.
+		WPS_Assert::same( 3, Settings::get( 'shipping_delay' ), 'Settings must be rolled back to pre-import value.' );
+		WPS_Assert::same( 'percent', Settings::get( 'price_adjustment_type' ), 'Settings must be rolled back to pre-import value.' );
+		WPS_Assert::same( 5.0, Settings::get( 'price_adjustment_value' ), 'Settings must be rolled back to pre-import value.' );
+
+		// Verification: Term metadata MUST be completely restored to baseline.
+		WPS_Assert::same( 'include', get_term_meta( 2503, Category_Rules::META_INCLUDE, true ), 'Term meta must be rolled back.' );
+		WPS_Assert::same( '20.0', get_term_meta( 2503, Category_Rules::META_PRICE_VALUE, true ), 'Term meta must be rolled back.' );
+	}
+);
+
+/* -------------------------------------------------------------------------
+ * 11. Profile Checksum: Integrity Verification and Tampering Detection
+ * ---------------------------------------------------------------------- */
+
+$suite->add(
+	'm11 profile checksum: verifies integrity and flags tampered profiles',
+	static function (): void {
+		$profile = Merchant_Profiles::export_profile( array( 'name' => 'Checksum Verification Profile' ) );
+
+		WPS_Assert::true( ! empty( $profile['checksum'] ), 'Exported profile must have checksum.' );
+
+		// 1. Untampered profile passes integrity check.
+		WPS_Assert::true( Merchant_Profiles::verify_checksum( $profile ), 'Untampered profile must pass checksum validation.' );
+
+		// 2. Tampered profile (altered setting value).
+		$tampered = $profile;
+		$tampered['settings']['shipping_delay'] = 999;
+		WPS_Assert::false( Merchant_Profiles::verify_checksum( $tampered ), 'Tampered profile must fail checksum validation.' );
+
+		// 3. Validation with required checksum.
+		$res_valid = Merchant_Profiles::validate_profile( $profile, array( 'require_checksum' => true ) );
+		WPS_Assert::true( $res_valid['valid'], 'Valid profile with checksum must pass validation.' );
+
+		$res_tampered = Merchant_Profiles::validate_profile( $tampered, array( 'require_checksum' => true ) );
+		WPS_Assert::false( $res_tampered['valid'], 'Tampered profile with require_checksum must fail validation.' );
+	}
+);
+
+/* -------------------------------------------------------------------------
+ * 12. Profile Two-Step Upload Preview & Confirmation Flow
+ * ---------------------------------------------------------------------- */
+
+$suite->add(
+	'm11 profile two-step preview & confirmation flow',
+	static function (): void {
+		$admin = new Admin();
+		$user_id = get_current_user_id();
+
+		// Baseline setting.
+		Settings::update( array( 'shipping_delay' => 1 ) );
+
+		$profile_data = array(
+			'schema_version' => 1,
+			'generator'      => 'wp-pepita-sync',
+			'profile_name'   => 'Two Step Test',
+			'settings'       => array( 'shipping_delay' => 6 ),
+			'category_rules' => array(),
+		);
+
+		$tmp_file = tempnam( sys_get_temp_dir(), 'pep_test_' );
+		file_put_contents( $tmp_file, wp_json_encode( $profile_data ) );
+
+		$_FILES['profile_file'] = array(
+			'name'     => 'profile.json',
+			'type'     => 'application/json',
+			'tmp_name' => $tmp_file,
+			'error'    => UPLOAD_ERR_OK,
+			'size'     => filesize( $tmp_file ),
+		);
+
+		// Filter to allow test temp file as uploaded.
+		$allow_tmp = static fn( $is_up, $f ) => true;
+		add_filter( 'wps_pepita_is_uploaded_file', $allow_tmp, 10, 2 );
+
+		// Step 1: Upload initiates preview.
+		$_POST['_wpnonce']    = wp_create_nonce( 'wps_pepita_import_profile' );
+		$_REQUEST['_wpnonce'] = $_POST['_wpnonce'];
+
+		$preview_redirect = '';
+		try {
+			$admin->handle_import_profile();
+		} catch ( \RuntimeException $e ) {
+			$preview_redirect = $e->getMessage();
+		}
+
+		WPS_Assert::true( str_contains( $preview_redirect, 'wps_preview=1' ), 'Upload must redirect to preview.' );
+
+		// Verify settings remain UNMODIFIED after upload.
+		WPS_Assert::same( 1, Settings::get( 'shipping_delay' ), 'Settings must NOT be updated upon initial upload.' );
+
+		// Verify transient is created.
+		$stage_key = 'wps_pepita_staged_profile_' . $user_id;
+		$staged    = get_transient( $stage_key );
+		WPS_Assert::true( is_array( $staged ) && ! empty( $staged['token'] ), 'Staged transient must exist.' );
+
+		// Step 2: Confirmation applies the changes.
+		$_POST['_wpnonce']       = wp_create_nonce( 'wps_pepita_confirm_import_profile' );
+		$_REQUEST['_wpnonce']    = $_POST['_wpnonce'];
+		$_POST['confirm_token']  = $staged['token'];
+
+		$confirm_redirect = '';
+		try {
+			$admin->handle_confirm_import_profile();
+		} catch ( \RuntimeException $e ) {
+			$confirm_redirect = $e->getMessage();
+		}
+
+		WPS_Assert::true( str_contains( $confirm_redirect, 'wps_notice=profile_import_success' ), 'Confirmation must report success.' );
+
+		// Verify settings ARE updated after explicit confirmation.
+		WPS_Assert::same( 6, Settings::get( 'shipping_delay' ), 'Settings must be updated upon explicit confirmation.' );
+
+		// Verify staging transient was cleaned up.
+		WPS_Assert::true( false === get_transient( $stage_key ) || null === get_transient( $stage_key ), 'Staged transient must be deleted.' );
+
+		// Cleanup.
+		unlink( $tmp_file );
+		unset( $_FILES['profile_file'], $_POST['_wpnonce'], $_REQUEST['_wpnonce'], $_POST['confirm_token'] );
+		remove_filter( 'wps_pepita_is_uploaded_file', $allow_tmp );
+	}
+);

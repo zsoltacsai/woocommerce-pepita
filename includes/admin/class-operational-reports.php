@@ -90,7 +90,9 @@ final class Operational_Reports {
 			'processing_orders' => 0,
 			'orphan_orders'     => 0,
 			'total_gmv'         => 0.0,
+			'is_partial_data'   => false,
 			'gmv_truncated'     => false,
+			'truncated_limit'   => self::MAX_EXPORT_ROWS,
 			'top_errors'        => array(),
 			'feed_telemetry'    => array(),
 		);
@@ -112,7 +114,8 @@ final class Operational_Reports {
 		$error_counts = array();
 		if ( is_array( $rows ) ) {
 			if ( count( $rows ) >= self::MAX_EXPORT_ROWS ) {
-				$defaults['gmv_truncated'] = true;
+				$defaults['is_partial_data'] = true;
+				$defaults['gmv_truncated']   = true;
 			}
 
 			foreach ( $rows as $row ) {

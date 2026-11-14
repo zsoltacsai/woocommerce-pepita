@@ -42,6 +42,8 @@ final class Admin {
 		add_action( 'admin_post_wps_pepita_reject_staged_feed', array( $this, 'handle_reject_staged_feed' ) );
 		add_action( 'admin_post_wps_pepita_export_profile', array( $this, 'handle_export_profile' ) );
 		add_action( 'admin_post_wps_pepita_import_profile', array( $this, 'handle_import_profile' ) );
+		add_action( 'admin_post_wps_pepita_confirm_import_profile', array( $this, 'handle_confirm_import_profile' ) );
+		add_action( 'admin_post_wps_pepita_cancel_import_profile', array( $this, 'handle_cancel_import_profile' ) );
 		add_action( 'admin_post_wps_pepita_export_report_csv', array( $this, 'handle_export_report_csv' ) );
 		add_action( 'admin_notices', array( $this, 'render_notices' ) );
 
@@ -683,14 +685,75 @@ final class Admin {
 			$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_invalid_json' ) );
 		}
 
+		$validation = Merchant_Profiles::validate_profile( $decoded );
+		if ( ! $validation['valid'] ) {
+			$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_invalid_json' ) );
+		}
+
 		$import_cats = ! empty( $_POST['import_categories'] );
-		$result      = Merchant_Profiles::import_profile( $decoded, array( 'import_category_rules' => $import_cats ) );
+		$preview     = Merchant_Profiles::preview_import( $decoded, array( 'import_category_rules' => $import_cats ) );
+
+		// Stage profile in user transient for safe confirmation (10 min expiry).
+		$user_id   = get_current_user_id();
+		$stage_key = 'wps_pepita_staged_profile_' . $user_id;
+		$token     = wp_generate_password( 24, false );
+
+		set_transient(
+			$stage_key,
+			array(
+				'token'             => $token,
+				'data'              => $decoded,
+				'preview'           => $preview,
+				'import_categories' => $import_cats,
+			),
+			600
+		);
+
+		$this->redirect( 'wps-pepita-tools', array( 'wps_preview' => '1' ) );
+	}
+
+	public function handle_confirm_import_profile(): void {
+		$this->guard( true );
+		check_admin_referer( 'wps_pepita_confirm_import_profile' );
+
+		$user_id   = get_current_user_id();
+		$stage_key = 'wps_pepita_staged_profile_' . $user_id;
+		$staged    = get_transient( $stage_key );
+
+		if ( ! is_array( $staged ) || empty( $staged['data'] ) ) {
+			$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_staged_expired' ) );
+		}
+
+		$submitted_token = (string) ( $_POST['confirm_token'] ?? '' );
+		if ( ! hash_equals( (string) ( $staged['token'] ?? '' ), $submitted_token ) ) {
+			$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_staged_expired' ) );
+		}
+
+		// Delete staging transient before applying.
+		delete_transient( $stage_key );
+
+		$import_cats = ! empty( $staged['import_categories'] );
+		$result      = Merchant_Profiles::import_profile( $staged['data'], array( 'import_category_rules' => $import_cats ) );
 
 		if ( ! $result['success'] ) {
+			if ( ! empty( $result['rolled_back'] ) ) {
+				$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_rollback_executed' ) );
+			}
 			$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_import_failed' ) );
 		}
 
 		$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_import_success' ) );
+	}
+
+	public function handle_cancel_import_profile(): void {
+		$this->guard( true );
+		check_admin_referer( 'wps_pepita_cancel_import_profile' );
+
+		$user_id   = get_current_user_id();
+		$stage_key = 'wps_pepita_staged_profile_' . $user_id;
+		delete_transient( $stage_key );
+
+		$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_cancel_success' ) );
 	}
 
 	public function handle_export_report_csv(): void {
@@ -777,9 +840,12 @@ final class Admin {
 			'profile_upload_error'   => array( 'error', __( 'Hiba történt a fájl feltöltése során.', 'wp-pepita-sync' ) ),
 			'profile_too_large'      => array( 'error', __( 'A megadott profilfájl meghaladja a megengedett 1 MB méretkorlátot.', 'wp-pepita-sync' ) ),
 			'profile_invalid_type'   => array( 'error', __( 'A profilfájlnak .json kiterjesztésűnek kell lennie.', 'wp-pepita-sync' ) ),
-			'profile_upload_invalid' => array( 'error', __( 'Érvénytelen vagy illegális fájlfeltöltés.', 'wp-pepita-sync' ) ),
-			'profile_import_failed'  => array( 'error', __( 'A konfigurációs profil importálása meghiúsult.', 'wp-pepita-sync' ) ),
-			'profile_import_success' => array( 'success', __( 'A konfigurációs profil sikeresen importálva.', 'wp-pepita-sync' ) ),
+			'profile_upload_invalid'    => array( 'error', __( 'Érvénytelen vagy illegális fájlfeltöltés.', 'wp-pepita-sync' ) ),
+			'profile_staged_expired'    => array( 'error', __( 'A profil előnézeti munkamenet lejárt (10 perc). Kérjük, töltse fel újra a fájlt.', 'wp-pepita-sync' ) ),
+			'profile_rollback_executed' => array( 'error', __( 'Az importálás hibába ütközött, a kompenzációs visszagörgetés (rollback) visszaállította a korábbi állapotot.', 'wp-pepita-sync' ) ),
+			'profile_cancel_success'    => array( 'info', __( 'A profil importálási előnézete törölve lett.', 'wp-pepita-sync' ) ),
+			'profile_import_failed'     => array( 'error', __( 'A konfigurációs profil importálása meghiúsult.', 'wp-pepita-sync' ) ),
+			'profile_import_success'    => array( 'success', __( 'A konfigurációs profil sikeresen importálva.', 'wp-pepita-sync' ) ),
 		);
 
 		if ( ! isset( $messages[ $notice ] ) ) {
