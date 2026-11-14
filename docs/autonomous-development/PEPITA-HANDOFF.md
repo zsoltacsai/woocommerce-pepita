@@ -69,16 +69,16 @@ Nyitott M9-F korlátok:
 
 ## 6. Artifact és build
 
-PR #11 `532b3db` csomag SHA-256: `81be6d270831c052286af2aa3a2ec4453705fc3f7f08fb7f03652d4dda7a381c` (`dist/wp-pepita-sync.zip`). Sidecar: `dist/wp-pepita-sync.zip.sha256`. ZIP 61 fájlos, `unzip -tq` PASS. A `bin/verify-reproducible.sh` öt időzónán azonos hash-t igazolt. Új HEAD dokumentációs ZIP-frissítése után újra kell építeni/ellenőrizni; a ZIP-ben a docs nem szerepelnek, de minden forrásváltozáskor release epoch/build szabályt követni kell.
+PR #12 csomag SHA-256: `87f81e4df21d83756efe266f7fabd19eb1b853b18d2396e6174be6c9846feae3` (`dist/wp-pepita-sync.zip`). Sidecar: `dist/wp-pepita-sync.zip.sha256`. ZIP 61 fájlos, `unzip -tq` PASS. A `bin/verify-reproducible.sh` öt időzónán azonos hash-t igazolt. Új HEAD dokumentációs ZIP-frissítése után újra kell építeni/ellenőrizni; a ZIP-ben a docs nem szerepelnek, de minden forrásváltozáskor release epoch/build szabályt követni kell.
 
 ## 7. Átvétel utáni első feladat — lezárva
 
 1. A kijelölt felelős elolvasta ezt a fájlt és az `EXECUTION-LEDGER.md`-t; ellenőrizte a repositoryt, branch-et, tiszta munkafát, exact CI-t, PR #10/#11 headet és státuszt.
 2. A handoff HEAD `ab0c1d574cb5bb546c76849e3265059672b1b38b` exact CI-je (`43580024938`) **SUCCESS**.
 3. M9-F keresési lefedés: valós WooCommerce HPOS és legacy integrációs teszt ellenőrzi a terméknév-, pontos SKU- és numeric-ID-keresést. A variation SKU a szülőtermék issue-center sorát adja vissza. A kért oldalszám 1000-re korlátozott; a kérés legfeljebb 50 termékjelöltet vizsgál.
-4. A kód HEAD `3ea995fe35e3d6cadf2459c20845e2085ec6cba3` CI-je (`43580583517`) **SUCCESS**. A docs-inclusive `fb4f0ef5be76f56aefbb72840bde0e15e2e1ef5c` HEAD CI-je (`43580895516`) szintén **SUCCESS**; PHP 8.1–8.5, lint/reproducible package, HPOS és legacy PASS; RR20 SKIPPED. A ZIP SHA-256 `441d74e6eaa1658b2ae5a08da2062c593ff5ae759fdc9f7b9252d7745d8c3926`; öt időzónás reprodukálhatóság PASS.
+4. A kód HEAD `3ea995fe35e3d6cadf2459c20845e2085ec6cba3` CI-je (`43580583517`) **SUCCESS**. A docs-inclusive `fb4f0ef5be76f56aefbb72840bde0e15e2e1ef5c` HEAD CI-je (`43580895516`) és `9e5857fa081cbf801991c6ac778d36c4523008e7` CI-je (`43581264829`) szintén **SUCCESS**; PHP 8.1–8.5, lint/reproducible package, HPOS és legacy PASS; RR20 SKIPPED.
 5. Költséghatár: legfeljebb 50 termék issue-vizsgálata történik kérésenként, de a WooCommerce teljes találatszám-lekérése nincs időkerettel korlátozva, az 1000. oldal akár 49 950-es OFFSET-et jelent 50-es oldalméretnél, és a galéria-fallback több helyi képvalidációt futhat. Ezek megmaradó nagy katalógus-kockázatok; async index és mért load test nincs.
-6. Fennmaradó M9-F: hivatalos spec alapján opcionális márka/gyártó- és attribútum-mapping munka; új kötelező Pepita mező csak dokumentált követelmény alapján vezethető be. Az új exact HEAD független QA és AppSec review-ja nyitott. A folytatás a PR #12 Draftban történik, PR #11 Draft megőrzésével.
+6. Fennmaradó M9-F lezárva: hivatalos Seller Center specifikáció alapján elkészült az opcionális attribútumnév-megfeleltetés (`attribute_name_map`), amely mind a normál termékattribútumokra, mind a variációs tengelyekre alkalmazható a forrásadatok megváltoztatása nélkül. Tesztek fzik a szanitizálást és leképezést. Új exact HEAD független QA és AppSec review-ja nyitott. A folytatás a PR #12 Draftban történik, PR #11 Draft megőrzésével.
 
 ## 8. Teljes roadmap és visszaállítási pont
 

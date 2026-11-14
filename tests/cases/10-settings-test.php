@@ -175,3 +175,22 @@ $suite->add(
 		WPS_Assert::same( 'stock', $clean['feed_stock_slug'] );
 	}
 );
+
+$suite->add(
+	'settings: attribute_name_map sanitisation removes invalid lines and preserves valid rules',
+	static function (): void {
+		$raw = "  pa_color = Szín  \n"
+			. "invalid_rule_without_equals\n"
+			. "=missing_source\n"
+			. "missing_target=\n"
+			. "\n"
+			. "pa_size=Méret\n";
+
+		$clean = Settings::sanitize( array( 'attribute_name_map' => $raw ) );
+		WPS_Assert::same( "pa_color=Szín\npa_size=Méret", $clean['attribute_name_map'] );
+
+		// Non-string input falls back to empty string.
+		$clean_non_string = Settings::sanitize( array( 'attribute_name_map' => array( 'not', 'a', 'string' ) ) );
+		WPS_Assert::same( '', $clean_non_string['attribute_name_map'] );
+	}
+);

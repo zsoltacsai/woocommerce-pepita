@@ -449,6 +449,7 @@ final class Product_Mapper {
 	public static function variation_axes( \WC_Product $product ): array {
 		$attributes = $product->get_attributes();
 		$axes       = array();
+		$name_map   = self::attribute_name_map();
 
 		foreach ( $attributes as $attribute ) {
 			if ( ! $attribute instanceof \WC_Product_Attribute || ! $attribute->get_variation() ) {
@@ -465,8 +466,10 @@ final class Product_Mapper {
 				$name = $key;
 			}
 
+			$mapped_name = self::resolve_attribute_name( $key, $name, $name_map );
+
 			$axes[] = array(
-				'name'     => Description_Sanitizer::line( $name ),
+				'name'     => Description_Sanitizer::line( $mapped_name ),
 				'key'      => $key,
 				'taxonomy' => $taxonomy,
 				'position' => (int) $attribute->get_position(),
@@ -1000,12 +1003,75 @@ final class Product_Mapper {
 	}
 
 	/**
+	 * Parse optional attribute name alias mappings from settings.
+	 *
+	 * @return array<string, string>
+	 */
+	public static function attribute_name_map(): array {
+		$name_map = array();
+		$raw_map  = (string) Settings::get( 'attribute_name_map', '' );
+
+		if ( '' === trim( $raw_map ) ) {
+			return $name_map;
+		}
+
+		foreach ( explode( "\n", $raw_map ) as $rule ) {
+			if ( false === strpos( $rule, '=' ) ) {
+				continue;
+			}
+
+			list( $source, $target ) = array_map( 'trim', explode( '=', $rule, 2 ) );
+			if ( '' === $source || '' === $target ) {
+				continue;
+			}
+
+			$key_slug = sanitize_title( $source );
+			$key_raw  = strtolower( $source );
+
+			if ( '' !== $key_slug && ! isset( $name_map[ $key_slug ] ) ) {
+				$name_map[ $key_slug ] = $target;
+			}
+			if ( '' !== $key_raw && ! isset( $name_map[ $key_raw ] ) ) {
+				$name_map[ $key_raw ] = $target;
+			}
+		}
+
+		return $name_map;
+	}
+
+	/**
+	 * Resolve attribute name using configured alias map if available.
+	 *
+	 * @param string $source_name
+	 * @param string $source_label
+	 * @param array<string, string> $name_map
+	 * @return string
+	 */
+	public static function resolve_attribute_name( string $source_name, string $source_label, array $name_map ): string {
+		if ( array() === $name_map ) {
+			return $source_label;
+		}
+
+		$raw_name   = strtolower( $source_name );
+		$raw_label  = strtolower( $source_label );
+		$slug_name  = sanitize_title( $source_name );
+		$slug_label = sanitize_title( $source_label );
+
+		return $name_map[ $raw_name ]
+			?? $name_map[ $raw_label ]
+			?? $name_map[ $slug_name ]
+			?? $name_map[ $slug_label ]
+			?? $source_label;
+	}
+
+	/**
 	 * Product attributes (excluding variation axes).
 	 *
 	 * @return array<int, array{name: string, value: string}>
 	 */
 	private static function attributes( \WC_Product $product ): array {
-		$out = array();
+		$out      = array();
+		$name_map = self::attribute_name_map();
 
 		foreach ( $product->get_attributes() as $attribute ) {
 			if ( ! $attribute instanceof \WC_Product_Attribute ) {
@@ -1027,8 +1093,9 @@ final class Product_Mapper {
 				$value = implode( ', ', array_map( array( Description_Sanitizer::class, 'line' ), $attribute->get_options() ) );
 			}
 
-			$name  = Description_Sanitizer::line( $name );
-			$value = trim( $value );
+			$mapped_name = self::resolve_attribute_name( (string) $attribute->get_name(), $name, $name_map );
+			$name        = Description_Sanitizer::line( $mapped_name );
+			$value       = trim( $value );
 
 			if ( '' !== $name && '' !== $value ) {
 				$out[] = array(

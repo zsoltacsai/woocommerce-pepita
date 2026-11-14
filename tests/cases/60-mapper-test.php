@@ -36,6 +36,112 @@ $simple = static function ( int $id = 301, array $overrides = array() ): WC_Prod
 };
 
 $suite->add(
+	'mapper: reusable Pepita attribute-name aliases change only the mapped attribute label',
+	static function () use ( $prepare ): void {
+		$prepare();
+		WPS_Test_State::add_attribute_label( 'pa_color', 'Szín' );
+		WPS_Test_State::add_attribute_label( 'pa_size', 'Méret' );
+		WPS_Test_State::add_term( 351, 'Piros', 0, 'pa_color' );
+		WPS_Test_State::add_term( 352, 'L', 0, 'pa_size' );
+		Settings::update(
+			array(
+				'attribute_name_map' => "pa_color=Pepita szín\nAnyag=Anyagösszetétel\npa_size=Méret (Pepita)\ninvalid-rule\n=Üres forrás\npa_empty=",
+			)
+		);
+		$product = WPS_Test_State::add_product(
+			array(
+				'id'          => 350,
+				'name'        => 'Attribútumos termék',
+				'description' => 'Leírás',
+				'price'       => '1200',
+				'image_id'    => 500,
+				'attributes'  => array(
+					new WC_Product_Attribute(
+						array(
+							'name'      => 'pa_color',
+							'options'   => array( 'piros' ),
+							'taxonomy'  => true,
+							'variation' => false,
+						)
+					),
+					new WC_Product_Attribute(
+						array(
+							'name'      => 'Anyag',
+							'options'   => array( '100% pamut' ),
+							'taxonomy'  => false,
+							'variation' => false,
+						)
+					),
+					new WC_Product_Attribute(
+						array(
+							'name'      => 'Garancia',
+							'options'   => array( '2 év' ),
+							'taxonomy'  => false,
+							'variation' => false,
+						)
+					),
+				),
+			)
+		);
+		WPS_Test_State::assign_term( 350, 10 );
+		WPS_Test_State::assign_term( 350, 351, 'pa_color' );
+
+		$data = Product_Mapper::map( 350 );
+		WPS_Assert::same(
+			array(
+				array( 'name' => 'Pepita szín', 'value' => 'Piros' ),
+				array( 'name' => 'Anyagösszetétel', 'value' => '100% pamut' ),
+				array( 'name' => 'Garancia', 'value' => '2 év' ),
+			),
+			$data['attributes']
+		);
+		WPS_Assert::same( 'pa_color', $product->get_attributes()[0]->get_name(), 'The source product attribute must remain unchanged.' );
+		WPS_Assert::same( 'Anyag', $product->get_attributes()[1]->get_name(), 'The custom attribute name must remain unchanged.' );
+
+		// Test variable product variation axis mapping.
+		$var_parent = WPS_Test_State::add_product(
+			array(
+				'id'          => 360,
+				'name'        => 'Variációs termék',
+				'description' => 'Leírás',
+				'type'        => 'variable',
+				'price'       => '3000',
+				'image_id'    => 500,
+				'attributes'  => array(
+					new WC_Product_Attribute(
+						array(
+							'name'      => 'pa_size',
+							'options'   => array( 'l' ),
+							'position'  => 0,
+							'variation' => true,
+							'taxonomy'  => true,
+						)
+					),
+				),
+			)
+		);
+		WPS_Test_State::assign_term( 360, 10 );
+		WPS_Test_State::add_variation(
+			360,
+			array(
+				'id'             => 361,
+				'name'           => 'Variációs termék – L',
+				'status'         => 'publish',
+				'price'          => '3000',
+				'stock_status'   => 'instock',
+				'manage_stock'   => true,
+				'stock_quantity' => 5,
+				'variation'      => array( 'attribute_pa_size' => 'l' ),
+				'image_id'       => 0,
+			)
+		);
+
+		$var_data = Product_Mapper::map( 360 );
+		WPS_Assert::same( 'Méret (Pepita)', $var_data['variations']['axes'][0]['name'] );
+	}
+);
+
+$suite->add(
 	'mapper: simple product produces a complete feed record',
 	static function () use ( $prepare, $simple ): void {
 		$prepare();

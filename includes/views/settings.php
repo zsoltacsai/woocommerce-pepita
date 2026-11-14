@@ -337,6 +337,13 @@ $checked = static function ( string $key ) use ( $settings ): string {
 					</td>
 				</tr>
 				<tr>
+					<th scope="row"><label for="wps-attribute-name-map"><?php esc_html_e( 'Attribútumnév-megfeleltetések', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<textarea id="wps-attribute-name-map" name="wps[attribute_name_map]" class="large-text code" rows="5"><?php echo esc_textarea( (string) $field( 'attribute_name_map' ) ); ?></textarea>
+						<p class="description"><?php esc_html_e( 'Opcionális, újrahasználható szabályok soronként: WooCommerce attribútumnév=Pepita attribútumnév (például pa_color=Szín). Csak a kimeneti nevet módosítja; az érték és a termékadat változatlan.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
 					<th scope="row"><label for="wps-gtin-keys"><?php esc_html_e( 'GTIN meta kulcsok', 'wp-pepita-sync' ); ?></label></th>
 					<td>
 						<input type="text" id="wps-gtin-keys" name="wps[gtin_meta_keys]" value="<?php echo esc_attr( (string) $field( 'gtin_meta_keys' ) ); ?>" class="regular-text" />
