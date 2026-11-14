@@ -128,10 +128,11 @@ $suite->add(
 		// Product with small featured image and compliant gallery image.
 		$p = WPS_Test_State::add_product(
 			array(
-				'id'        => 7001,
-				'name'      => 'Kép fallback termék',
-				'price'     => 1500,
-				'image_id'  => 801,
+				'id'          => 7001,
+				'name'        => 'Kép fallback termék',
+				'description' => 'Érvényes termékleírás',
+				'price'       => 1500,
+				'image_id'    => 801,
 			)
 		);
 		$p->set_gallery_image_ids( array( 802 ) );
@@ -177,10 +178,11 @@ $suite->add(
 
 		$p = WPS_Test_State::add_product(
 			array(
-				'id'       => 7002,
-				'name'     => 'Kicsi képek termék',
-				'price'    => 2000,
-				'image_id' => 803,
+				'id'          => 7002,
+				'name'        => 'Kicsi képek termék',
+				'description' => 'Érvényes termékleírás',
+				'price'       => 2000,
+				'image_id'    => 803,
 			)
 		);
 		$p->set_gallery_image_ids( array( 804 ) );
@@ -232,10 +234,11 @@ $suite->add(
 		// Product directly assigned only to child term 28687 (HDS15).
 		$p = WPS_Test_State::add_product(
 			array(
-				'id'       => 7003,
-				'name'     => 'Stencil Minta',
-				'price'    => 1300,
-				'image_id' => 810,
+				'id'          => 7003,
+				'name'        => 'Stencil Minta',
+				'description' => 'Érvényes termékleírás',
+				'price'       => 1300,
+				'image_id'    => 810,
 			)
 		);
 		WPS_Test_State::assign_term( 7003, 28687 );
@@ -279,10 +282,11 @@ $suite->add(
 
 		$p = WPS_Test_State::add_product(
 			array(
-				'id'       => 7004,
-				'name'     => 'Explicit HDS15 Override',
-				'price'    => 1300,
-				'image_id' => 810,
+				'id'          => 7004,
+				'name'        => 'Explicit HDS15 Override',
+				'description' => 'Érvényes termékleírás',
+				'price'       => 1300,
+				'image_id'    => 810,
 			)
 		);
 		WPS_Test_State::assign_term( 7004, 28687 );
@@ -326,11 +330,12 @@ $suite->add(
 		// Product 1: Compliant image.
 		$p1 = WPS_Test_State::add_product(
 			array(
-				'id'       => 7010,
-				'name'     => 'Compliant Product',
-				'price'    => 5000,
-				'sku'      => 'SKU-01',
-				'image_id' => 820,
+				'id'          => 7010,
+				'name'        => 'Compliant Product',
+				'description' => 'Érvényes termékleírás',
+				'price'       => 5000,
+				'sku'         => 'SKU-01',
+				'image_id'    => 820,
 			)
 		);
 		WPS_Test_State::assign_term( 7010, 100 );
@@ -338,11 +343,12 @@ $suite->add(
 		// Product 2: Undersized image, no gallery fallback.
 		$p2 = WPS_Test_State::add_product(
 			array(
-				'id'       => 7011,
-				'name'     => 'Bad Image Product',
-				'price'    => 5000,
-				'sku'      => 'SKU-02',
-				'image_id' => 821,
+				'id'          => 7011,
+				'name'        => 'Bad Image Product',
+				'description' => 'Érvényes termékleírás',
+				'price'       => 5000,
+				'sku'         => 'SKU-02',
+				'image_id'    => 821,
 			)
 		);
 		WPS_Test_State::assign_term( 7011, 100 );
@@ -350,11 +356,12 @@ $suite->add(
 		// Product 3: Missing SKU (informational only; compliant image).
 		$p3 = WPS_Test_State::add_product(
 			array(
-				'id'       => 7012,
-				'name'     => 'No SKU Product',
-				'price'    => 5000,
-				'sku'      => '',
-				'image_id' => 820,
+				'id'          => 7012,
+				'name'        => 'No SKU Product',
+				'description' => 'Érvényes termékleírás',
+				'price'       => 5000,
+				'sku'         => '',
+				'image_id'    => 820,
 			)
 		);
 		WPS_Test_State::assign_term( 7012, 100 );
@@ -411,6 +418,7 @@ $suite->add(
 			array(
 				'id'             => 7020,
 				'name'           => 'Capped Stock Product',
+				'description'    => 'Érvényes termékleírás',
 				'price'          => 1000,
 				'sku'            => 'CAPPED-01',
 				'image_id'       => 830,
@@ -480,6 +488,7 @@ $suite->add(
 			array(
 				'id'             => 9897,
 				'name'           => 'Stencil - Hópehely',
+				'description'    => 'Részletgazdag műanyag stencil hópehely mintával.',
 				'price'          => 1300,
 				'sku'            => 'HDS15-016',
 				'image_id'       => 901,
@@ -496,6 +505,7 @@ $suite->add(
 				array(
 					'id'             => $pid,
 					'name'           => sprintf( 'Compliant Stencil #%d', $i ),
+					'description'    => sprintf( 'Leírás a stencilekhez #%d', $i ),
 					'price'          => 1300,
 					'sku'            => sprintf( 'SKU-%d', $i ),
 					'image_id'       => 901,
@@ -513,6 +523,7 @@ $suite->add(
 				array(
 					'id'             => $pid,
 					'name'           => sprintf( 'Undersized Product #%d', $j ),
+					'description'    => sprintf( 'Leírás kisméretű képű termékhez #%d', $j ),
 					'price'          => 1200,
 					'sku'            => sprintf( 'BAD-SKU-%d', $j ),
 					'image_id'       => 902,
