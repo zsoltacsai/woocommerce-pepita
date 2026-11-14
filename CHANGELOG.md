@@ -7,7 +7,7 @@ All notable changes are recorded here. The format follows
 ## Unreleased — M9-E Image Fallback & Product Issues
 
 ### Added & Hardened
-- **Fail-closed image inspection:** Feed images must have a verifiable local source, a matching supported JPEG/PNG format, a valid public URL, and dimensions of at least 1200×630. When GD or Imagick is available, the complete source is decoded under a bounded pixel-memory budget; unreadable, unsupported, mismatched, truncated or unverifiable images are blocking product issues. Offloaded images without a verifiable local source remain blocked.
+- **Fail-closed image inspection:** Feed images must have a verifiable local source, a matching supported JPEG/PNG format, a valid public URL, and dimensions of at least 1200×630. The complete source is decoded under a bounded pixel-memory budget; sources above 32 MiB and animated/multi-frame images are rejected. Imagick decoding also uses bounded memory, map, disk and thread resources. Unreadable, unsupported, mismatched, truncated or unverifiable images are blocking product issues. Offloaded images without a verifiable local source remain blocked.
 - **Safe WebP fallback:** A compatible original is validated before use. Otherwise a content-addressed JPEG derivative is generated through a unique same-directory temporary file, verified before atomic rename, and corrupt or symlinked cache entries are discarded. The WooCommerce original is never modified; failed validation or publication cannot produce a successful feed URL.
 - **Automatic quality exclusion:** Invalid image sources are listed under `Pepita → Hibás termékek` and are excluded when the quality-exclusion setting is enabled; the full/stock matching-snapshot guard remains in force.
 

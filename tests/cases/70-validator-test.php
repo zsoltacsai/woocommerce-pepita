@@ -281,10 +281,12 @@ $suite->add(
 );
 
 $suite->add(
-	'validator: image URL helper accepts uploads and common extensions',
+	'validator: feed image URLs allow JPEG/PNG and reject unsupported formats',
 	static function (): void {
 		WPS_Assert::true( Validator::is_valid_image_url( 'https://example.test/wp-content/uploads/2026/01/a.jpg' ) );
-		WPS_Assert::true( Validator::is_valid_image_url( 'https://cdn.example.test/a.webp?x=1' ) );
+		WPS_Assert::true( Validator::is_valid_image_url( 'https://cdn.example.test/a.png?x=1' ) );
+		WPS_Assert::false( Validator::is_valid_image_url( 'https://cdn.example.test/a.webp?x=1' ) );
+		WPS_Assert::false( Validator::is_valid_image_url( 'https://cdn.example.test/a.gif?x=1' ) );
 		WPS_Assert::false( Validator::is_valid_image_url( 'https://example.test/a.pdf' ) );
 		WPS_Assert::false( Validator::is_valid_image_url( 'https://example.test/a b.jpg' ) );
 		WPS_Assert::false( Validator::is_valid_image_url( '/wp-content/uploads/a.jpg' ) );

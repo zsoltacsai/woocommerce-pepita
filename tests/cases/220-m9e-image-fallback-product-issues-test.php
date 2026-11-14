@@ -118,6 +118,19 @@ $suite->add(
 		WPS_Assert::same( '', Image_Converter::resolve_attachment_url( 848, $truncated_warnings ) );
 		WPS_Assert::same( 'invalid_image_file', $truncated_warnings[0]['code'] );
 		@unlink( $truncated_path );
+
+		$oversized_path = sys_get_temp_dir() . '/wps-image-oversized-' . uniqid() . '.jpg';
+		copy( __DIR__ . '/../fixtures/images/pepita-compatible-1200x630.jpg', $oversized_path );
+		$oversized_file = fopen( $oversized_path, 'c' );
+		WPS_Assert::true( is_resource( $oversized_file ) );
+		ftruncate( $oversized_file, 33554433 );
+		fclose( $oversized_file );
+		WPS_Test_State::add_attachment( 849, 'https://example.test/oversized.jpg' );
+		WPS_Test_State::$attached_files[ 849 ] = $oversized_path;
+		$oversized_warnings = array();
+		WPS_Assert::same( '', Image_Converter::resolve_attachment_url( 849, $oversized_warnings ) );
+		WPS_Assert::same( 'invalid_image_file', $oversized_warnings[0]['code'] );
+		@unlink( $oversized_path );
 	}
 );
 

@@ -8,7 +8,7 @@
 
 | Mérföldkő | Státusz | Branch / HEAD | PR | CI | QA / AppSec | Blokkoló / következő feladat |
 |---|---|---|---|---|---|---|
-| M9-E | PARTIAL | `feature/m9e-image-fallback-product-issues` / helyi, még nem publikált javítások a `426b6bf` fölött | [#10](https://github.com/zsoltacsai/woocommerce-pepita/pull/10), Draft | `43565687402` a korábbi `426b6bf` HEAD-en futott; az új javításokra még nincs CI | A `426b6bf` exact-head QA és AppSec review egyaránt CHANGES_REQUIRED volt; a blocking képfájl-ellenőrzési hiány javítva lett a helyi változatban, új exact-head review szükséges | Kód és regressziós esetek rögzítése, friss ZIP/CI, új független QA és AppSec |
+| M9-E | PARTIAL | `feature/m9e-image-fallback-product-issues` / `ad31983ca05d3b5171d88d4bc4871b53d1993ae6` + helyi javítás | [#10](https://github.com/zsoltacsai/woocommerce-pepita/pull/10), Draft | `43567433296` exact `ad31983` HEAD-en **FAIL** (PHP syntax parse error; az erre épülő unit és integration hibák is); új javító commitra CI szükséges | QA exact `ad31983`: PASS; AppSec exact `ad31983`: CHANGES_REQUIRED (Imagick névtér szintaxis és erőforráskorlát); a hibák helyi javítása után új exact-head review kell | Szintaxis/resource és meglévő URL-teszt regresszió javítása, ZIP/CI, új QA és AppSec |
 | M9-F | HOLD | — | — | — | — | M9-E elfogadási kapui után indul |
 | M9-G | HOLD | — | — | — | — | M9-E/M9-F függőségek után |
 | M9-H | HOLD | — | — | — | — | M9-E–M9-G után |
@@ -35,8 +35,10 @@
 - A full/stock minőségi szabályváltási regressziós teszt továbbra is az M9-E kapu része: eltérő snapshot esetén a stock-only publikálás megáll, az előző stock feed megmarad, majd új full és matching stock generálás után az ID-k, árak és készletek egyeznek.
 - A `426b6bf` exact-head független QA és AppSec review egyaránt blocking hibát talált: a nem-WebP képek validálás nélkül juthattak a feedbe, és hiányzó helyi fájlnál/metadata esetén a méret ellenőrzése UNKNOWN helyett compliant állapotot adott.
 - Helyi javítás: JPEG/PNG MIME, URL, helyi fájl, tényleges dekódolhatóság és 1200×630 dimenzió fail-closed ellenőrzése; ellenőrzött eredeti WebP fallback; tartalomhash-alapú cache-kulcs; biztonságos temp fájl + atomic rename; sérült vagy symlink cache elutasítása; új blocking `invalid_image` adminhiba és automatikus kizárási teszt.
-- Új tesztek fedik az unsupported GIF-et, MIME-ütközést, hiányzó/sérült/truncated/offloaded fájlt, hiányzó URL-t, metadata nélküli de fájlból igazolható méretet, WebP eredeti fallbackot, symlink cache-t és quality-excluded full XML-t.
-- Tesztfuttatás helyben **NOT RUN**: a környezetben nincs PHP CLI, a Docker daemon nem hozzáférhető. A korábbi `43565687402` futás a régi `426b6bf` HEAD-hez tartozik, ezért az új kód ellenőrzésére nem használható. A `git diff --check` PASS; a friss ZIP elkészült, SHA-256: `97001c144960ccc8ea699e960dabda71028d8133991ebed0a7e0e5923261a548`.
+- A `43567433296` naplója a `ad31983`-on PHP parse errort igazolt az Imagick névtér kétszeres backslash-e miatt; a unit/integration hibák ennek következményei voltak. Ugyanezen futás a validator régi `.webp`-elfogadási tesztjét is hibásnak jelezte; a várt szerződés most JPEG/PNG, ezért a tesztet ennek megfelelően frissítettem.
+- Javító munkafa: Imagick szintaxis helyesbítése, 32 MiB fájlméretkorlát, pixelszám-alapú dekódolási keret, Imagick memória/map/disk/area/thread limit és multi-frame elutasítás; a regressziós tesztek ezeket is fedik.
+- Új tesztek fedik az unsupported GIF-et, MIME-ütközést, hiányzó/sérült/truncated/oversized/offloaded fájlt, hiányzó URL-t, metadata nélküli de fájlból igazolható méretet, WebP eredeti fallbackot, symlink cache-t és quality-excluded full XML-t.
+- Tesztfuttatás helyben **NOT RUN**: a környezetben nincs PHP CLI, a Docker daemon nem hozzáférhető. `git diff --check` és reprodukálható ZIP PASS a korábbi fájlállapotra, de az Imagick hardening és új validator teszt után új csomag és exact-HEAD CI szükséges.
 
 ### Visszaállítási pont
 
