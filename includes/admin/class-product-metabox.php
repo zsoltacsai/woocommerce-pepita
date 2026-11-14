@@ -94,13 +94,53 @@ final class Product_Metabox {
 			<?php
 			$assigned_terms = wp_get_post_terms( $product_id, \WPS\Pepita\Catalog\Category_Rules::TAXONOMY );
 			$assigned_terms = is_array( $assigned_terms ) ? $assigned_terms : array();
+
+			// Collect assigned terms and all their eligible ancestor categories.
+			$selectable_terms = array();
+			$seen_terms       = array();
+
+			foreach ( $assigned_terms as $term ) {
+				if ( ! isset( $seen_terms[ $term->term_id ] ) ) {
+					$seen_terms[ $term->term_id ] = true;
+					$selectable_terms[]           = $term;
+				}
+
+				$ancestor_ids = get_ancestors( $term->term_id, \WPS\Pepita\Catalog\Category_Rules::TAXONOMY, 'taxonomy' );
+				if ( is_array( $ancestor_ids ) ) {
+					foreach ( $ancestor_ids as $aid ) {
+						$aid = (int) $aid;
+						if ( isset( $seen_terms[ $aid ] ) ) {
+							continue;
+						}
+						// Skip excluded categories.
+						if ( \WPS\Pepita\Catalog\Category_Rules::DECISION_EXCLUDE === \WPS\Pepita\Catalog\Category_Rules::decision( $aid ) ) {
+							continue;
+						}
+						if ( \WPS\Pepita\Settings::is_beta_feed_only() && \WPS\Pepita\Catalog\Category_Rules::DECISION_INCLUDE !== \WPS\Pepita\Catalog\Category_Rules::decision( $aid ) ) {
+							continue;
+						}
+
+						$anc_term = get_term( $aid, \WPS\Pepita\Catalog\Category_Rules::TAXONOMY );
+						if ( $anc_term && ! is_wp_error( $anc_term ) ) {
+							$seen_terms[ $aid ]  = true;
+							$selectable_terms[] = $anc_term;
+						}
+					}
+				}
+			}
+
+			usort(
+				$selectable_terms,
+				static fn( $a, $b ): int => strcasecmp( (string) $a->name, (string) $b->name )
+			);
+
 			$primary_cat_id = (int) $meta( Product_Mapper::META_PRIMARY_CATEGORY );
 			?>
 			<p class="wps-metabox__row">
 				<label for="wps-primary-category"><?php esc_html_e( 'Pepita elsődleges kategória', 'wp-pepita-sync' ); ?></label>
 				<select id="wps-primary-category" name="wps_primary_category_id" class="widefat">
 					<option value=""><?php esc_html_e( '-- Automatikus (stratégia szerint) --', 'wp-pepita-sync' ); ?></option>
-					<?php foreach ( $assigned_terms as $term ) : ?>
+					<?php foreach ( $selectable_terms as $term ) : ?>
 						<option value="<?php echo esc_attr( (string) $term->term_id ); ?>" <?php selected( $primary_cat_id, (int) $term->term_id ); ?>>
 							<?php echo esc_html( $term->name ); ?> (ID: <?php echo esc_html( (string) $term->term_id ); ?>)
 						</option>

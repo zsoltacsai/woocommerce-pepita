@@ -60,6 +60,7 @@ final class Admin {
 		$pages = array(
 			array( self::MENU_SLUG, __( 'Áttekintés', 'wp-pepita-sync' ), 'render_dashboard' ),
 			array( 'wps-pepita-products', __( 'Termékek', 'wp-pepita-sync' ), 'render_products' ),
+			array( 'wps-pepita-product-issues', __( 'Hibás termékek', 'wp-pepita-sync' ), 'render_product_issues' ),
 			array( 'wps-pepita-categories', __( 'Kategóriák', 'wp-pepita-sync' ), 'render_categories' ),
 			array( 'wps-pepita-feeds', __( 'Feedek', 'wp-pepita-sync' ), 'render_feeds' ),
 			array( 'wps-pepita-preflight', __( 'Feed ellenőrzés', 'wp-pepita-sync' ), 'render_preflight' ),
@@ -153,6 +154,11 @@ final class Admin {
 	public function render_products(): void {
 		$this->guard();
 		$this->view( 'products', array() );
+	}
+
+	public function render_product_issues(): void {
+		$this->guard();
+		$this->view( 'product-issues', array() );
 	}
 
 	public function render_categories(): void {
@@ -251,6 +257,7 @@ final class Admin {
 			'feed_public',
 			'feed_emergency_disabled',
 			'beta_feed_only',
+			'exclude_quality_issues',
 			'order_api_enabled',
 			'order_api_require_https',
 			'order_api_keep_payloads',

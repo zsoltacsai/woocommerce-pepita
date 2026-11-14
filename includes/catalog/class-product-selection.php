@@ -30,8 +30,9 @@ final class Product_Selection {
 	public const SOURCE_PRODUCT_INCLUDED = 'product_included';
 	public const SOURCE_CATEGORY         = 'category';
 	public const SOURCE_DEFAULT          = 'default';
+	public const SOURCE_QUALITY_EXCLUDED = 'quality_excluded';
 
-	/** @var array<int, array{decision: string, category_id: int}> */
+	/** @var array<int, array{included: bool, source: string, category_id: int}> */
 	private static array $resolution_cache = array();
 
 	/**
@@ -44,10 +45,31 @@ final class Product_Selection {
 			return self::$resolution_cache[ $product_id ];
 		}
 
+		$base = self::resolve_base( $product_id );
+
+		if ( $base['included'] && Settings::exclude_quality_issues() ) {
+			if ( class_exists( \WPS\Pepita\Admin\Product_Issues::class ) && \WPS\Pepita\Admin\Product_Issues::has_blocking_issues( $product_id ) ) {
+				return self::$resolution_cache[ $product_id ] = array(
+					'included'    => false,
+					'source'      => self::SOURCE_QUALITY_EXCLUDED,
+					'category_id' => $base['category_id'],
+				);
+			}
+		}
+
+		return self::$resolution_cache[ $product_id ] = $base;
+	}
+
+	/**
+	 * Base deterministic inclusion resolution without quality exclusions.
+	 *
+	 * @return array{included: bool, source: string, category_id: int}
+	 */
+	public static function resolve_base( int $product_id ): array {
 		$explicit = (string) get_post_meta( $product_id, self::META_INCLUDE, true );
 
 		if ( self::MODE_EXCLUDE === $explicit ) {
-			return self::$resolution_cache[ $product_id ] = array(
+			return array(
 				'included'    => false,
 				'source'      => self::SOURCE_PRODUCT_EXCLUDED,
 				'category_id' => 0,
@@ -58,7 +80,7 @@ final class Product_Selection {
 			$term_ids = self::category_ids( $product_id );
 
 			if ( array() === $term_ids ) {
-				return self::$resolution_cache[ $product_id ] = array(
+				return array(
 					'included'    => false,
 					'source'      => 'beta_unapproved_category',
 					'category_id' => 0,
@@ -68,7 +90,7 @@ final class Product_Selection {
 			$category = Category_Rules::decision_for_terms( $term_ids );
 
 			if ( Category_Rules::DECISION_EXCLUDE === $category['decision'] ) {
-				return self::$resolution_cache[ $product_id ] = array(
+				return array(
 					'included'    => false,
 					'source'      => self::SOURCE_CATEGORY,
 					'category_id' => $category['category_id'],
@@ -76,14 +98,14 @@ final class Product_Selection {
 			}
 
 			if ( Category_Rules::DECISION_INCLUDE === $category['decision'] ) {
-				return self::$resolution_cache[ $product_id ] = array(
+				return array(
 					'included'    => true,
 					'source'      => ( self::MODE_INCLUDE === $explicit ) ? self::SOURCE_PRODUCT_INCLUDED : self::SOURCE_CATEGORY,
 					'category_id' => $category['category_id'],
 				);
 			}
 
-			return self::$resolution_cache[ $product_id ] = array(
+			return array(
 				'included'    => false,
 				'source'      => 'beta_unapproved_category',
 				'category_id' => 0,
@@ -91,7 +113,7 @@ final class Product_Selection {
 		}
 
 		if ( self::MODE_INCLUDE === $explicit ) {
-			return self::$resolution_cache[ $product_id ] = array(
+			return array(
 				'included'    => true,
 				'source'      => self::SOURCE_PRODUCT_INCLUDED,
 				'category_id' => 0,
@@ -102,7 +124,7 @@ final class Product_Selection {
 		$category = Category_Rules::decision_for_terms( $term_ids );
 
 		if ( Category_Rules::DECISION_EXCLUDE === $category['decision'] ) {
-			return self::$resolution_cache[ $product_id ] = array(
+			return array(
 				'included'    => false,
 				'source'      => self::SOURCE_CATEGORY,
 				'category_id' => $category['category_id'],
@@ -110,14 +132,14 @@ final class Product_Selection {
 		}
 
 		if ( Category_Rules::DECISION_INCLUDE === $category['decision'] ) {
-			return self::$resolution_cache[ $product_id ] = array(
+			return array(
 				'included'    => true,
 				'source'      => self::SOURCE_CATEGORY,
 				'category_id' => $category['category_id'],
 			);
 		}
 
-		return self::$resolution_cache[ $product_id ] = array(
+		return array(
 			'included'    => (bool) Settings::get( 'default_included', false ),
 			'source'      => self::SOURCE_DEFAULT,
 			'category_id' => 0,
@@ -436,6 +458,9 @@ final class Product_Selection {
 	public static function clear_cache(): void {
 		self::clear_resolution_cache();
 		Category_Rules::clear_cache();
+		if ( class_exists( \WPS\Pepita\Admin\Product_Issues::class ) ) {
+			\WPS\Pepita\Admin\Product_Issues::clear_cache();
+		}
 	}
 
 	public static function clear_resolution_cache(): void {

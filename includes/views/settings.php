@@ -109,9 +109,20 @@ $checked = static function ( string $key ) use ( $settings ): string {
 					</td>
 				</tr>
 				<tr>
+					<th scope="row"><?php esc_html_e( 'Minőségi hibás termékek kizárása', 'wp-pepita-sync' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="wps[exclude_quality_issues]" value="1" <?php echo $checked( 'exclude_quality_issues' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
+							<?php esc_html_e( 'Hibás termékek automatikus kizárása a feedből', 'wp-pepita-sync' ); ?>
+						</label>
+						<p class="description"><?php esc_html_e( 'Bekapcsolva a blokkoló minőségi hibákkal (pl. nem megfelelő képméret, hiányzó kötelező adatok) rendelkező termékek automatikusan kimaradnak mind a teljes, mind a készlet feedből.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
 					<th scope="row"><label for="wps-primary-category-strategy"><?php esc_html_e( 'Elsődleges kategória kiválasztási stratégia', 'wp-pepita-sync' ); ?></label></th>
 					<td>
 						<select id="wps-primary-category-strategy" name="wps[primary_category_strategy]">
+							<option value="approved_parent" <?php selected( (string) $field( 'primary_category_strategy' ), 'approved_parent' ); ?>><?php esc_html_e( 'Engedélyezett főkategória használata', 'wp-pepita-sync' ); ?></option>
 							<option value="deepest" <?php selected( (string) $field( 'primary_category_strategy' ), 'deepest' ); ?>><?php esc_html_e( 'Legmélyebb kategória (alapértelmezett)', 'wp-pepita-sync' ); ?></option>
 							<option value="lowest_id" <?php selected( (string) $field( 'primary_category_strategy' ), 'lowest_id' ); ?>><?php esc_html_e( 'Legalacsonyabb ID', 'wp-pepita-sync' ); ?></option>
 							<option value="highest_id" <?php selected( (string) $field( 'primary_category_strategy' ), 'highest_id' ); ?>><?php esc_html_e( 'Legmagasabb ID', 'wp-pepita-sync' ); ?></option>

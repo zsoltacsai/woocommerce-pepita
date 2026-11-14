@@ -694,7 +694,8 @@ $suite->add(
 		$hash = substr( md5( '555-' . $mtime . '-' . filesize( $source_file ) ), 0, 12 );
 		$derivative_filename = sprintf( 'att-%d-%s.jpg', 555, $hash );
 		$derivative_path = $target_dir . '/' . $derivative_filename;
-		file_put_contents( $derivative_path, 'fake-jpeg-content' );
+		// Valid 1x1 JPEG bytes to satisfy image integrity check.
+		file_put_contents( $derivative_path, base64_decode( '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=' ) );
 
 		$warnings = array();
 		$resolved = Image_Converter::resolve_attachment_url( 555, $warnings );

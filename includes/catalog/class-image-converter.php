@@ -132,9 +132,15 @@ final class Image_Converter {
 		$derivative_path     = $target_dir . '/' . $derivative_filename;
 		$derivative_url      = rtrim( (string) ( $upload_dir['baseurl'] ?? '' ), '/\\' ) . '/' . self::DERIVATIVE_DIR . '/' . $derivative_filename;
 
-		if ( file_exists( $derivative_path ) && filesize( $derivative_path ) > 0 ) {
-			return str_replace( ' ', '%20', $derivative_url );
+		if ( file_exists( $derivative_path ) ) {
+			if ( self::is_valid_image_file( $derivative_path ) ) {
+				return str_replace( ' ', '%20', $derivative_url );
+			}
+			// Corrupt or 0-byte cached derivative: delete and regenerate.
+			@unlink( $derivative_path );
 		}
+
+		$tmp_path = $derivative_path . '.' . uniqid( 'tmp_', true ) . '.tmp';
 
 		// Perform conversion using GD or Imagick.
 		$converted = false;
@@ -161,7 +167,7 @@ final class Image_Converter {
 					$white = imagecolorallocate( $target_img, 255, 255, 255 );
 					imagefilledrectangle( $target_img, 0, 0, $width, $height, $white );
 					imagecopy( $target_img, $source_img, 0, 0, 0, 0, $width, $height );
-					$converted = @imagejpeg( $target_img, $derivative_path, 90 );
+					$converted = @imagejpeg( $target_img, $tmp_path, 90 );
 					imagedestroy( $target_img );
 				}
 				imagedestroy( $source_img );
@@ -189,22 +195,53 @@ final class Image_Converter {
 				$canvas->compositeImage( $imagick, \Imagick::COMPOSITE_OVER, 0, 0 );
 				$canvas->setImageFormat( 'jpeg' );
 				$canvas->setImageCompressionQuality( 90 );
-				$canvas->writeImage( $derivative_path );
+				$canvas->writeImage( $tmp_path );
 				$canvas->clear();
 				$canvas->destroy();
 				$imagick->clear();
 				$imagick->destroy();
-				$converted = file_exists( $derivative_path ) && filesize( $derivative_path ) > 0;
+				$converted = file_exists( $tmp_path ) && filesize( $tmp_path ) > 0;
 			} catch ( \Throwable ) {
 				$converted = false;
 			}
 		}
 
-		if ( $converted && file_exists( $derivative_path ) && filesize( $derivative_path ) > 0 ) {
-			return str_replace( ' ', '%20', $derivative_url );
+		if ( $converted && self::is_valid_image_file( $tmp_path ) ) {
+			if ( @rename( $tmp_path, $derivative_path ) ) {
+				return str_replace( ' ', '%20', $derivative_url );
+			}
+		}
+
+		if ( file_exists( $tmp_path ) ) {
+			@unlink( $tmp_path );
 		}
 
 		return '';
+	}
+
+	/**
+	 * Verify that an image derivative file exists, is non-empty, and is a valid JPEG/PNG image.
+	 */
+	public static function is_valid_image_file( string $path ): bool {
+		if ( ! file_exists( $path ) || filesize( $path ) <= 0 ) {
+			return false;
+		}
+
+		$size = @getimagesize( $path );
+		if ( false === $size || ! is_array( $size ) ) {
+			return false;
+		}
+
+		$mime = strtolower( (string) ( $size['mime'] ?? '' ) );
+		if ( ! in_array( $mime, array( 'image/jpeg', 'image/pjpeg', 'image/jpg', 'image/png' ), true ) ) {
+			return false;
+		}
+
+		if ( empty( $size[0] ) || empty( $size[1] ) || (int) $size[0] <= 0 || (int) $size[1] <= 0 ) {
+			return false;
+		}
+
+		return true;
 	}
 
 	/**
