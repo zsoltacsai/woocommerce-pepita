@@ -456,6 +456,8 @@ $suite->add(
 	'm9e acceptance: FN-DECO 269 catalog baseline with automatic quality exclusion ON exports 241 products',
 	static function (): void {
 		WPS_Test_State::reset();
+		WPS_Test_State::$tax_enabled = true;
+		WPS_Test_State::add_tax_rate( '', 27 );
 		Settings::update(
 			array(
 				'default_included'          => true,
