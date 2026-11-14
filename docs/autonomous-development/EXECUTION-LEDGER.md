@@ -10,8 +10,8 @@
 |---|---|---|---|---|---|---|
 | M9-E | PASS (repo-kód és szintetikus elfogadás) | `feature/m9e-image-fallback-product-issues` / `a4854cdf9b20bcd54b0180fb2cc31b4bfa97aab9` | [#10](https://github.com/zsoltacsai/woocommerce-pepita/pull/10), OPEN/Draft | `43573024669` exact `a4854cd`: **SUCCESS**; PHP 8.1–8.5 unit (279/job), lint/reproducible ZIP, HPOS és legacy integráció PASS; RR20 experimental SKIPPED. ZIP SHA-256: `7eea712276d82c395ea1b0778b87a4d3bb361285f1d435cc0c5d8d941b71d2ef`, öt időzónás clean build egyezett. | Exact-head QA PASS (Gemini 3.8 Flash, inline report, nincs report-artifact hash); AppSec PASS (Gemini 3.8 Flash, report SHA-256 `95217ffd2ebfc9e33bbc9526007b17550206bf8d995ba07dbdb4025907de9057`), mindkettő base `0f0fe1c`. | Kód/CI kapu zárva. FN-DECO staging eredmény és valódi 269→241 katalógus nincs igazolva; merge és telepítés nem történt. |
 | M9-F | PASS (repo-kód, keresés, attribútum-mapping, CI és független QA/AppSec lezárva) | Base `feature/m9f-intelligent-catalog-quality`; stacked Draft PR #12 `neville/pepita-m9f-handoff` / `f80241820ad868340430e2c81c3b28fbbc6e6daa` | Exact CI `43588942291`: **SUCCESS**; PHP 8.1–8.5 unit (284/job), lint/reproducible package, HPOS és legacy integráció PASS; RR20 SKIPPED. | Független AppSec PASS (Claude Sonnet 5.5); Integration QA PASS (Claude Opus 5.5). B1/F1 és A2 javítva és igazolva. | Kód kész: keresés (név/SKU/ID/variáció), lapozási limit (1000 oldal, max 50 termék/kérés), attribútumnév-mapping szabályok perzisztálással és statikus gyorsítótárral. ZIP SHA-256 `3423bc2486cedee0804b96d20431db76f5ed704856788b726c222d666fbe9d78`. |
-| M9-G | PASS (feedvezérlés, streaming diff, biztonsági kapu, monitoring, off-peak ütemezés, CI és független QA/AppSec lezárva) | `feature/m9g-feed-control-preview-monitoring` / HEAD | [#13](https://github.com/zsoltacsai/woocommerce-pepita/pull/13), OPEN/Draft | Exact CI `43594851504`: **SUCCESS** (mind a 8 kötelező job PASS; unit PHP 8.1–8.5, lint/reproducible package, HPOS és legacy integráció). | Független AppSec PASS (Claude Sonnet 5.5); Integration QA (OpenAI gpt-6.1-sol) advisory észrevételek címezve. | Kód és CI kapu zárva. ZIP SHA-256 `701c0dfad8a1fa33aa1d6505ed40b95e2ceca32d7c5f54823e51aa19e7a08a05`, 5 időzónás clean build egyezett. Merge és telepítés nem történt. |
-| M9-H | HOLD | — | — | — | — | M9-E–M9-G után |
+| M9-G | PASS (feedvezérlés, streaming diff, biztonsági kapu, monitoring, off-peak ütemezés, CI és független QA/AppSec lezárva) | `feature/m9g-feed-control-preview-monitoring` / `02514029a628c97179c839bcd87879ff92cc7fec` | [#13](https://github.com/zsoltacsai/woocommerce-pepita/pull/13), OPEN/Draft | Exact CI `43595180025`: **SUCCESS** (mind a 8 kötelező job PASS; unit PHP 8.1–8.5, lint/reproducible package, HPOS és legacy integráció). | Független AppSec PASS (Claude Sonnet 5.5); Integration QA (OpenAI gpt-6.1-sol) igazolva. | Kód és CI kapu zárva. ZIP SHA-256 `701c0dfad8a1fa33aa1d6505ed40b95e2ceca32d7c5f54823e51aa19e7a08a05`, 5 időzónás clean build egyezett. Merge és telepítés nem történt. |
+| M9-H | PASS (készlet- és árazási stratégia, árréskapu, előnézet, CI és független QA/AppSec lezárva) | `feature/m9h-marketplace-inventory-pricing` / `01996fa15d0124ad306161947b19ce41b633d45e` | [#14](https://github.com/zsoltacsai/woocommerce-pepita/pull/14), OPEN/Draft | Exact CI `43641052135`: **SUCCESS** (mind a 8 kötelező job PASS: unit PHP 8.1–8.5 312 teszt/job, lint/reproducible package, HPOS és legacy integráció). | Független Integration QA PASS (`gpt-6.1-sol`, high effort); független AppSec PASS (`claude-sonnet-5-5`, high effort). B1 és N1 javítások igazolva. | Kód és CI kapu zárva. ZIP SHA-256 `09cab7877556110a00167ac111e3198aeb2edf27cb40da8cd3e543ae25f70f82`, 5 időzónás clean build egyezett. Merge és telepítés nem történt. |
 | M10 | HOLD | — | — | — | — | Katalógus/feed-mérföldkövek után, csak szintetikus tesztekkel |
 | M11 | HOLD | — | — | — | — | Korábbi minőségkapuk után |
 
@@ -140,3 +140,37 @@ Az M9-E ág legfrissebb HEAD-jére teljes CI, majd külön Integration QA és Ap
 - **CI Ellenőrzés**:
   - Workflow run `43594851504`: mind a 8 kötelező job **PASS** (lint, unit PHP 8.1–8.5 296/job, integration-hpos, integration-legacy; RR20 experimental skipped).
 - **Státusz**: M9-G mérföldkő repository- és CI-kapui lezárva (**PASS**). PR #13 Draftként megőrizve a stackben; nincs merge vagy éles telepítés.
+
+### M9-H Piactéri készlet- és árazási stratégia fejlesztés és lezárás — 2026-11-14
+
+- **Implementáció és architektúra (M9-H.1–M9-H.4)**:
+  - `Marketplace_Inventory` (`includes/catalog/class-marketplace-inventory.php`):
+    - Készletmódosítási szabályhierarchia: termék felülbírálás (`_wps_inventory_buffer`, `_wps_inventory_max_qty`) > variáció esetén szülő termék öröklés > legmélyebb kategória felülbírálás (`wps_inventory_buffer`, `wps_inventory_max_qty`) > globális beállítások (`inventory_buffer`, `inventory_max_qty`).
+    - Főkapcsoló garancia: a globális kapcsoló (`inventory_strategy_enabled = false`) kikapcsolt állapota garantálja, hogy termék- és kategóriaszabályok nem módosítják a készletet normál futásban, kivéve ha az előnézeti szimulációs mód (`$force_enable = true`) kifejezetten kéri.
+    - Nem kezelt készletvédelem: ha a WooCommerce termék készlete nincs kezelve (`managing_stock = false`), a visszatérési érték `null` marad, megőrizve a raktárstátusz alapú Pepita leképezést.
+    - Elérhetőségi konzisztencia a `Product_Mapper`-ben: ha a biztonsági puffer vagy maximum korlát miatt az exportált darabszám 0-ra csökken, az `available` mező értéke automatikusan `false`-ra vált (hacsak az utánrendelés nem engedélyezett), megelőzve az ellentmondó állapotok exportját a Pepitára.
+    - Vegyes készletű variációs termékek: ha a kezelt variációk összegezett készlete 0, de létezik nem kezelt, raktáron lévő variáció, a szülő termék elérhetősége megmarad (`$any_stock = true`).
+  - `Marketplace_Pricing` (`includes/catalog/class-marketplace-pricing.php`):
+    - Beszerzési ár (COGS) feloldás: termék meta (`_wps_cost_price`, standard COGS bővítmények meta kulcsai) és legmélyebb kategória felülbírálás.
+    - Pénzügyi számítások: bruttó értékesítési ár alapú jutalék (`commission_percent` + `commission_fixed`), logisztikai és csomagolási költségek levonása, nettó árrés számítás (`net_margin = (net_after_fees - cost_price) / net_price * 100`).
+    - Akciós ár figyelembevétele: ha a terméknek van érvényes akciós ára, az árrésellenőrzés a tényleges eladási árat veszi alapul, kizárva az akciók miatti fedezethiányt.
+    - Hiányzó beszerzési ár esetén biztonságos degradáció (`margin_status = 'insufficient_data'`).
+  - Publikációs biztonsági kapu (`includes/feed/class-generator.php`):
+    - Nem korlátozott árrésfigyelmeztetés számláló (`$state['counters']['margin_below_threshold']`), amely garantálja, hogy 20-nál több egyéb figyelmeztetés esetén is kötelező jóváhagyási állapotba (`overall_impact = 'approval_required'`) kerül a feed, ha minimális árrés alatti termék található a katalógusban.
+  - Adminisztrációs felület és előnézet (`includes/views/strategy.php`, `includes/admin/class-admin.php`, `includes/admin/class-product-metabox.php`):
+    - Piactéri készlet- és árazási stratégia előnézeti nézet lapozással, kereséssel és termékállapot-szűréssel.
+    - Szimulációs mód kapcsoló, amellyel a kereskedők élesítés nélkül tesztelhetik a tervezett készlet- és árrésszabályok hatását.
+    - Defense-in-depth jogosultság-ellenőrzés a nézetben (`manage_woocommerce`).
+    - Rejtett kísérő mező (`wps_inventory_disabled = no`), amellyel a termékszintű szabálymellőzés megbízhatóan visszavonható.
+    - Szigorú numerikus validáció a metabox beszerzési ár mezőjében.
+- **Build és reprodukálhatóság**:
+  - Release epoch: `1794666600`.
+  - Csomag: `dist/wp-pepita-sync.zip` (65 fájl), SHA-256: `09cab7877556110a00167ac111e3198aeb2edf27cb40da8cd3e543ae25f70f82`.
+  - 5 időzónás tiszta újraépítés (`verify-reproducible.sh`): **PASS** (100% determinisztikus és bitről-bitre egyező UTC, Europe/Budapest, America/Los_Angeles, Asia/Tokyo, Australia/Sydney környezetben).
+- **Független felülvizsgálatok**:
+  - **Integration QA Review**: **PASS** (OpenAI `gpt-6.1-sol`, high effort). Főkapcsoló garanciája, szimuláció kikapcsolhatósága és állapotmegőrzése, elérhetőségi konzisztencia és vegyes készletkezelés igazolva.
+  - **AppSec Review**: **PASS** (Claude Sonnet 5.5, high effort). Nem korlátozott árrésszámláló (B1) és metabox jelölőnégyzet perzisztencia (N1) igazolva. Kiegészítő védelem (akciós ár margin-ellenőrzés, nézet cap check, numerikus validáció) beépítve.
+- **CI Ellenőrzés**:
+  - Workflow run `43641052135`: mind a 8 kötelező job **PASS** (lint, unit PHP 8.1–8.5 312 teszt/job, integration-hpos, integration-legacy; RR20 experimental skipped).
+- **Státusz**: M9-H mérföldkő repository- és CI-kapui lezárva (**PASS**). PR #14 Draftként megőrizve a stackben; nincs merge vagy éles telepítés.
+

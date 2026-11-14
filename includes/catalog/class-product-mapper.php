@@ -180,7 +180,7 @@ final class Product_Mapper {
 		if ( 'variable' === $data['type'] ) {
 			self::map_variable( $data, $product, $adjustment, $term_ids );
 		} else {
-			self::map_simple( $data, $product, $adjustment );
+			self::map_simple( $data, $product, $adjustment, $term_ids );
 		}
 
 		// GTIN is mandatory for configured categories but is never fabricated.
@@ -226,8 +226,9 @@ final class Product_Mapper {
 
 	/**
 	 * @param array<string, mixed> $data
+	 * @param int[]                $term_ids
 	 */
-	private static function map_simple( array &$data, \WC_Product $product, array $adjustment ): void {
+	private static function map_simple( array &$data, \WC_Product $product, array $adjustment, array $term_ids = array() ): void {
 		$gross = Price_Calculator::gross( $product );
 		$price = Price_Calculator::adjust( $gross, $adjustment );
 		$sale  = Price_Calculator::gross_sale( $product );
@@ -245,8 +246,28 @@ final class Product_Mapper {
 			$data['purchase_net'] = Price_Calculator::net( $data['price'], $data['vat_percent'] );
 		}
 
-		$data['available'] = $product->is_in_stock();
-		$data['quantity']  = self::quantity( $product, $data['warnings'] );
+		if ( Marketplace_Pricing::is_enabled() && $data['price'] > 0 ) {
+			$cost_inputs     = Marketplace_Pricing::resolve_cost_inputs( $data['product_id'], $term_ids );
+			$effective_price = ( null !== $data['sale_price'] && $data['sale_price'] > 0 ) ? (float) $data['sale_price'] : (float) $data['price'];
+			$pricing_calc    = Marketplace_Pricing::calculate( $product, $effective_price, $cost_inputs );
+			if ( 'below_threshold' === ( $pricing_calc['margin_status'] ?? '' ) ) {
+				$data['warnings'][] = self::warning(
+					'margin_below_threshold',
+					sprintf(
+						'A termék becsült árrése (%.1f%%) alacsonyabb az elvárt minimumnál (%.1f%%).',
+						(float) ( $pricing_calc['estimated_margin'] ?? 0.0 ),
+						(float) ( $cost_inputs['min_margin'] ?? 0.0 )
+					)
+				);
+			}
+		}
+
+		$data['quantity']  = self::quantity( $product, $data['warnings'], $term_ids );
+		$available         = $product->is_in_stock();
+		if ( null !== $data['quantity'] && 0 === $data['quantity'] && ( ! method_exists( $product, 'backorders_allowed' ) || ! $product->backorders_allowed() ) ) {
+			$available = false;
+		}
+		$data['available'] = $available;
 		$data['restock_date'] = self::restock_date( $data['product_id'] );
 	}
 
@@ -289,6 +310,7 @@ final class Product_Mapper {
 		$sum_qty    = 0;
 		$manages    = false;
 		$any_stock  = false;
+		$any_unmanaged_available = false;
 		$last_mod   = $data['last_mod'];
 
 		foreach ( $product->get_children() as $variation_id ) {
@@ -342,17 +364,40 @@ final class Product_Mapper {
 				$sale = null;
 			}
 
-			$quantity = self::quantity( $variation, $data['warnings'] );
+			$quantity = self::quantity( $variation, $data['warnings'], $term_ids, $product->get_id() );
 
 			if ( null !== $quantity ) {
 				$sum_qty += $quantity;
 				$manages  = true;
 			}
 
+			if ( Marketplace_Pricing::is_enabled() && $price > 0 ) {
+				$cost_inputs     = Marketplace_Pricing::resolve_cost_inputs( $variation_id, $term_ids, $product->get_id() );
+				$effective_price = ( null !== $sale && $sale > 0 ) ? (float) $sale : (float) $price;
+				$pricing_calc    = Marketplace_Pricing::calculate( $variation, $effective_price, $cost_inputs );
+				if ( 'below_threshold' === ( $pricing_calc['margin_status'] ?? '' ) ) {
+					$data['warnings'][] = self::warning(
+						'margin_below_threshold',
+						sprintf(
+							'A(z) %s variáció becsült árrése (%.1f%%) alacsonyabb az elvárt minimumnál (%.1f%%).',
+							$key,
+							(float) ( $pricing_calc['estimated_margin'] ?? 0.0 ),
+							(float) ( $cost_inputs['min_margin'] ?? 0.0 )
+						)
+					);
+				}
+			}
+
 			$available = $variation->is_in_stock();
+			if ( null !== $quantity && 0 === $quantity && ( ! method_exists( $variation, 'backorders_allowed' ) || ! $variation->backorders_allowed() ) ) {
+				$available = false;
+			}
 
 			if ( $available ) {
 				$any_stock = true;
+				if ( null === $quantity ) {
+					$any_unmanaged_available = true;
+				}
 			}
 
 			$image_url = '';
@@ -400,18 +445,26 @@ final class Product_Mapper {
 		$data['price']      = $parent_price > 0 ? $parent_price : self::min_variation_price( $variations );
 		$data['sale_price'] = null;
 		$data['vat_percent']= Price_Calculator::vat_percent( $product );
-		$data['available']  = $any_stock;
 		if ( $manages ) {
 			$data['quantity'] = min( self::MAX_EXPORT_QUANTITY, $sum_qty );
+			if ( 0 === $sum_qty && ! $any_unmanaged_available && ( ! method_exists( $product, 'backorders_allowed' ) || ! $product->backorders_allowed() ) ) {
+				$any_stock = false;
+			}
 			if ( $sum_qty > self::MAX_EXPORT_QUANTITY ) {
 				$data['warnings'][] = self::warning(
 					'stock_quantity_capped',
 					sprintf( 'A variációk összesített készlete (%d) meghaladja a Pepita által megengedett maximumot (%d), ezért korlátozásra került.', $sum_qty, self::MAX_EXPORT_QUANTITY )
 				);
 			}
+		} elseif ( $product->managing_stock() ) {
+			$data['quantity'] = self::quantity( $product, $data['warnings'], $term_ids );
+			if ( null !== $data['quantity'] && 0 === $data['quantity'] && ( ! method_exists( $product, 'backorders_allowed' ) || ! $product->backorders_allowed() ) ) {
+				$any_stock = false;
+			}
 		} else {
 			$data['quantity'] = null;
 		}
+		$data['available']  = $any_stock;
 		$data['restock_date'] = self::restock_date( $data['product_id'] );
 
 		if ( (bool) Settings::get( 'include_purchase_net', false ) && $data['price'] > 0 ) {
@@ -520,7 +573,14 @@ final class Product_Mapper {
 		return $out;
 	}
 
-	private static function quantity( \WC_Product $product, ?array &$warnings = null ): ?int {
+	/**
+	 * @param \WC_Product $product
+	 * @param array<int, array<string, mixed>>|null $warnings
+	 * @param int[] $term_ids
+	 * @param int|null $parent_id
+	 * @return int|null
+	 */
+	private static function quantity( \WC_Product $product, ?array &$warnings = null, array $term_ids = array(), ?int $parent_id = null ): ?int {
 		if ( ! $product->managing_stock() ) {
 			return null;
 		}
@@ -531,9 +591,16 @@ final class Product_Mapper {
 			return null;
 		}
 
-		$qty = (int) $quantity;
+		$raw_qty = (int) $quantity;
 
-		if ( $qty > self::MAX_EXPORT_QUANTITY ) {
+		if ( Marketplace_Inventory::is_enabled() ) {
+			$rules = Marketplace_Inventory::resolve_rules( $product->get_id(), $term_ids, $parent_id );
+			$qty   = Marketplace_Inventory::calculate_quantity( $raw_qty, $rules, $product );
+		} else {
+			$qty = max( 0, $raw_qty );
+		}
+
+		if ( null !== $qty && $qty > self::MAX_EXPORT_QUANTITY ) {
 			if ( is_array( $warnings ) ) {
 				$warnings[] = self::warning(
 					'stock_quantity_capped',
@@ -543,7 +610,7 @@ final class Product_Mapper {
 			return self::MAX_EXPORT_QUANTITY;
 		}
 
-		return max( 0, $qty );
+		return null !== $qty ? max( 0, $qty ) : null;
 	}
 
 	public static function name( \WC_Product $product ): string {

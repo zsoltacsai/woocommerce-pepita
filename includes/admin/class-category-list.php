@@ -88,6 +88,10 @@ final class Category_List {
 		$type     = (string) get_term_meta( $term_id, Category_Rules::META_PRICE_TYPE, true );
 		$value    = (string) get_term_meta( $term_id, Category_Rules::META_PRICE_VALUE, true );
 		$delay    = (string) get_term_meta( $term_id, Category_Rules::META_SHIPPING_DELAY, true );
+		$inv_buf  = (string) get_term_meta( $term_id, \WPS\Pepita\Catalog\Marketplace_Inventory::TERM_META_BUFFER, true );
+		$inv_max  = (string) get_term_meta( $term_id, \WPS\Pepita\Catalog\Marketplace_Inventory::TERM_META_MAX_QTY, true );
+		$comm_pct = (string) get_term_meta( $term_id, \WPS\Pepita\Catalog\Marketplace_Pricing::TERM_META_COMMISSION_PERCENT, true );
+		$min_mgn  = (string) get_term_meta( $term_id, \WPS\Pepita\Catalog\Marketplace_Pricing::TERM_META_MIN_MARGIN, true );
 
 		$children = '' === $children ? '1' : (string) $children;
 		?>
@@ -140,6 +144,34 @@ final class Category_List {
 				<p class="description"><?php esc_html_e( 'Üresen hagyva az általános beállítás érvényesül.', 'wp-pepita-sync' ); ?></p>
 			</td>
 		</tr>
+		<tr class="form-field">
+			<th scope="row"><?php esc_html_e( 'Készlet tartalék (buffer)', 'wp-pepita-sync' ); ?></th>
+			<td>
+				<input type="number" min="0" step="1" name="wps_pepita_inventory_buffer" value="<?php echo esc_attr( $inv_buf ); ?>" class="small-text" />
+				<p class="description"><?php esc_html_e( 'A kategória termékeiből levonandó biztonsági készlet (db).', 'wp-pepita-sync' ); ?></p>
+			</td>
+		</tr>
+		<tr class="form-field">
+			<th scope="row"><?php esc_html_e( 'Maximális készletplafon', 'wp-pepita-sync' ); ?></th>
+			<td>
+				<input type="number" min="1" step="1" name="wps_pepita_inventory_max_qty" value="<?php echo esc_attr( $inv_max ); ?>" class="small-text" />
+				<p class="description"><?php esc_html_e( 'A kategória termékeinél a feedben megjelenő legmagasabb készlet (db).', 'wp-pepita-sync' ); ?></p>
+			</td>
+		</tr>
+		<tr class="form-field">
+			<th scope="row"><?php esc_html_e( 'Piactéri jutalék (%)', 'wp-pepita-sync' ); ?></th>
+			<td>
+				<input type="number" min="0" max="100" step="0.01" name="wps_pepita_commission_percent" value="<?php echo esc_attr( $comm_pct ); ?>" class="small-text" />
+				<p class="description"><?php esc_html_e( 'Kategória szintű jutalék százalék felülbírálás.', 'wp-pepita-sync' ); ?></p>
+			</td>
+		</tr>
+		<tr class="form-field">
+			<th scope="row"><?php esc_html_e( 'Minimális elvárt árrés (%)', 'wp-pepita-sync' ); ?></th>
+			<td>
+				<input type="number" min="0" max="100" step="0.01" name="wps_pepita_min_margin" value="<?php echo esc_attr( $min_mgn ); ?>" class="small-text" />
+				<p class="description"><?php esc_html_e( 'Kategória szintű minimális haszonkulcs elvárás.', 'wp-pepita-sync' ); ?></p>
+			</td>
+		</tr>
 		<?php
 	}
 
@@ -189,6 +221,10 @@ final class Category_List {
 			'price_adjustment_type'  => isset( $_POST['wps_pepita_price_type'] ) ? sanitize_key( wp_unslash( (string) $_POST['wps_pepita_price_type'] ) ) : '',
 			'price_adjustment_value' => isset( $_POST['wps_pepita_price_value'] ) ? (float) str_replace( ',', '.', (string) wp_unslash( $_POST['wps_pepita_price_value'] ) ) : 0,
 			'shipping_delay'         => isset( $_POST['wps_pepita_shipping_delay'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['wps_pepita_shipping_delay'] ) ) : '',
+			'inventory_buffer'       => isset( $_POST['wps_pepita_inventory_buffer'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['wps_pepita_inventory_buffer'] ) ) : '',
+			'inventory_max_qty'      => isset( $_POST['wps_pepita_inventory_max_qty'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['wps_pepita_inventory_max_qty'] ) ) : '',
+			'commission_percent'     => isset( $_POST['wps_pepita_commission_percent'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['wps_pepita_commission_percent'] ) ) : '',
+			'min_margin'             => isset( $_POST['wps_pepita_min_margin'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['wps_pepita_min_margin'] ) ) : '',
 		);
 
 		Category_Rules::save( $term_id, $data );

@@ -62,6 +62,7 @@ final class Admin {
 		$pages = array(
 			array( self::MENU_SLUG, __( 'Áttekintés', 'wp-pepita-sync' ), 'render_dashboard' ),
 			array( 'wps-pepita-products', __( 'Termékek', 'wp-pepita-sync' ), 'render_products' ),
+			array( 'wps-pepita-strategy', __( 'Készlet és árazás', 'wp-pepita-sync' ), 'render_strategy' ),
 			array( 'wps-pepita-product-issues', __( 'Hibás termékek', 'wp-pepita-sync' ), 'render_product_issues' ),
 			array( 'wps-pepita-categories', __( 'Kategóriák', 'wp-pepita-sync' ), 'render_categories' ),
 			array( 'wps-pepita-feeds', __( 'Feedek', 'wp-pepita-sync' ), 'render_feeds' ),
@@ -156,6 +157,11 @@ final class Admin {
 	public function render_products(): void {
 		$this->guard();
 		$this->view( 'products', array() );
+	}
+
+	public function render_strategy(): void {
+		$this->guard();
+		$this->view( 'strategy', array() );
 	}
 
 	public function render_product_issues(): void {
@@ -273,6 +279,8 @@ final class Admin {
 			'feed_alert_email_enabled',
 			'feed_alert_webhook_enabled',
 			'offpeak_schedule_enabled',
+			'inventory_strategy_enabled',
+			'pricing_strategy_enabled',
 		);
 
 		$input = array();
@@ -300,6 +308,13 @@ final class Admin {
 			'brand_taxonomy',
 			'manufacturer_default',
 			'attribute_name_map',
+			'inventory_buffer',
+			'inventory_max_qty',
+			'marketplace_commission_percent',
+			'marketplace_commission_fixed',
+			'marketplace_packaging_cost',
+			'marketplace_shipping_cost',
+			'marketplace_min_margin_percent',
 			'gtin_meta_keys',
 			'max_category_paths',
 			'max_gallery_images',
