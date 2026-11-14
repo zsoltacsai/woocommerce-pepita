@@ -28,6 +28,8 @@ final class Admin {
 	public const CAPABILITY = 'manage_woocommerce';
 
 	public function register(): void {
+		Merchant_Profiles::recover_interrupted_import();
+
 		add_action( 'admin_menu', array( $this, 'register_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'admin_post_wps_pepita_save_settings', array( $this, 'handle_save_settings' ) );
@@ -771,12 +773,14 @@ final class Admin {
 			ob_end_clean();
 		}
 
-		$filename = 'pepita-operational-report-' . gmdate( 'Y-m-d' ) . '.csv';
+		$filename   = 'pepita-operational-report-' . gmdate( 'Y-m-d' ) . '.csv';
+		$is_partial = false !== strpos( $csv, '# MEGJEGYZÉS: RÉSZLEGES EXPORT' );
 		header( 'Content-Type: text/csv; charset=utf-8' );
 		header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
 		header( 'Content-Length: ' . (int) strlen( $csv ) );
 		header( 'X-Content-Type-Options: nosniff' );
 		header( 'Cache-Control: private, no-store, must-revalidate' );
+		header( 'X-Report-Is-Partial: ' . ( $is_partial ? 'true' : 'false' ) );
 
 		echo $csv;
 		exit;

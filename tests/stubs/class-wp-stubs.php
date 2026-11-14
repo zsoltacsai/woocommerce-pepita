@@ -581,6 +581,10 @@ function wp_get_current_user(): WP_User {
 	return new WP_User( 1, 'admin@example.test', 'Admin', 'User' );
 }
 
+function get_current_user_id(): int {
+	return 1;
+}
+
 /**
  * @return WP_User|false
  */

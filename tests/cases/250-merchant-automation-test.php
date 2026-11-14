@@ -511,11 +511,15 @@ $suite->add(
 			)
 		);
 
-		$term = WPS_Test_State::add_term( 2503, 'Bútor', 0, Category_Rules::TAXONOMY );
+		$term1 = WPS_Test_State::add_term( 2503, 'Bútor', 0, Category_Rules::TAXONOMY );
 		update_term_meta( 2503, Category_Rules::META_INCLUDE, 'include' );
 		update_term_meta( 2503, Category_Rules::META_PRICE_VALUE, '20.0' );
 
-		// Profile proposing modifications.
+		$term2 = WPS_Test_State::add_term( 2504, 'Világítás', 0, Category_Rules::TAXONOMY );
+		update_term_meta( 2504, Category_Rules::META_INCLUDE, 'exclude' );
+		update_term_meta( 2504, Category_Rules::META_PRICE_VALUE, '10.0' );
+
+		// Profile proposing modifications for both categories.
 		$import_payload = array(
 			'schema_version' => 1,
 			'generator'      => 'wp-pepita-sync',
@@ -533,29 +537,45 @@ $suite->add(
 						'price_value' => '99.0',
 					),
 				),
+				'vilagitas' => array(
+					'name'  => 'Világítás',
+					'rules' => array(
+						'include'     => 'include',
+						'price_value' => '50.0',
+					),
+				),
 			),
 		);
 
-		// Execute import with simulated failure during category rules update.
+		// Execute import with failure injected on second category (vilagitas).
+		// First category (butor) gets applied first, then failure happens on vilagitas.
 		$res = Merchant_Profiles::import_profile(
 			$import_payload,
 			array(
-				'simulate_failure_at_category' => true,
+				'fail_on_slug' => 'vilagitas',
 			)
 		);
 
 		// Verification: import reported failure and executed rollback.
 		WPS_Assert::false( $res['success'], 'Import must fail when exception occurs.' );
 		WPS_Assert::true( $res['rolled_back'], 'Rollback must be triggered.' );
+		WPS_Assert::true( $res['rollback_clean'] ?? false, 'Rollback must be clean.' );
 
 		// Verification: Settings MUST be completely restored to baseline.
 		WPS_Assert::same( 3, Settings::get( 'shipping_delay' ), 'Settings must be rolled back to pre-import value.' );
 		WPS_Assert::same( 'percent', Settings::get( 'price_adjustment_type' ), 'Settings must be rolled back to pre-import value.' );
 		WPS_Assert::same( 5.0, Settings::get( 'price_adjustment_value' ), 'Settings must be rolled back to pre-import value.' );
 
-		// Verification: Term metadata MUST be completely restored to baseline.
-		WPS_Assert::same( 'include', get_term_meta( 2503, Category_Rules::META_INCLUDE, true ), 'Term meta must be rolled back.' );
-		WPS_Assert::same( '20.0', get_term_meta( 2503, Category_Rules::META_PRICE_VALUE, true ), 'Term meta must be rolled back.' );
+		// Verification: Term metadata for butor MUST be completely restored to baseline pre-import state.
+		WPS_Assert::same( 'include', get_term_meta( 2503, Category_Rules::META_INCLUDE, true ), 'Term meta for first category must be rolled back.' );
+		WPS_Assert::same( '20.0', get_term_meta( 2503, Category_Rules::META_PRICE_VALUE, true ), 'Term meta for first category must be rolled back.' );
+
+		// Verification: Term metadata for vilagitas remains untouched.
+		WPS_Assert::same( 'exclude', get_term_meta( 2504, Category_Rules::META_INCLUDE, true ), 'Term meta for second category untouched.' );
+		WPS_Assert::same( '10.0', get_term_meta( 2504, Category_Rules::META_PRICE_VALUE, true ), 'Term meta for second category untouched.' );
+
+		// Verification: Journal option was cleaned up after rollback.
+		WPS_Assert::false( get_option( Merchant_Profiles::JOURNAL_OPTION ), 'Recovery journal must be deleted after rollback.' );
 	}
 );
 
@@ -668,5 +688,121 @@ $suite->add(
 		unlink( $tmp_file );
 		unset( $_FILES['profile_file'], $_POST['_wpnonce'], $_REQUEST['_wpnonce'], $_POST['confirm_token'] );
 		remove_filter( 'wps_pepita_is_uploaded_file', $allow_tmp );
+	}
+);
+
+/* -------------------------------------------------------------------------
+ * 13. Crash Recovery: Persistent Journal Restores State
+ * ---------------------------------------------------------------------- */
+
+$suite->add(
+	'm11 crash recovery: recover_interrupted_import restores store state from persistent journal',
+	static function (): void {
+		// Set store state to an uncommitted, dirty state (as if PHP crashed mid-write).
+		Settings::update( array( 'shipping_delay' => 99 ) );
+		$term = WPS_Test_State::add_term( 2505, 'Kert', 0, Category_Rules::TAXONOMY );
+		update_term_meta( 2505, Category_Rules::META_PRICE_VALUE, '999.0' );
+
+		// Journal contains the pre-crash baseline state.
+		$journal = array(
+			'timestamp'          => time() - 60,
+			'original_settings'  => array( 'shipping_delay' => 2 ),
+			'original_term_meta' => array(
+				2505 => array(
+					Category_Rules::META_PRICE_VALUE => array(
+						'exists' => true,
+						'value'  => '15.0',
+					),
+				),
+			),
+		);
+		update_option( Merchant_Profiles::JOURNAL_OPTION, $journal, false );
+
+		// Run recovery.
+		$recovery = Merchant_Profiles::recover_interrupted_import();
+
+		WPS_Assert::true( $recovery['recovered'], 'Recovery must report success when journal is found.' );
+		WPS_Assert::true( $recovery['rollback_clean'], 'Recovery rollback must be clean.' );
+		WPS_Assert::same( 2, Settings::get( 'shipping_delay' ), 'Settings must be restored from journal.' );
+		WPS_Assert::same( '15.0', get_term_meta( 2505, Category_Rules::META_PRICE_VALUE, true ), 'Term meta must be restored from journal.' );
+		WPS_Assert::false( get_option( Merchant_Profiles::JOURNAL_OPTION ), 'Journal must be deleted after recovery.' );
+
+		// Subsequent call does nothing.
+		$noop = Merchant_Profiles::recover_interrupted_import();
+		WPS_Assert::false( $noop['recovered'], 'Subsequent recovery without journal must report false.' );
+	}
+);
+
+/* -------------------------------------------------------------------------
+ * 14. Checksum Validation Enforcement
+ * ---------------------------------------------------------------------- */
+
+$suite->add(
+	'm11 checksum validation: fatal rejection on invalid, missing or malformed checksum',
+	static function (): void {
+		$profile = Merchant_Profiles::export_profile( array( 'name' => 'Checksum Enforcement Profile' ) );
+
+		// 1. Checksum mismatch must be a FATAL validation error, not just a warning.
+		$tampered = $profile;
+		$tampered['checksum'] = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+		$res_tampered = Merchant_Profiles::validate_profile( $tampered );
+		WPS_Assert::false( $res_tampered['valid'], 'Tampered checksum must be a fatal validation error.' );
+		WPS_Assert::true( ! empty( $res_tampered['errors'] ), 'Errors must be populated on checksum mismatch.' );
+
+		// 2. Malformed or empty checksum string must fail validation.
+		$malformed = $profile;
+		$malformed['checksum'] = '   ';
+		$res_malformed = Merchant_Profiles::validate_profile( $malformed );
+		WPS_Assert::false( $res_malformed['valid'], 'Whitespace checksum must fail validation.' );
+
+		$non_string = $profile;
+		$non_string['checksum'] = 12345;
+		$res_non_string = Merchant_Profiles::validate_profile( $non_string );
+		WPS_Assert::false( $res_non_string['valid'], 'Non-string checksum must fail validation.' );
+
+		// 3. Missing checksum when require_checksum is true.
+		$missing = $profile;
+		unset( $missing['checksum'] );
+		$res_missing = Merchant_Profiles::validate_profile( $missing, array( 'require_checksum' => true ) );
+		WPS_Assert::false( $res_missing['valid'], 'Missing checksum with require_checksum must fail.' );
+	}
+);
+
+/* -------------------------------------------------------------------------
+ * 15. Operational Reports: CSV Export Truncation Disclosure
+ * ---------------------------------------------------------------------- */
+
+$suite->add(
+	'm11 operational report: CSV export truncation disclosure when bounded limit is reached',
+	static function (): void {
+		global $wpdb;
+
+		// Seed orders up to MAX_EXPORT_ROWS limit.
+		$table = Order_Repository::table();
+		for ( $i = 1; $i <= Operational_Reports::MAX_EXPORT_ROWS; ++$i ) {
+			$wpdb->insert(
+				$table,
+				array(
+					'id'          => 3000 + $i,
+					'external_id' => 'PEP-BOUNDED-' . $i,
+					'origin'      => 'hu',
+					'status'      => 'completed',
+					'wc_order_id' => 8000 + $i,
+					'attempts'    => 1,
+					'last_error'  => null,
+					'created_at'  => gmdate( 'Y-m-d H:i:s', time() - 3600 ),
+					'updated_at'  => gmdate( 'Y-m-d H:i:s', time() - 3600 ),
+				)
+			);
+		}
+
+		$csv = Operational_Reports::export_report_csv( 30 );
+		WPS_Assert::true(
+			str_contains( $csv, '# MEGJEGYZÉS: RÉSZLEGES EXPORT (A legutóbbi 1 000 rekord alapján korlátozva).' ),
+			'CSV must disclose truncation when 1,000 row bound is reached.'
+		);
+
+		$summary = Operational_Reports::get_summary( 30 );
+		WPS_Assert::true( $summary['is_partial_data'], 'Summary must flag is_partial_data when limit reached.' );
 	}
 );

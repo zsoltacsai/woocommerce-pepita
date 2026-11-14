@@ -215,6 +215,10 @@ final class Operational_Reports {
 			return '';
 		}
 
+		if ( is_array( $orders ) && count( $orders ) >= self::MAX_EXPORT_ROWS ) {
+			fwrite( $fp, "# MEGJEGYZÉS: RÉSZLEGES EXPORT (A legutóbbi 1 000 rekord alapján korlátozva).\n" );
+		}
+
 		// Write header.
 		fputcsv(
 			$fp,

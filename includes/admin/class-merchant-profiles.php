@@ -30,6 +30,11 @@ final class Merchant_Profiles {
 	public const SCHEMA_VERSION = 1;
 
 	/**
+	 * Option key for persistent recovery journal to guarantee crash-safe atomicity.
+	 */
+	public const JOURNAL_OPTION = 'wps_pepita_import_journal';
+
+	/**
 	 * Settings that are explicitly permitted in configuration exports and imports.
 	 *
 	 * Strict security invariant:
@@ -284,13 +289,12 @@ final class Merchant_Profiles {
 
 		// Integrity check (checksum).
 		if ( isset( $data['checksum'] ) ) {
-			$checksum_valid = self::verify_checksum( $data );
-			if ( false === $checksum_valid ) {
-				$msg = 'A profil integritás-ellenőrző összege (checksum) nem egyezik. A profilfájl sérült vagy módosult az exportálás óta.';
-				if ( ! empty( $options['require_checksum'] ) ) {
-					$errors[] = $msg;
-				} else {
-					$warnings[] = $msg;
+			if ( ! is_string( $data['checksum'] ) || '' === trim( $data['checksum'] ) ) {
+				$errors[] = 'A profil integritás-ellenőrző összege (checksum) formátuma érvénytelen.';
+			} else {
+				$checksum_valid = self::verify_checksum( $data );
+				if ( false === $checksum_valid ) {
+					$errors[] = 'A profil integritás-ellenőrző összege (checksum) nem egyezik. A profilfájl sérült vagy módosult az exportálás óta.';
 				}
 			}
 		} elseif ( ! empty( $options['require_checksum'] ) ) {
@@ -424,6 +428,72 @@ final class Merchant_Profiles {
 	}
 
 	/**
+	 * Recover and rollback any partially applied profile import interrupted by server crash or timeout.
+	 *
+	 * Reads persistent recovery journal from wp_options and restores original store state.
+	 *
+	 * @return array{recovered: bool, rollback_clean: bool, rollback_errors: string[]}
+	 */
+	public static function recover_interrupted_import(): array {
+		$journal = get_option( self::JOURNAL_OPTION );
+		if ( empty( $journal ) || ! is_array( $journal ) ) {
+			return array(
+				'recovered'       => false,
+				'rollback_clean'  => true,
+				'rollback_errors' => array(),
+			);
+		}
+
+		$rollback_clean  = true;
+		$rollback_errors = array();
+
+		if ( ! empty( $journal['original_settings'] ) && is_array( $journal['original_settings'] ) ) {
+			Settings::update( $journal['original_settings'] );
+		}
+
+		if ( ! empty( $journal['original_term_meta'] ) && is_array( $journal['original_term_meta'] ) ) {
+			foreach ( $journal['original_term_meta'] as $term_id => $metas ) {
+				if ( ! is_array( $metas ) ) {
+					continue;
+				}
+				foreach ( $metas as $meta_key => $state ) {
+					if ( ! empty( $state['exists'] ) ) {
+						$res = update_term_meta( (int) $term_id, $meta_key, $state['value'] );
+						if ( is_wp_error( $res ) ) {
+							$rollback_clean   = false;
+							$rollback_errors[] = sprintf( 'Term %d meta %s restore failed: %s', (int) $term_id, $meta_key, $res->get_error_message() );
+						}
+					} else {
+						$res = delete_term_meta( (int) $term_id, $meta_key );
+						if ( is_wp_error( $res ) ) {
+							$rollback_clean   = false;
+							$rollback_errors[] = sprintf( 'Term %d meta %s delete failed: %s', (int) $term_id, $meta_key, $res->get_error_message() );
+						}
+					}
+				}
+			}
+		}
+
+		delete_option( self::JOURNAL_OPTION );
+
+		Logger::warning(
+			'profile_import_recovered',
+			'Félbemaradt profilimport észlelve és visszaállítva a helyreállítási naplóból (recovery journal).',
+			array(
+				'journal_timestamp' => $journal['timestamp'] ?? 0,
+				'rollback_clean'    => $rollback_clean,
+				'rollback_errors'   => $rollback_errors,
+			)
+		);
+
+		return array(
+			'recovered'       => true,
+			'rollback_clean'  => $rollback_clean,
+			'rollback_errors' => $rollback_errors,
+		);
+	}
+
+	/**
 	 * Import a validated profile into the current store with compensating rollback atomicity.
 	 *
 	 * Guarantees that any failure during settings update or category metadata updates
@@ -431,9 +501,11 @@ final class Merchant_Profiles {
 	 *
 	 * @param array<string, mixed> $data
 	 * @param array<string, mixed> $options
-	 * @return array{success: bool, rolled_back: bool, message: string, imported_settings: int, imported_categories: int}
+	 * @return array{success: bool, rolled_back: bool, rollback_clean?: bool, rollback_errors?: string[], message: string, imported_settings: int, imported_categories: int}
 	 */
 	public static function import_profile( array $data, array $options = array() ): array {
+		self::recover_interrupted_import();
+
 		$validation = self::validate_profile( $data, $options );
 		if ( ! $validation['valid'] ) {
 			return array(
@@ -502,6 +574,14 @@ final class Merchant_Profiles {
 		$settings_applied = false;
 		$imported_categories = 0;
 
+		// Persist recovery journal to ensure crash-safe atomicity.
+		$journal = array(
+			'timestamp'          => time(),
+			'original_settings'  => $current_settings,
+			'original_term_meta' => $original_term_meta,
+		);
+		update_option( self::JOURNAL_OPTION, $journal, false );
+
 		try {
 			// Step 1: Apply sanitized settings.
 			Settings::update( $sanitized );
@@ -528,7 +608,9 @@ final class Merchant_Profiles {
 					foreach ( $meta_map as $rule_key => $meta_key ) {
 						if ( isset( $rules[ $rule_key ] ) ) {
 							$updated = update_term_meta( $term->term_id, $meta_key, sanitize_text_field( (string) $rules[ $rule_key ] ) );
-							if ( false === $updated ) {
+							if ( is_wp_error( $updated ) ) {
+								throw new \RuntimeException( sprintf( 'Nem sikerült frissíteni a(z) %d kategória %s szabályát: %s', $term->term_id, $rule_key, $updated->get_error_message() ) );
+							} elseif ( false === $updated ) {
 								$current_meta = get_term_meta( $term->term_id, $meta_key, true );
 								if ( (string) $current_meta !== (string) $rules[ $rule_key ] ) {
 									throw new \RuntimeException( sprintf( 'Nem sikerült frissíteni a(z) %d kategória %s szabályát.', $term->term_id, $rule_key ) );
@@ -540,6 +622,8 @@ final class Merchant_Profiles {
 					++$imported_categories;
 				}
 			}
+
+			delete_option( self::JOURNAL_OPTION );
 
 			Logger::info(
 				'profile_import',
@@ -560,6 +644,9 @@ final class Merchant_Profiles {
 			);
 		} catch ( \Throwable $e ) {
 			// COMPENSATING ROLLBACK: Restore settings and term metadata to exact pre-import state.
+			$rollback_clean  = true;
+			$rollback_errors = array();
+
 			if ( $settings_applied ) {
 				Settings::update( $current_settings );
 			}
@@ -567,12 +654,22 @@ final class Merchant_Profiles {
 			foreach ( $original_term_meta as $term_id => $metas ) {
 				foreach ( $metas as $meta_key => $state ) {
 					if ( ! empty( $state['exists'] ) ) {
-						update_term_meta( $term_id, $meta_key, $state['value'] );
+						$res = update_term_meta( $term_id, $meta_key, $state['value'] );
+						if ( is_wp_error( $res ) ) {
+							$rollback_clean   = false;
+							$rollback_errors[] = sprintf( 'Term %d meta %s restore failed: %s', $term_id, $meta_key, $res->get_error_message() );
+						}
 					} else {
-						delete_term_meta( $term_id, $meta_key );
+						$res = delete_term_meta( $term_id, $meta_key );
+						if ( is_wp_error( $res ) ) {
+							$rollback_clean   = false;
+							$rollback_errors[] = sprintf( 'Term %d meta %s delete failed: %s', $term_id, $meta_key, $res->get_error_message() );
+						}
 					}
 				}
 			}
+
+			delete_option( self::JOURNAL_OPTION );
 
 			Logger::error(
 				'profile_import_rollback',
@@ -581,12 +678,16 @@ final class Merchant_Profiles {
 					'error'             => $e->getMessage(),
 					'restored_settings' => count( $filtered_import ),
 					'restored_terms'    => count( $original_term_meta ),
+					'rollback_clean'    => $rollback_clean,
+					'rollback_errors'   => $rollback_errors,
 				)
 			);
 
 			return array(
 				'success'             => false,
 				'rolled_back'         => true,
+				'rollback_clean'      => $rollback_clean,
+				'rollback_errors'     => $rollback_errors,
 				'message'             => 'Hiba történt az importálás során. Minden módosítás visszagörgetve: ' . $e->getMessage(),
 				'imported_settings'   => 0,
 				'imported_categories' => 0,
