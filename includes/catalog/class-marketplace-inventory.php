@@ -45,7 +45,9 @@ final class Marketplace_Inventory {
 	 * @param int|null $parent_id
 	 * @return array{enabled: bool, buffer: int, max_qty: ?int, source: string}
 	 */
-	public static function resolve_rules( int $product_id, array $term_ids = array(), ?int $parent_id = null ): array {
+	public static function resolve_rules( int $product_id, array $term_ids = array(), ?int $parent_id = null, bool $force_enable = false ): array {
+		$globally_enabled = $force_enable || self::is_enabled();
+
 		// 1. Direct product-level override.
 		$prod_disabled = get_post_meta( $product_id, self::META_DISABLED, true );
 		$prod_buf      = get_post_meta( $product_id, self::META_BUFFER, true );
@@ -62,7 +64,7 @@ final class Marketplace_Inventory {
 
 		if ( '' !== $prod_buf || '' !== $prod_max ) {
 			return array(
-				'enabled' => true,
+				'enabled' => $globally_enabled,
 				'buffer'  => max( 0, (int) $prod_buf ),
 				'max_qty' => ( '' !== $prod_max && (int) $prod_max > 0 ) ? (int) $prod_max : null,
 				'source'  => 'product',
@@ -86,7 +88,7 @@ final class Marketplace_Inventory {
 
 			if ( '' !== $parent_buf || '' !== $parent_max ) {
 				return array(
-					'enabled' => true,
+					'enabled' => $globally_enabled,
 					'buffer'  => max( 0, (int) $parent_buf ),
 					'max_qty' => ( '' !== $parent_max && (int) $parent_max > 0 ) ? (int) $parent_max : null,
 					'source'  => 'variation_parent',
@@ -97,6 +99,7 @@ final class Marketplace_Inventory {
 		// 2. Category-level override.
 		$cat_rule = self::resolve_category_rule( $term_ids );
 		if ( null !== $cat_rule ) {
+			$cat_rule['enabled'] = $globally_enabled;
 			return $cat_rule;
 		}
 
@@ -108,7 +111,7 @@ final class Marketplace_Inventory {
 			: null;
 
 		return array(
-			'enabled' => self::is_enabled(),
+			'enabled' => $globally_enabled,
 			'buffer'  => $global_buf,
 			'max_qty' => $max_qty,
 			'source'  => 'global',
@@ -200,16 +203,19 @@ final class Marketplace_Inventory {
 	 * @param \WC_Product|null         $product
 	 * @return int|null
 	 */
-	public static function calculate_quantity( $product_or_qty, array $rules_or_terms = array(), ?\WC_Product $product = null ): ?int {
+	public static function calculate_quantity( $product_or_qty, array $rules_or_terms = array(), ?\WC_Product $product = null, bool $force_enable = false ): ?int {
 		if ( $product_or_qty instanceof \WC_Product ) {
 			$product    = $product_or_qty;
 			$source_qty = $product->managing_stock() ? (int) $product->get_stock_quantity() : null;
 			$parent_id  = $product->is_type( 'variation' ) ? (int) $product->get_parent_id() : null;
 			$term_ids   = $rules_or_terms;
-			$rules      = self::resolve_rules( (int) $product->get_id(), $term_ids, $parent_id );
+			$rules      = self::resolve_rules( (int) $product->get_id(), $term_ids, $parent_id, $force_enable );
 		} else {
 			$source_qty = null !== $product_or_qty ? (int) $product_or_qty : null;
 			$rules      = $rules_or_terms;
+			if ( $force_enable && is_array( $rules ) ) {
+				$rules['enabled'] = true;
+			}
 		}
 
 		if ( null === $source_qty ) {

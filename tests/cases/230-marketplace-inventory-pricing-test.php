@@ -559,3 +559,37 @@ $suite->add(
 		WPS_Assert::same( false, $mapped['available'] );
 	}
 );
+
+$suite->add(
+	'strategy: master switch off prevents rules bypass and simulation calculates proposed stock',
+	static function (): void {
+		// Global switch is OFF
+		Settings::update(
+			array(
+				'inventory_strategy_enabled' => false,
+				'inventory_buffer'           => 3,
+			)
+		);
+
+		// Product has a direct buffer override of 4
+		update_post_meta( 1090, Marketplace_Inventory::META_BUFFER, 4 );
+		$product = WPS_Test_State::add_product(
+			array(
+				'id'             => 1090,
+				'manage_stock'   => true,
+				'stock_quantity' => 10,
+				'stock_status'   => 'instock',
+			)
+		);
+
+		// 1. Direct calculate_quantity without force_enable must NOT bypass master switch
+		$rules = Marketplace_Inventory::resolve_rules( 1090, array() );
+		WPS_Assert::same( false, $rules['enabled'], 'Master switch OFF forces resolved rule enabled to false' );
+		WPS_Assert::same( 10, Marketplace_Inventory::calculate_quantity( $product ), 'Returns unadjusted raw stock when disabled' );
+
+		// 2. Simulation mode ($force_enable = true) must calculate proposed stock (10 - 4 = 6)
+		$simulated = Marketplace_Inventory::calculate_quantity( $product, array(), null, true );
+		WPS_Assert::same( 6, $simulated, 'Simulation mode forces rule calculation even when master switch is OFF' );
+	}
+);
+);

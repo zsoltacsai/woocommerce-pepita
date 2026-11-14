@@ -155,7 +155,7 @@ $global_min_margin       = Settings::get( 'marketplace_min_margin_percent', null
 
 					// If simulate is on, temporarily force calculation
 					$feed_stock = $filters['simulate'] || Marketplace_Inventory::is_enabled()
-						? Marketplace_Inventory::calculate_quantity( $product, $term_ids )
+						? Marketplace_Inventory::calculate_quantity( $product, $term_ids, null, (bool) $filters['simulate'] )
 						: ( $product->managing_stock() ? max( 0, (int) $product->get_stock_quantity() ) : null );
 
 					// Pricing calculations

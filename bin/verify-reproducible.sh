@@ -22,7 +22,7 @@ echo "Committed dist/wp-pepita-sync.zip : $committed"
 status=0
 declare -a seen=()
 i=0
-for tz in UTC Europe/Budapest America/Los_Angeles Asia/Tokyo UTC; do
+for tz in UTC Europe/Budapest America/Los_Angeles Asia/Tokyo Australia/Sydney; do
 	i=$((i + 1))
 	dir="$WORK/build-$i"
 	mkdir -p "$dir"
