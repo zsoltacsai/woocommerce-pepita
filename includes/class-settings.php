@@ -63,6 +63,7 @@ final class Settings {
 			'brand_meta_key'           => '_wps_brand',
 			'brand_taxonomy'           => 'product_brand',
 			'manufacturer_default'     => '',
+			'attribute_name_map'       => '',
 			'gtin_meta_keys'           => '_wps_gtin,_gtin,_ean,_wps_ean',
 			'gtin_required_categories' => array(),
 			'primary_category_strategy' => 'deepest',
@@ -509,6 +510,10 @@ final class Settings {
 					$output[ $key ] = self::sanitize_map( $value, array( 'shipping', 'gls', 'gls_parcellocker', 'gls_xxl', 'mpl' ), $default );
 					break;
 
+				case 'attribute_name_map':
+					$output[ $key ] = self::sanitize_attribute_name_map( $value );
+					break;
+
 				default:
 					$output[ $key ] = $default;
 			}
@@ -567,6 +572,33 @@ final class Settings {
 		}
 
 		return $map;
+	}
+
+	/**
+	 * Sanitize optional reusable WooCommerce attribute label aliases.
+	 * Each non-empty line is stored as `source-name=Pepita attribute name`.
+	 *
+	 * @param mixed $value
+	 */
+	private static function sanitize_attribute_name_map( $value ): string {
+		$lines = is_string( $value ) ? explode( "\n", substr( $value, 0, 8192 ) ) : array();
+		$clean = array();
+
+		foreach ( array_slice( $lines, 0, 100 ) as $line ) {
+			$line = sanitize_text_field( trim( $line ) );
+			if ( '' === $line || false === strpos( $line, '=' ) ) {
+				continue;
+			}
+
+			list( $source, $target ) = array_map( 'trim', explode( '=', $line, 2 ) );
+			if ( '' === $source || '' === $target ) {
+				continue;
+			}
+
+			$clean[] = $source . '=' . $target;
+		}
+
+		return implode( "\n", $clean );
 	}
 
 	/**

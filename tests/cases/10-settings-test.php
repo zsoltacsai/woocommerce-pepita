@@ -175,3 +175,40 @@ $suite->add(
 		WPS_Assert::same( 'stock', $clean['feed_stock_slug'] );
 	}
 );
+
+$suite->add(
+	'settings: attribute_name_map sanitisation removes invalid lines and preserves valid rules',
+	static function (): void {
+		$raw = "  pa_color = Szín  \n"
+			. "invalid_rule_without_equals\n"
+			. "=missing_source\n"
+			. "missing_target=\n"
+			. "\n"
+			. "pa_size=Méret\n";
+
+		$clean = Settings::sanitize( array( 'attribute_name_map' => $raw ) );
+		WPS_Assert::same( "pa_color=Szín\npa_size=Méret", $clean['attribute_name_map'] );
+
+		// Non-string input falls back to empty string.
+		$clean_non_string = Settings::sanitize( array( 'attribute_name_map' => array( 'not', 'a', 'string' ) ) );
+		WPS_Assert::same( '', $clean_non_string['attribute_name_map'] );
+	}
+);
+
+$suite->add(
+	'settings: Admin::settings_input preserves attribute_name_map from POST payload',
+	static function (): void {
+		$admin  = new \WPS\Pepita\Admin\Admin();
+		$ref    = new \ReflectionClass( $admin );
+		$method = $ref->getMethod( 'settings_input' );
+		$method->setAccessible( true );
+
+		$raw = array(
+			'attribute_name_map' => "pa_color=Szín\npa_size=Méret",
+		);
+
+		$parsed = $method->invoke( $admin, $raw );
+
+		WPS_Assert::same( "pa_color=Szín\npa_size=Méret", $parsed['attribute_name_map'] );
+	}
+);

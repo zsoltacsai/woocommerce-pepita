@@ -854,6 +854,9 @@ $suite->add(
 		$sku_search = Product_Issues::query( array( 'search' => 'ISSUE-SKU-01' ) );
 		WPS_Assert::same( 1, $sku_search['total_products'] );
 		WPS_Assert::same( 7101, $sku_search['items'][0]['product_id'] );
+
+		$large_page = Product_Issues::query( array( 'page' => PHP_INT_MAX, 'per_page' => 50 ) );
+		WPS_Assert::same( 1000, $large_page['page'], 'Admin issue queries must cap extreme page offsets.' );
 	}
 );
 

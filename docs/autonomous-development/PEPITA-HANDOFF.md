@@ -69,22 +69,23 @@ Nyitott M9-F korlátok:
 
 ## 6. Artifact és build
 
-PR #11 `532b3db` csomag SHA-256: `81be6d270831c052286af2aa3a2ec4453705fc3f7f08fb7f03652d4dda7a381c` (`dist/wp-pepita-sync.zip`). Sidecar: `dist/wp-pepita-sync.zip.sha256`. ZIP 61 fájlos, `unzip -tq` PASS. A `bin/verify-reproducible.sh` öt időzónán azonos hash-t igazolt. Új HEAD dokumentációs ZIP-frissítése után újra kell építeni/ellenőrizni; a ZIP-ben a docs nem szerepelnek, de minden forrásváltozáskor release epoch/build szabályt követni kell.
+PR #12 csomag SHA-256: `3423bc2486cedee0804b96d20431db76f5ed704856788b726c222d666fbe9d78` (`dist/wp-pepita-sync.zip`). Sidecar: `dist/wp-pepita-sync.zip.sha256`. ZIP 61 fájlos, `unzip -tq` PASS. A `bin/verify-reproducible.sh` öt időzónán azonos hash-t igazolt. Új HEAD dokumentációs ZIP-frissítése után újra kell építeni/ellenőrizni; a ZIP-ben a docs nem szerepelnek, de minden forrásváltozáskor release epoch/build szabályt követni kell.
 
-## 7. Átvétel utáni pontos első feladat
+## 7. Átvétel utáni első feladat — lezárva
 
-1. Átvételkor olvasd el ezt a fájlt és az `EXECUTION-LEDGER.md`-t; ellenőrizd a branch, PR-k, HEAD, munkafa, CI és review státusz aktuális GitHub-állapotát.
-2. Futtasd le az új handoff-dokumentációs commit exact CI-jét, ha a HEAD megváltozott; a 532b3db futás csak arra az SHA-ra érvényes.
-3. Zárd le M9-F keresési/lekérdezési minőségét: valós HPOS/legacy integrációs keresésteszt terméknév, SKU és ID esetén; variációs SKU viselkedést egyértelműsítsd; invalid/óriási `paged` értékeket korlátozd vagy fail-safe kezeld; nagy katalógus page/count költségre mérj vagy dokumentálj elfogadható korlátot.
-4. Ezután folytasd a Pepita által dokumentált követelményből levezethető M9-F quality-checkeket és reusable attribute-mappinget. Ismeretlen specifikációt ne találj ki; ilyen mező ne váljon kötelezővé.
-5. Implementáció után célzott és teljes CI, ZIP/checksum/reproducibility, friss független QA és AppSec exact-head review, aztán magyar ledger update. PR #11 marad Draft.
+1. A kijelölt felelős elolvasta ezt a fájlt és az `EXECUTION-LEDGER.md`-t; ellenőrizte a repositoryt, branch-et, tiszta munkafát, exact CI-t, PR #10/#11 headet és státuszt.
+2. A handoff HEAD `ab0c1d574cb5bb546c76849e3265059672b1b38b` exact CI-je (`43580024938`) **SUCCESS**.
+3. M9-F keresési lefedés: valós WooCommerce HPOS és legacy integrációs teszt ellenőrzi a terméknév-, pontos SKU- és numeric-ID-keresést. A variation SKU a szülőtermék issue-center sorát adja vissza. A kért oldalszám 1000-re korlátozott; a kérés legfeljebb 50 termékjelöltet vizsgál.
+4. A kód HEAD `3ea995fe35e3d6cadf2459c20845e2085ec6cba3` CI-je (`43580583517`), `fb4f0ef5be76f56aefbb72840bde0e15e2e1ef5c` CI-je (`43580895516`), `9e5857fa081cbf801991c6ac778d36c4523008e7` CI-je (`43581264829`), az attribútum-mapping `1bd6503c94892cfa76e4c25f44e13cfda85beae4` HEAD CI-je (`43584004363`), `59c7d40c3b5811c1d448ec39e30ea2cd55f7a0c5` CI-je (`43585503047`), valamint a végleges felülvizsgálati javításokat tartalmazó `f80241820ad868340430e2c81c3b28fbbc6e6daa` HEAD CI-je (`43588942291`) mind **SUCCESS**; PHP 8.1–8.5 (284 unit teszt/job), lint/reproducible package, HPOS és legacy PASS; RR20 SKIPPED. A ZIP SHA-256 `3423bc2486cedee0804b96d20431db76f5ed704856788b726c222d666fbe9d78`; öt időzónás reprodukálhatóság PASS.
+5. Költséghatár: legfeljebb 50 termék issue-vizsgálata történik kérésenként, de a WooCommerce teljes találatszám-lekérése nincs időkerettel korlátozva, az 1000. oldal akár 49 950-es OFFSET-et jelent 50-es oldalméretnél, és a galéria-fallback több helyi képvalidációt futhat. Ezek megmaradó nagy katalógus-kockázatok; async index és mért load test nincs.
+6. Fennmaradó M9-F lezárva: hivatalos Seller Center specifikáció alapján elkészült az opcionális attribútumnév-megfeleltetés (`attribute_name_map`), amely mind a normál termékattribútumokra, mind a variációs tengelyekre alkalmazható a forrásadatok megváltoztatása nélkül. Az AppSec (Claude Sonnet 5.5, PASS) és Integration QA (Claude Opus 5.5, PASS re-check) jóváhagyta; az F1/B1 (admin mentési whitelist) és A2 (statikus cache) észrevételek javítva, megerősítő CI `43588942291` SUCCESS. A PR #12 Draft lezárásra kész, PR #11 Draft megőrzésével.
 
 ## 8. Teljes roadmap és visszaállítási pont
 
 Kötelező sorrend:
 
 1. **M9-E** — kép fallback, hibás termékek, quality kizárás, kategóriamapping; kód/CI/review PASS, valódi staging elfogadás nyitott.
-2. **M9-F** — quality center, megalapozott minőségellenőrzés, javítási javaslatok, attribute mapping, belső score; PARTIAL.
+2. **M9-F** — quality center, megalapozott minőségellenőrzés, javítási javaslatok, attribute mapping, belső score; PASS (repo-kód, CI és független review lezárva; staging elfogadás nyitott).
 3. **M9-G** — feed preview, biztonságos publikálási blokkolás és monitoring/értesítések; még nem kezdődött.
 4. **M9-H** — piactéri készlet- és árkalkuláció, forrásadat-módosítás nélkül; még nem kezdődött.
 5. **M10** — rendelésműveletek/idempotencia/HPOS diagnosztika csak szintetikus vagy igazolt sandbox tesztekkel; live order API tiltott.
@@ -103,4 +104,4 @@ Visszaállítási pontok: M9-E branch/PR #10 HEAD `a4854cdf9b20bcd54b0180fb2cc31
 
 ## 10. Átadás állapota
 
-Ez a dokumentum és a commit nem jelent felelősségátvételt. **ACK csak akkor állítható, ha a kijelölt új fejlesztési felelős külön munkamenetben ténylegesen visszaigazolta a scope és korlátozások átvételét.** Addig az átadás PREPARED / AWAITING ACK.
+Az átadás ACK állapotú a jelen beszélgetésben: a kijelölt fejlesztési felelős visszaigazolta a scope és a korlátozások átvételét. Az aktuális munka M9-F részleges folytatása; további mérföldkövek és review-k nyitottak.

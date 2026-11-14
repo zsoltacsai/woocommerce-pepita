@@ -293,6 +293,7 @@ final class Admin {
 			'brand_meta_key',
 			'brand_taxonomy',
 			'manufacturer_default',
+			'attribute_name_map',
 			'gtin_meta_keys',
 			'max_category_paths',
 			'max_gallery_images',
