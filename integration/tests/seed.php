@@ -62,12 +62,12 @@ function wps_it_seed_cleanup(): void {
  * Create the shared product image.
  */
 function wps_it_seed_image(): int {
-	$png = base64_decode(
-		'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFElEQVR4nGP8z8AARMAgYKSJAQAJ'
-		. 'xwH/2n0l4QAAAABJRU5ErkJggg=='
-	);
+	$image = file_get_contents( __DIR__ . '/../fixtures/pepita-compatible-1200x630.jpg' );
+	if ( false === $image ) {
+		WP_CLI::error( 'Compliant integration image fixture could not be read.' );
+	}
 
-	$upload = wp_upload_bits( 'wps-it-product.png', null, $png );
+	$upload = wp_upload_bits( 'wps-it-product.jpg', null, $image );
 
 	if ( ! empty( $upload['error'] ) ) {
 		WP_CLI::error( 'Image upload failed: ' . $upload['error'] );
@@ -75,7 +75,7 @@ function wps_it_seed_image(): int {
 
 	$attachment_id = wp_insert_attachment(
 		array(
-			'post_mime_type' => 'image/png',
+		'post_mime_type' => 'image/jpeg',
 			'post_title'     => 'WPS Integration Product Image',
 			'post_content'   => '',
 			'post_status'    => 'inherit',

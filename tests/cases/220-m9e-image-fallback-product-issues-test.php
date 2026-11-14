@@ -501,7 +501,7 @@ $suite->add(
 );
 
 $suite->add(
-	'm9e exclusion: full and stock snapshots stay aligned when quality rules change',
+	'm9e exclusion: quality toggle preserves hard image validation and genuine membership changes require a full feed',
 	static function (): void {
 		WPS_Test_State::reset();
 		Settings::update(
@@ -523,6 +523,7 @@ $suite->add(
 			array(
 				7301 => array( 'name' => 'Megfelelő termék', 'image_id' => 820, 'price' => 1500, 'stock_quantity' => 35 ),
 				7302 => array( 'name' => 'Kizárt termék', 'image_id' => 821, 'price' => 2300, 'stock_quantity' => 11 ),
+				7303 => array( 'name' => 'Kézzel kizárt, megfelelő termék', 'image_id' => 820, 'price' => 1800, 'stock_quantity' => 8 ),
 			) as $id => $values
 		) {
 			WPS_Test_State::add_product(
@@ -538,6 +539,7 @@ $suite->add(
 			);
 			WPS_Test_State::assign_term( $id, 100 );
 		}
+		update_post_meta( 7303, Product_Selection::META_INCLUDE, Product_Selection::MODE_EXCLUDE );
 
 		$run = static function ( string $type ): array {
 			$generator = new Generator();
@@ -577,19 +579,35 @@ $suite->add(
 		WPS_Assert::same( array( 'wps-7301' ), array_keys( $full_rows_first ) );
 		WPS_Assert::same( $full_rows_first, $stock_rows_first );
 
-		// A stock-only publication must not silently adopt a new quality-filtered catalog.
+		// Turning off the optional quality exclusion cannot bypass hard image validation.
 		Settings::update( array( 'exclude_quality_issues' => false ) );
 		Product_Selection::clear_cache();
+		WPS_Assert::true( Product_Selection::is_included( 7302 ), 'Quality exclusion is disabled for this product.' );
+		$invalid_map = Product_Mapper::map( 7302 );
+		WPS_Assert::true( empty( $invalid_map['photos'] ), 'The undersized source must remain invalid under hard image validation.' );
+		WPS_Assert::true( in_array( 'missing_image', array_column( $invalid_map['errors'], 'code' ), true ) );
+		WPS_Assert::same( 'completed', $run( 'stock' )['status'], 'The stock snapshot is still the same exportable set.' );
+		$full_rows_without_quality_filter  = $rows( Storage::feed_path( 'full' ) );
+		$stock_rows_without_quality_filter = $rows( Storage::feed_path( 'stock' ) );
+		WPS_Assert::same( array( 'wps-7301' ), array_keys( $full_rows_without_quality_filter ) );
+		WPS_Assert::same( $full_rows_without_quality_filter, $stock_rows_without_quality_filter );
+		WPS_Assert::same( $stock_rows_first, $stock_rows_without_quality_filter );
+		WPS_Assert::true( ! str_contains( file_get_contents( Storage::feed_path( 'full' ) ), 'wps-7302' ) );
+
+		// A newly allowed, fully valid product really changes membership; stock-only must stop.
+		update_post_meta( 7303, Product_Selection::META_INCLUDE, Product_Selection::MODE_INCLUDE );
+		Product_Selection::clear_cache();
+		$stock_before_membership_change = file_get_contents( Storage::feed_path( 'stock' ) );
 		$blocked = $run( 'stock' );
 		WPS_Assert::same( 'error', $blocked['status'] );
-		WPS_Assert::same( $stock_first, file_get_contents( Storage::feed_path( 'stock' ) ) );
+		WPS_Assert::same( $stock_before_membership_change, file_get_contents( Storage::feed_path( 'stock' ) ) );
 
 		// Refresh the full snapshot first, then its matching stock snapshot.
 		WPS_Assert::same( 'completed', $run( 'full' )['status'] );
 		WPS_Assert::same( 'completed', $run( 'stock' )['status'] );
 		$full_rows  = $rows( Storage::feed_path( 'full' ) );
 		$stock_rows = $rows( Storage::feed_path( 'stock' ) );
-		WPS_Assert::same( array( 'wps-7301', 'wps-7302' ), array_keys( $full_rows ) );
+		WPS_Assert::same( array( 'wps-7301', 'wps-7303' ), array_keys( $full_rows ) );
 		WPS_Assert::same( $full_rows, $stock_rows );
 		WPS_Assert::true( $full_first !== file_get_contents( Storage::feed_path( 'full' ) ) );
 		WPS_Assert::true( $stock_first !== file_get_contents( Storage::feed_path( 'stock' ) ) );

@@ -190,7 +190,9 @@ final class WPS_Test_State {
 
 	public static function add_attachment( int $id, string $url ): void {
 		self::$attachments[ $id ] = $url;
-		$extension = strtolower( pathinfo( (string) wp_parse_url( $url, PHP_URL_PATH ), PATHINFO_EXTENSION ) );
+		$path      = (string) wp_parse_url( $url, PHP_URL_PATH );
+		$basename  = strtolower( basename( $path ) );
+		$extension = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
 		$fixtures  = array(
 			'jpg'  => array( 'image/jpeg', 'pepita-compatible-1200x630.jpg', 1200, 630 ),
 			'jpeg' => array( 'image/jpeg', 'pepita-compatible-1200x630.jpg', 1200, 630 ),
@@ -199,6 +201,13 @@ final class WPS_Test_State {
 		);
 		if ( isset( $fixtures[ $extension ] ) ) {
 			[ $mime, $filename, $width, $height ] = $fixtures[ $extension ];
+			if ( 'jpg' === $extension || 'jpeg' === $extension ) {
+				if ( str_contains( $basename, 'small' ) || str_contains( $basename, 'undersized' ) ) {
+					$filename = 'pepita-small-500x500.jpg';
+					$width    = 500;
+					$height   = 500;
+				}
+			}
 			self::$mime_types[ $id ] = self::$mime_types[ $id ] ?? $mime;
 			self::$attachment_metadata[ $id ] = self::$attachment_metadata[ $id ] ?? array( 'width' => $width, 'height' => $height );
 			self::$attached_files[ $id ] = self::$attached_files[ $id ] ?? __DIR__ . '/../fixtures/images/' . $filename;
