@@ -24,8 +24,8 @@ use WPS\Pepita\Storage;
 
 $suite = $GLOBALS['wps_suite'];
 
-// Minimal valid 1x1 JPEG binary string for testing valid image derivatives.
-$valid_jpeg_binary = base64_decode( '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=' );
+// Complete valid JPEG fixture; intentionally no synthetic/truncated decoder-recovery sample.
+$valid_jpeg_binary = (string) file_get_contents( __DIR__ . '/../fixtures/images/pepita-compatible-1200x630.jpg' );
 
 /* =========================================================================
  * 1. Image_Converter: Integrity, Corruption Regeneration & Atomic Renaming
