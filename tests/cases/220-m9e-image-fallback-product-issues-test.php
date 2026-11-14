@@ -777,6 +777,86 @@ $suite->add(
 	}
 );
 
+$suite->add(
+	'm9f quality summary: deterministic internal score and recommendations do not change eligibility rules',
+	static function (): void {
+		$summary = Product_Issues::summarize_issues(
+			array(
+				array( 'code' => Product_Issues::ISSUE_PRICE, 'blocking' => true ),
+				array( 'code' => Product_Issues::ISSUE_PRICE, 'blocking' => true ),
+				array( 'code' => Product_Issues::ISSUE_SKU, 'blocking' => false ),
+			)
+		);
+
+		WPS_Assert::same( 77, $summary['score'], 'One invalid price (20 points) and an optional missing SKU (3 points) have documented internal penalties.' );
+		WPS_Assert::same( false, $summary['official'], 'The score must never claim to be an official Pepita ranking.' );
+		WPS_Assert::same( 1, $summary['blocking_count'] );
+		WPS_Assert::same( 1, $summary['warning_count'] );
+		WPS_Assert::same( 2, count( $summary['recommendations'] ) );
+		WPS_Assert::true( str_contains( $summary['recommendations'][0]['text'], 'pozitív' ) );
+		WPS_Assert::true( str_contains( $summary['recommendations'][1]['text'], 'Opcionális' ) );
+
+		WPS_Test_State::reset();
+		Settings::update( array( 'default_included' => true ) );
+		WPS_Test_State::add_term( 100, 'Kategória 100' );
+		WPS_Test_State::add_attachment( 830, 'https://example.test/img.jpg' );
+		WPS_Test_State::$attachment_metadata[830] = array( 'width' => 1200, 'height' => 800 );
+		WPS_Test_State::add_product(
+			array(
+				'id'          => 7021,
+				'name'        => 'Quality summary product',
+				'description' => 'Érvényes termékleírás',
+				'price'       => 1000,
+				'sku'         => 'QUALITY-01',
+				'image_id'    => 830,
+			)
+		);
+		WPS_Test_State::assign_term( 7021, 100 );
+		$eligibility_before = Product_Selection::resolve( 7021 );
+		Product_Issues::quality_summary( 7021 );
+		WPS_Assert::same( $eligibility_before, Product_Selection::resolve( 7021 ), 'Scoring must not alter product selection or feed eligibility.' );
+	}
+);
+
+$suite->add(
+	'm9f product issue admin query: scans a bounded product page and reports catalog progress accurately',
+	static function (): void {
+		WPS_Test_State::reset();
+		Settings::update( array( 'default_included' => true ) );
+		foreach ( array( 7101, 7102, 7103 ) as $product_id ) {
+			WPS_Test_State::add_product(
+				array(
+					'id'          => $product_id,
+					'name'        => 'Issue product ' . $product_id,
+					'description' => 'Description',
+					'price'       => 1000,
+					'sku'         => 7101 === $product_id ? 'ISSUE-SKU-01' : '',
+				)
+			);
+		}
+
+		$first_page = Product_Issues::query( array( 'page' => 1, 'per_page' => 1 ) );
+		WPS_Assert::same( true, $first_page['available'] );
+		WPS_Assert::same( 1, $first_page['scanned'] );
+		WPS_Assert::same( 3, $first_page['total_products'] );
+		WPS_Assert::same( 3, $first_page['pages'] );
+		WPS_Assert::same( 1, count( $first_page['items'] ) );
+		WPS_Assert::same( 7103, $first_page['items'][0]['product_id'] );
+
+		$second_page = Product_Issues::query( array( 'page' => 2, 'per_page' => 1 ) );
+		WPS_Assert::same( 1, $second_page['scanned'] );
+		WPS_Assert::same( 7102, $second_page['items'][0]['product_id'] );
+
+		$id_search = Product_Issues::query( array( 'search' => '7101' ) );
+		WPS_Assert::same( 1, $id_search['total_products'] );
+		WPS_Assert::same( 7101, $id_search['items'][0]['product_id'] );
+
+		$sku_search = Product_Issues::query( array( 'search' => 'ISSUE-SKU-01' ) );
+		WPS_Assert::same( 1, $sku_search['total_products'] );
+		WPS_Assert::same( 7101, $sku_search['items'][0]['product_id'] );
+	}
+);
+
 /* =========================================================================
  * 6. FN-DECO 269 Baseline Acceptance: 28 Excluded, 241 Exported, #9897 Verified
  * ========================================================================= */

@@ -1197,6 +1197,11 @@ function wc_get_products( array $args = array() ) {
 		);
 	}
 
+	if ( isset( $args['include'] ) ) {
+		$included = array_map( 'intval', (array) $args['include'] );
+		$ids      = array_values( array_intersect( $ids, $included ) );
+	}
+
 	$order = strtoupper( (string) ( $args['order'] ?? 'DESC' ) ) === 'ASC' ? 'ASC' : 'DESC';
 
 	if ( 'DESC' === $order ) {

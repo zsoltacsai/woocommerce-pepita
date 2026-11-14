@@ -36,6 +36,7 @@ $base_args = array(
 );
 
 $auto_exclude_on = Settings::exclude_quality_issues();
+$show_quality_score = (bool) Settings::get( 'show_internal_quality_score', false );
 ?>
 <div class="wrap wps-wrap">
 	<h1><?php esc_html_e( 'Pepita hibás termékek', 'wp-pepita-sync' ); ?></h1>
@@ -52,7 +53,7 @@ $auto_exclude_on = Settings::exclude_quality_issues();
 	<form method="get" action="<?php echo esc_url( admin_url( 'admin.php' ) ); ?>" class="wps-filters">
 		<input type="hidden" name="page" value="wps-pepita-product-issues" />
 
-		<input type="search" name="s" value="<?php echo esc_attr( $filters['search'] ); ?>" placeholder="<?php esc_attr_e( 'Név, SKU vagy ID…', 'wp-pepita-sync' ); ?>" />
+		<input type="search" name="s" value="<?php echo esc_attr( $filters['search'] ); ?>" placeholder="<?php esc_attr_e( 'Név, pontos SKU vagy ID…', 'wp-pepita-sync' ); ?>" />
 
 		<select name="issue_type">
 			<option value="all" <?php selected( $filters['issue_type'], 'all' ); ?>><?php esc_html_e( 'Minden hibatípus', 'wp-pepita-sync' ); ?></option>
@@ -81,11 +82,25 @@ $auto_exclude_on = Settings::exclude_quality_issues();
 		<a class="button" href="<?php echo esc_url( add_query_arg( 'wps_refresh', '1', admin_url( 'admin.php?page=wps-pepita-product-issues' ) ) ); ?>" style="margin-left: auto;"><?php esc_html_e( 'Adatok frissítése', 'wp-pepita-sync' ); ?></a>
 	</form>
 
-	<div class="wps-bulk-bar">
-		<span class="wps-bulk-count">
-			<?php echo esc_html( sprintf( /* translators: %d: product count */ __( '%d hibás / figyelmeztetéses termék található', 'wp-pepita-sync' ), $result['total'] ) ); ?>
-		</span>
-	</div>
+	<?php if ( ! empty( $result['available'] ) ) : ?>
+		<div class="wps-bulk-bar">
+			<span class="wps-bulk-count">
+				<?php
+				echo esc_html(
+					sprintf(
+						/* translators: 1: products checked on page, 2: issue products found on page, 3: total products matching the search */
+						__( 'Ezen az oldalon %1$d terméket vizsgáltunk, ebből %2$d problémás. A keresés összesen %3$d terméket tartalmaz; lapozzon a teljes katalógus áttekintéséhez.', 'wp-pepita-sync' ),
+						(int) $result['scanned'],
+						(int) $result['total'],
+						(int) $result['total_products']
+					)
+				);
+				?>
+			</span>
+		</div>
+	<?php else : ?>
+		<div class="notice notice-error"><p><?php esc_html_e( 'A termékkatalógus lekérdezése nem volt elérhető, ezért a hibás termékek eredménye ismeretlen. Próbálja újra később.', 'wp-pepita-sync' ); ?></p></div>
+	<?php endif; ?>
 
 	<table class="widefat striped wps-table">
 		<thead>
@@ -102,10 +117,10 @@ $auto_exclude_on = Settings::exclude_quality_issues();
 			</tr>
 		</thead>
 		<tbody>
-			<?php if ( array() === $result['items'] ) : ?>
+			<?php if ( empty( $result['available'] ) || array() === $result['items'] ) : ?>
 				<tr>
 					<td colspan="9" style="text-align: center; padding: 24px;">
-						<em><?php esc_html_e( 'Nincs a szűrésnek megfelelő hibás termék a katalógusban.', 'wp-pepita-sync' ); ?></em>
+						<em><?php esc_html_e( 'Ezen az oldalán nincs megjeleníthető találat. A teljes katalógushoz lapozzon végig a termékoldalakon.', 'wp-pepita-sync' ); ?></em>
 					</td>
 				</tr>
 			<?php endif; ?>
@@ -126,6 +141,9 @@ $auto_exclude_on = Settings::exclude_quality_issues();
 								<?php echo esc_html( $item['name'] ); ?>
 							</a>
 						</strong>
+						<?php if ( $show_quality_score ) : ?>
+							<br /><small><?php echo esc_html( sprintf( /* translators: %d: internal diagnostic score */ __( 'Belső minőségi pont: %d/100', 'wp-pepita-sync' ), (int) $item['quality_summary']['score'] ) ); ?></small>
+						<?php endif; ?>
 					</td>
 					<td><code><?php echo esc_html( $item['sku'] ); ?></code></td>
 					<td><?php echo esc_html( $item['primary_category'] ); ?></td>
@@ -142,6 +160,13 @@ $auto_exclude_on = Settings::exclude_quality_issues();
 								<li style="margin-bottom: 4px; font-size: 13px;"><?php echo esc_html( $desc ); ?></li>
 							<?php endforeach; ?>
 						</ul>
+						<?php if ( ! empty( $item['quality_summary']['recommendations'] ) ) : ?>
+							<ul style="margin: 6px 0 0; padding-left: 16px; list-style-type: circle;">
+								<?php foreach ( $item['quality_summary']['recommendations'] as $recommendation ) : ?>
+									<li style="margin-bottom: 4px; font-size: 12px;"><strong><?php esc_html_e( 'Javaslat:', 'wp-pepita-sync' ); ?></strong> <?php echo esc_html( $recommendation['text'] ); ?></li>
+								<?php endforeach; ?>
+							</ul>
+						<?php endif; ?>
 					</td>
 					<td>
 						<span class="wps-badge <?php echo esc_attr( $item['feed_status']['class'] ); ?>">

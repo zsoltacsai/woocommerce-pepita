@@ -34,6 +34,37 @@ final class Product_Issues {
 	public const ISSUE_SKU           = 'missing_sku';
 	public const ISSUE_GENERIC       = 'validation_error';
 
+	/** @var array<string, int> Internal diagnostic penalties, not Pepita scoring rules. */
+	private const QUALITY_PENALTIES = array(
+		'missing_product'    => 100,
+		'image_dim'           => 25,
+		'invalid_image'       => 30,
+		'missing_image'       => 30,
+		'webp'                => 25,
+		'missing_name'        => 15,
+		'missing_description' => 10,
+		'invalid_price'       => 20,
+		'invalid_vat'         => 15,
+		'missing_category'    => 20,
+		'missing_gtin'        => 15,
+		'missing_sku'         => 3,
+	);
+
+	/** @var array<string, string> Actionable guidance derived only from known validator findings. */
+	private const QUALITY_RECOMMENDATIONS = array(
+		'image_dim'           => 'Cserélje a képet legalább 1200×630 pixeles, jó minőségű JPEG vagy PNG fájlra; ne nagyítsa fel a kis képet.',
+		'invalid_image'       => 'Ellenőrizze a helyi képfájlt, MIME-típust és dekódolhatóságot, majd adjon meg érvényes JPEG vagy PNG képet.',
+		'missing_image'       => 'Állítson be ellenőrizhető kiemelt képet vagy megfelelő galériaképet.',
+		'webp'                => 'Használjon ellenőrzött JPEG/PNG eredetit, vagy javítsa a WebP forrásfájlt és próbálja újra a konverziót.',
+		'missing_name'        => 'Adjon meg terméknevet a WooCommerce termékszerkesztőben.',
+		'missing_description' => 'Adjon meg pontos, termékspecifikus leírást.',
+		'invalid_price'       => 'Ellenőrizze, hogy a termék feedre számított bruttó ára pozitív és érvényes.',
+		'invalid_vat'         => 'Ellenőrizze a WooCommerce adóosztályt és az adóbeállításokat.',
+		'missing_category'    => 'Rendelje a terméket egy engedélyezett, Pepita-exporthoz leképezett kategóriához.',
+		'missing_gtin'        => 'Adja meg a termék valódi GTIN/EAN/ISBN kódját; a rendszer nem generál helyette kódot.',
+		'missing_sku'         => 'Opcionális: adja meg a kereskedő tényleges belső cikkszámát. Ez önmagában nem blokkolja az exportot.',
+	);
+
 	/** @var array<int, array<int, array{category: string, code: string, description: string, blocking: bool}>> */
 	private static array $issues_cache = array();
 
@@ -246,6 +277,63 @@ final class Product_Issues {
 	}
 
 	/**
+	 * Return an internal diagnostic score and safe, non-mutating recommendations.
+	 * The score is not a Pepita ranking and never changes validation or eligibility.
+	 *
+	 * @param int $product_id
+	 * @return array{score: int, official: bool, blocking_count: int, warning_count: int, recommendations: array<int, array{code: string, blocking: bool, text: string}>}
+	 */
+	public static function quality_summary( int $product_id ): array {
+		return self::summarize_issues( self::inspect( $product_id ) );
+	}
+
+	/**
+	 * Deterministic summary helper kept separate so scoring does not depend on product mutations.
+	 *
+	 * @param array<int, array{code: string, blocking: bool}> $issues
+	 * @return array{score: int, official: bool, blocking_count: int, warning_count: int, recommendations: array<int, array{code: string, blocking: bool, text: string}>}
+	 */
+	public static function summarize_issues( array $issues ): array {
+		$score            = 100;
+		$blocking_count   = 0;
+		$warning_count    = 0;
+		$recommendations  = array();
+		$seen             = array();
+
+		foreach ( $issues as $issue ) {
+			$code     = sanitize_key( (string) ( $issue['code'] ?? '' ) );
+			$blocking = ! empty( $issue['blocking'] );
+			if ( '' === $code || isset( $seen[ $code ] ) ) {
+				continue;
+			}
+			$seen[ $code ] = true;
+
+			if ( $blocking ) {
+				++$blocking_count;
+			} else {
+				++$warning_count;
+			}
+
+			$score -= self::QUALITY_PENALTIES[ $code ] ?? ( $blocking ? 10 : 2 );
+			if ( isset( self::QUALITY_RECOMMENDATIONS[ $code ] ) ) {
+				$recommendations[] = array(
+					'code'     => $code,
+					'blocking' => $blocking,
+					'text'     => self::QUALITY_RECOMMENDATIONS[ $code ],
+				);
+			}
+		}
+
+		return array(
+			'score'           => max( 0, min( 100, $score ) ),
+			'official'        => false,
+			'blocking_count'  => $blocking_count,
+			'warning_count'   => $warning_count,
+			'recommendations' => $recommendations,
+		);
+	}
+
+	/**
 	 * Determine the current feed eligibility state and badge styling for a product.
 	 *
 	 * @param int                                                                             $product_id
@@ -298,29 +386,48 @@ final class Product_Issues {
 	 * Query products with issues supporting filtering, search, and pagination.
 	 *
 	 * @param array<string, mixed> $filters
-	 * @return array{items: array<int, array<string, mixed>>, total: int, pages: int}
+	 * @return array{available: bool, items: array<int, array<string, mixed>>, total: int, scanned: int, total_products: int, page: int, per_page: int, pages: int}
 	 */
 	public static function query( array $filters ): array {
 		$search      = trim( (string) ( $filters['search'] ?? '' ) );
 		$issue_type  = (string) ( $filters['issue_type'] ?? 'all' );
 		$feed_filter = (string) ( $filters['feed_status'] ?? 'all' );
-		$per_page    = max( 1, min( 100, (int) ( $filters['per_page'] ?? 25 ) ) );
+		$per_page    = max( 1, min( 50, (int) ( $filters['per_page'] ?? 25 ) ) );
 		$page        = max( 1, (int) ( $filters['page'] ?? 1 ) );
 
 		$query_args = array(
-			'limit'   => -1,
-			'status'  => Settings::allowed_product_statuses(),
-			'orderby' => 'ID',
-			'order'   => 'DESC',
-			'return'  => 'ids',
+			'limit'    => $per_page,
+			'page'     => $page,
+			'paginate' => true,
+			'status'   => Settings::allowed_product_statuses(),
+			'orderby'  => 'ID',
+			'order'    => 'DESC',
+			'return'   => 'ids',
 		);
 
 		if ( '' !== $search ) {
-			$query_args['s'] = $search;
+			$sku_id = function_exists( 'wc_get_product_id_by_sku' ) ? (int) wc_get_product_id_by_sku( $search ) : 0;
+
+			if ( ctype_digit( $search ) ) {
+				// Numeric searches are treated as exact product IDs; WooCommerce's `s`
+				// search covers titles and SKUs but does not promise post-ID matching.
+				$query_args['include'] = array( (int) $search );
+			} elseif ( $sku_id > 0 ) {
+				// Guarantee exact SKU lookup independently of datastore text-search behavior.
+				$query_args['include'] = array( $sku_id );
+			} else {
+				$query_args['s'] = $search;
+			}
 		}
 
-		$all_ids = function_exists( 'wc_get_products' ) ? wc_get_products( $query_args ) : array();
-		$all_ids = is_array( $all_ids ) ? array_map( 'intval', $all_ids ) : array();
+		$product_page  = function_exists( 'wc_get_products' ) ? wc_get_products( $query_args ) : array();
+		$query_available = is_object( $product_page ) && isset( $product_page->products ) && is_array( $product_page->products ) && isset( $product_page->total );
+		$all_ids       = $query_available
+			? array_map( 'intval', $product_page->products )
+			: array();
+		$total_products = $query_available
+			? max( 0, (int) $product_page->total )
+			: 0;
 
 		$matched_items = array();
 
@@ -346,6 +453,7 @@ final class Product_Issues {
 			}
 
 			$status = self::feed_status( $pid, $issues );
+			$quality = self::summarize_issues( $issues );
 
 			// Filter by feed eligibility.
 			if ( 'all' !== $feed_filter && $status['key'] !== $feed_filter ) {
@@ -377,6 +485,7 @@ final class Product_Issues {
 				'thumbnail_url'      => $thumb_url,
 				'primary_category'   => $cat_path,
 				'issues'             => $issues,
+				'quality_summary'    => $quality,
 				'problem_categories' => array_values( array_unique( array_column( $issues, 'category' ) ) ),
 				'descriptions'       => array_column( $issues, 'description' ),
 				'feed_status'        => $status,
@@ -384,14 +493,17 @@ final class Product_Issues {
 			);
 		}
 
-		$total = count( $matched_items );
-		$pages = max( 1, (int) ceil( $total / $per_page ) );
-		$slice = array_slice( $matched_items, ( $page - 1 ) * $per_page, $per_page );
+		$pages = max( 1, (int) ceil( $total_products / $per_page ) );
 
 		return array(
-			'items' => $slice,
-			'total' => $total,
-			'pages' => $pages,
+			'available'      => $query_available,
+			'items'          => $matched_items,
+			'total'          => count( $matched_items ),
+			'scanned'        => count( $all_ids ),
+			'total_products' => $total_products,
+			'page'           => $page,
+			'per_page'       => $per_page,
+			'pages'          => $pages,
 		);
 	}
 

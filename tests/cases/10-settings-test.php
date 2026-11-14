@@ -14,11 +14,12 @@ $suite->add(
 	static function (): void {
 		$defaults = Settings::defaults();
 
-		foreach ( array( 'default_included', 'include_child_categories', 'vat_mode', 'price_adjustment_type', 'rounding', 'removal_policy', 'batch_size', 'full_feed_interval', 'stock_feed_interval', 'payment_map', 'shipping_map', 'order_api_status_paid' ) as $key ) {
+		foreach ( array( 'default_included', 'include_child_categories', 'show_internal_quality_score', 'vat_mode', 'price_adjustment_type', 'rounding', 'removal_policy', 'batch_size', 'full_feed_interval', 'stock_feed_interval', 'payment_map', 'shipping_map', 'order_api_status_paid' ) as $key ) {
 			WPS_Assert::true( array_key_exists( $key, $defaults ), 'Missing default: ' . $key );
 		}
 
 		WPS_Assert::same( false, $defaults['default_included'] );
+		WPS_Assert::same( false, $defaults['show_internal_quality_score'] );
 		WPS_Assert::same( 'omit', $defaults['removal_policy'] );
 		WPS_Assert::same( array( 'publish' ), $defaults['allowed_product_statuses'] );
 		WPS_Assert::same( 20, $defaults['feed_safety_drop_threshold'] );
@@ -46,6 +47,7 @@ $suite->add(
 				'feed_safety_drop_threshold' => 120,
 				'feed_safety_block_publication' => '1',
 				'feed_safety_variation_change_warning' => '0',
+				'show_internal_quality_score' => '1',
 				'log_level'             => 'verbose',
 				'removal_policy'        => 'zero_stock',
 			)
@@ -58,6 +60,7 @@ $suite->add(
 		WPS_Assert::same( 95, $clean['feed_safety_drop_threshold'] );
 		WPS_Assert::same( true, $clean['feed_safety_block_publication'] );
 		WPS_Assert::same( false, $clean['feed_safety_variation_change_warning'] );
+		WPS_Assert::same( true, $clean['show_internal_quality_score'] );
 		WPS_Assert::equals( 100.0, $clean['vat_fixed'] );
 		WPS_Assert::same( 'auto', $clean['vat_mode'] );
 		WPS_Assert::same( 'percent', $clean['price_adjustment_type'] );

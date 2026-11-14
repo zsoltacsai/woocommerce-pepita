@@ -258,6 +258,7 @@ final class Admin {
 			'feed_emergency_disabled',
 			'beta_feed_only',
 			'exclude_quality_issues',
+			'show_internal_quality_score',
 			'order_api_enabled',
 			'order_api_require_https',
 			'order_api_keep_payloads',
