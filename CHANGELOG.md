@@ -4,6 +4,18 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased — M9-H Marketplace Inventory & Pricing Strategy
+
+### Added & Hardened
+- **Marketplace Inventory Safety Rules**: Implemented buffer reserves and maximum quantity caps (`Marketplace_Inventory`) applied strictly to feed exports without modifying internal WooCommerce stock. Supported hierarchical rule precedence: Product override > Variation parent > Deepest Category > Global settings.
+- **Unmanaged Stock Invariant**: Products with unmanaged stock (`$product->managing_stock() === false`) preserve `null` quantity without numeric fabrication, ensuring omission of `<Quantity>` in feed XML.
+- **Variable Product Non-Double Subtraction**: Individual variation stock is computed per variation; parent aggregate quantity sums variation quantities without double-subtracting reserves.
+- **Marketplace Pricing & Margin Modeling**: Added financial modeling (`Marketplace_Pricing`) computing gross selling price, net selling price, VAT amount, gross-basis marketplace commission, operational packaging and shipping fees, net revenue after fees, estimated profit, and estimated margin percentage.
+- **Fail-Closed Unknown Cost Handling**: When product acquisition cost (COGS) is missing or unconfigured, profitability status is reported as `insufficient_data` (`null`) instead of fabricating 0.
+- **Safety Gate Margin Threshold Warning**: Margin below threshold generates non-mutating warnings (`margin_below_threshold`) activating the feed publication safety gate without altering merchant selling prices.
+- **Hungarian Admin Strategy & Preview UI**: Dedicated preview screen under `Pepita → Készlet és árazás` (`wps-pepita-strategy`) with paginated product inspection, live simulation mode, price difference tracking, inventory buffer display, rule source tracing, and visual margin threshold alerts.
+- **Comprehensive Test Suite**: Added `tests/cases/230-marketplace-inventory-pricing-test.php` verifying all inventory, pricing, precedence, variable aggregation, and boundary conditions.
+
 ## Unreleased — M9-E Image Fallback & Product Issues
 
 ### Added & Hardened

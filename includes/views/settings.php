@@ -262,6 +262,89 @@ $checked = static function ( string $key ) use ( $settings ): string {
 			</table>
 		</div>
 
+		<div class="wps-card wps-card--wide" id="wps-strategy">
+			<h2><?php esc_html_e( 'Piactéri készlet- és árazási stratégia', 'wp-pepita-sync' ); ?></h2>
+
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Készletstratégia engedélyezése', 'wp-pepita-sync' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="wps[inventory_strategy_enabled]" value="1" <?php echo $checked( 'inventory_strategy_enabled' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
+							<?php esc_html_e( 'Készletbiztonsági szabályok alkalmazása a Pepita feedekben', 'wp-pepita-sync' ); ?>
+						</label>
+						<p class="description"><?php esc_html_e( 'Bekapcsolva a levont tartalékkészlet (buffer) és a maximális készletplafon érvényesül az exportált feedekben. A WooCommerce bolt belső készletnyilvántartása soha nem módosul.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="wps-inventory-buffer"><?php esc_html_e( 'Készlet biztonsági tartalék (buffer)', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<input type="number" min="0" max="999999" step="1" id="wps-inventory-buffer" name="wps[inventory_buffer]" value="<?php echo esc_attr( (string) $field( 'inventory_buffer' ) ); ?>" class="small-text" />
+						<span><?php esc_html_e( 'db', 'wp-pepita-sync' ); ?></span>
+						<p class="description"><?php esc_html_e( 'Ennyi darab levonásra kerül a WooCommerce készletből a feed generálásakor, megakadályozva a túladást más értékesítési csatornákon. Nem csökkenti a készletet 0 alá.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="wps-inventory-max-qty"><?php esc_html_e( 'Maximális készletplafon', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<input type="number" min="1" max="999999" step="1" id="wps-inventory-max-qty" name="wps[inventory_max_qty]" value="<?php echo esc_attr( (string) $field( 'inventory_max_qty' ) ); ?>" class="small-text" />
+						<span><?php esc_html_e( 'db', 'wp-pepita-sync' ); ?></span>
+						<p class="description"><?php esc_html_e( 'Opcionális. Legfeljebb ennyi készlet jelenhet meg a feedben termékenként. Üresen hagyva nincs felső korlát.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Árazási és haszonkulcs-stratégia', 'wp-pepita-sync' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="wps[pricing_strategy_enabled]" value="1" <?php echo $checked( 'pricing_strategy_enabled' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
+							<?php esc_html_e( 'Árrés-ellenőrzés és piactéri költségmodell alkalmazása', 'wp-pepita-sync' ); ?>
+						</label>
+						<p class="description"><?php esc_html_e( 'Bekapcsolva a plugin figyeli a piactéri jutalékokat, csomagolási és szállítási költségeket. Ha egy termék becsült árrése a minimális szint alá esik, figyelmeztetést generál a feedben és az előnézetben, aktiválva a közzétételi biztonsági kaput.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="wps-commission-percent"><?php esc_html_e( 'Piactéri jutalék százalék', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<input type="number" min="0" max="100" step="0.01" id="wps-commission-percent" name="wps[marketplace_commission_percent]" value="<?php echo esc_attr( (string) $field( 'marketplace_commission_percent' ) ); ?>" class="small-text" />
+						<span>%</span>
+						<p class="description"><?php esc_html_e( 'A Pepita bruttó jutalékának alapértelmezett százalékos értéke (pl. 12.5). Kategória és termék szinten felülírható.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="wps-commission-fixed"><?php esc_html_e( 'Fix tranzakciós jutalék', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<input type="number" min="0" step="0.01" id="wps-commission-fixed" name="wps[marketplace_commission_fixed]" value="<?php echo esc_attr( (string) $field( 'marketplace_commission_fixed' ) ); ?>" class="small-text" />
+						<span>Ft</span>
+						<p class="description"><?php esc_html_e( 'Rendelésenkénti / tételenkénti fix jutalék vagy tranzakciós díj. Alapértelmezésben 0.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="wps-packaging-cost"><?php esc_html_e( 'Csomagolási költség', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<input type="number" min="0" step="0.01" id="wps-packaging-cost" name="wps[marketplace_packaging_cost]" value="<?php echo esc_attr( (string) $field( 'marketplace_packaging_cost' ) ); ?>" class="small-text" />
+						<span>Ft</span>
+						<p class="description"><?php esc_html_e( 'Becsült csomagolóanyag és dobozköltség tételenként.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="wps-shipping-cost"><?php esc_html_e( 'Becsült szállítási költség', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<input type="number" min="0" step="0.01" id="wps-shipping-cost" name="wps[marketplace_shipping_cost]" value="<?php echo esc_attr( (string) $field( 'marketplace_shipping_cost' ) ); ?>" class="small-text" />
+						<span>Ft</span>
+						<p class="description"><?php esc_html_e( 'A kereskedő által viselt szállítási önköltség. Ha a vevő fizeti a teljes szállítást, 0-ra állítható.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="wps-min-margin"><?php esc_html_e( 'Elvárt minimális haszonkulcs (árrés)', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<input type="number" min="0" max="100" step="0.01" id="wps-min-margin" name="wps[marketplace_min_margin_percent]" value="<?php echo esc_attr( (string) $field( 'marketplace_min_margin_percent' ) ); ?>" class="small-text" />
+						<span>%</span>
+						<p class="description"><?php esc_html_e( 'Minimális elvárt nettó árrés [(nettó bevétel díjak után - beszerzési ár) / nettó ár * 100]. Ennél alacsonyabb árrés esetén a termék figyelmeztetést kap.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+			</table>
+		</div>
+
 		<div class="wps-card wps-card--wide" id="wps-shipping">
 			<h2><?php esc_html_e( 'Szállítás és garancia', 'wp-pepita-sync' ); ?></h2>
 

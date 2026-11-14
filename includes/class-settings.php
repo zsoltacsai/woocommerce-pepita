@@ -101,6 +101,17 @@ final class Settings {
 			'offpeak_start_hour'       => 1,
 			'offpeak_end_hour'         => 5,
 
+			// Marketplace Inventory & Pricing Strategy (M9-H).
+			'inventory_strategy_enabled'     => false,
+			'inventory_buffer'               => 0,
+			'inventory_max_qty'              => null,
+			'pricing_strategy_enabled'       => false,
+			'marketplace_commission_percent' => 0.0,
+			'marketplace_commission_fixed'   => 0.0,
+			'marketplace_packaging_cost'     => 0.0,
+			'marketplace_shipping_cost'      => 0.0,
+			'marketplace_min_margin_percent' => 0.0,
+
 			// Order API.
 			'order_api_enabled'        => true,
 			'order_api_key'            => '',
@@ -416,6 +427,8 @@ final class Settings {
 			'feed_alert_email_enabled',
 			'feed_alert_webhook_enabled',
 			'offpeak_schedule_enabled',
+			'inventory_strategy_enabled',
+			'pricing_strategy_enabled',
 		);
 
 		$ints = array(
@@ -438,11 +451,17 @@ final class Settings {
 			'max_category_paths'    => array( 1, 20 ),
 			'max_gallery_images'    => array( 0, 50 ),
 			'shipping_delay'        => array( 0, 60 ),
+			'inventory_buffer'      => array( 0, 999999 ),
 		);
 
 		$floats = array(
-			'vat_fixed'              => array( 0.0, 100.0 ),
-			'price_adjustment_value' => array( -1000000000.0, 1000000000.0 ),
+			'vat_fixed'                      => array( 0.0, 100.0 ),
+			'price_adjustment_value'         => array( -1000000000.0, 1000000000.0 ),
+			'marketplace_commission_percent' => array( 0.0, 100.0 ),
+			'marketplace_commission_fixed'   => array( 0.0, 1000000000.0 ),
+			'marketplace_packaging_cost'     => array( 0.0, 1000000000.0 ),
+			'marketplace_shipping_cost'      => array( 0.0, 1000000000.0 ),
+			'marketplace_min_margin_percent' => array( 0.0, 100.0 ),
 		);
 
 		$enums = array(
@@ -534,6 +553,15 @@ final class Settings {
 
 				case 'attribute_name_map':
 					$output[ $key ] = self::sanitize_attribute_name_map( $value );
+					break;
+
+				case 'inventory_max_qty':
+					if ( '' === (string) $value || null === $value ) {
+						$output[ $key ] = null;
+					} else {
+						$n = (int) $value;
+						$output[ $key ] = $n > 0 ? min( 999999, $n ) : null;
+					}
 					break;
 
 				default:

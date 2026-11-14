@@ -189,6 +189,38 @@ final class Product_Metabox {
 			</p>
 
 			<p class="wps-metabox__row">
+				<label for="wps-inventory-buffer"><?php esc_html_e( 'Készlet tartalék (buffer)', 'wp-pepita-sync' ); ?></label>
+				<input type="number" min="0" step="1" id="wps-inventory-buffer" name="wps_inventory_buffer" class="widefat" value="<?php echo esc_attr( $meta( \WPS\Pepita\Catalog\Marketplace_Inventory::META_BUFFER ) ); ?>" placeholder="<?php echo esc_attr( (string) Settings::get( 'inventory_buffer', 0 ) ); ?>" />
+			</p>
+
+			<p class="wps-metabox__row">
+				<label for="wps-inventory-max-qty"><?php esc_html_e( 'Maximális készletplafon', 'wp-pepita-sync' ); ?></label>
+				<input type="number" min="1" step="1" id="wps-inventory-max-qty" name="wps_inventory_max_qty" class="widefat" value="<?php echo esc_attr( $meta( \WPS\Pepita\Catalog\Marketplace_Inventory::META_MAX_QTY ) ); ?>" placeholder="<?php echo esc_attr( (string) Settings::get( 'inventory_max_qty', '' ) ); ?>" />
+			</p>
+
+			<p class="wps-metabox__row">
+				<label>
+					<input type="checkbox" name="wps_inventory_disabled" value="yes" <?php checked( $meta( \WPS\Pepita\Catalog\Marketplace_Inventory::META_DISABLED ), 'yes' ); ?> />
+					<?php esc_html_e( 'Készletstratégia mellőzése ennél a terméknél', 'wp-pepita-sync' ); ?>
+				</label>
+			</p>
+
+			<p class="wps-metabox__row">
+				<label for="wps-cost-price"><?php esc_html_e( 'Beszerzési ár (COGS)', 'wp-pepita-sync' ); ?></label>
+				<input type="number" min="0" step="0.01" id="wps-cost-price" name="wps_cost_price" class="widefat" value="<?php echo esc_attr( $meta( \WPS\Pepita\Catalog\Marketplace_Pricing::META_COST_PRICE ) ); ?>" placeholder="Ft" />
+			</p>
+
+			<p class="wps-metabox__row">
+				<label for="wps-commission-percent"><?php esc_html_e( 'Egyedi jutalék (%)', 'wp-pepita-sync' ); ?></label>
+				<input type="number" min="0" max="100" step="0.01" id="wps-commission-percent" name="wps_commission_percent" class="widefat" value="<?php echo esc_attr( $meta( \WPS\Pepita\Catalog\Marketplace_Pricing::META_COMMISSION_PERCENT ) ); ?>" placeholder="<?php echo esc_attr( (string) Settings::get( 'marketplace_commission_percent', 0.0 ) ); ?>" />
+			</p>
+
+			<p class="wps-metabox__row">
+				<label for="wps-min-margin"><?php esc_html_e( 'Minimális elvárt árrés (%)', 'wp-pepita-sync' ); ?></label>
+				<input type="number" min="0" max="100" step="0.01" id="wps-min-margin" name="wps_min_margin" class="widefat" value="<?php echo esc_attr( $meta( \WPS\Pepita\Catalog\Marketplace_Pricing::META_MIN_MARGIN ) ); ?>" placeholder="<?php echo esc_attr( (string) Settings::get( 'marketplace_min_margin_percent', '' ) ); ?>" />
+			</p>
+
+			<p class="wps-metabox__row">
 				<label for="wps-title-override"><?php esc_html_e( 'Pepita terméknév felülírása', 'wp-pepita-sync' ); ?></label>
 				<textarea id="wps-title-override" name="wps_title_override" class="widefat" rows="2"><?php echo esc_textarea( $meta( Product_Mapper::META_TITLE_OVERRIDE ) ); ?></textarea>
 			</p>
@@ -266,6 +298,12 @@ final class Product_Metabox {
 			'wps_shipping_delay'          => Product_Mapper::META_SHIPPING_DELAY,
 			'wps_price_adjustment_type'   => Product_Mapper::META_PRICE_TYPE,
 			'wps_price_adjustment_value'  => Product_Mapper::META_PRICE_VALUE,
+			'wps_inventory_buffer'        => \WPS\Pepita\Catalog\Marketplace_Inventory::META_BUFFER,
+			'wps_inventory_max_qty'       => \WPS\Pepita\Catalog\Marketplace_Inventory::META_MAX_QTY,
+			'wps_inventory_disabled'      => \WPS\Pepita\Catalog\Marketplace_Inventory::META_DISABLED,
+			'wps_cost_price'              => \WPS\Pepita\Catalog\Marketplace_Pricing::META_COST_PRICE,
+			'wps_commission_percent'      => \WPS\Pepita\Catalog\Marketplace_Pricing::META_COMMISSION_PERCENT,
+			'wps_min_margin'              => \WPS\Pepita\Catalog\Marketplace_Pricing::META_MIN_MARGIN,
 			'wps_title_override'          => Product_Mapper::META_TITLE_OVERRIDE,
 			'wps_description_override'    => Product_Mapper::META_DESCRIPTION_OVERRIDE,
 		);
@@ -300,6 +338,48 @@ final class Product_Metabox {
 
 			if ( 'wps_price_adjustment_type' === $field && ! in_array( $value, array( 'none', 'fixed', 'percent' ), true ) ) {
 				delete_post_meta( $post_id, $meta_key );
+
+				continue;
+			}
+
+			if ( 'wps_inventory_disabled' === $field ) {
+				if ( 'yes' === $value ) {
+					update_post_meta( $post_id, $meta_key, 'yes' );
+				} else {
+					delete_post_meta( $post_id, $meta_key );
+				}
+
+				continue;
+			}
+
+			if ( in_array( $field, array( 'wps_inventory_buffer', 'wps_inventory_max_qty' ), true ) ) {
+				$value = trim( $value );
+				if ( '' !== $value ) {
+					$val = (int) $value;
+					if ( $val >= 0 ) {
+						update_post_meta( $post_id, $meta_key, $val );
+					} else {
+						delete_post_meta( $post_id, $meta_key );
+					}
+				} else {
+					delete_post_meta( $post_id, $meta_key );
+				}
+
+				continue;
+			}
+
+			if ( in_array( $field, array( 'wps_cost_price', 'wps_commission_percent', 'wps_min_margin' ), true ) ) {
+				$value = trim( $value );
+				if ( '' !== $value ) {
+					$val = (float) str_replace( ',', '.', $value );
+					if ( $val >= 0.0 ) {
+						update_post_meta( $post_id, $meta_key, $val );
+					} else {
+						delete_post_meta( $post_id, $meta_key );
+					}
+				} else {
+					delete_post_meta( $post_id, $meta_key );
+				}
 
 				continue;
 			}

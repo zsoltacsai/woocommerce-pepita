@@ -297,6 +297,42 @@ final class Category_Rules {
 			update_term_meta( $term_id, self::META_SHIPPING_DELAY, max( 0, (int) $delay ) );
 		}
 
+		if ( array_key_exists( 'inventory_buffer', $data ) ) {
+			$buf = trim( (string) $data['inventory_buffer'] );
+			if ( '' === $buf ) {
+				delete_term_meta( $term_id, Marketplace_Inventory::TERM_META_BUFFER );
+			} else {
+				update_term_meta( $term_id, Marketplace_Inventory::TERM_META_BUFFER, max( 0, (int) $buf ) );
+			}
+		}
+
+		if ( array_key_exists( 'inventory_max_qty', $data ) ) {
+			$max = trim( (string) $data['inventory_max_qty'] );
+			if ( '' === $max ) {
+				delete_term_meta( $term_id, Marketplace_Inventory::TERM_META_MAX_QTY );
+			} else {
+				update_term_meta( $term_id, Marketplace_Inventory::TERM_META_MAX_QTY, max( 1, (int) $max ) );
+			}
+		}
+
+		if ( array_key_exists( 'commission_percent', $data ) ) {
+			$comm = trim( (string) $data['commission_percent'] );
+			if ( '' === $comm ) {
+				delete_term_meta( $term_id, Marketplace_Pricing::TERM_META_COMMISSION_PERCENT );
+			} else {
+				update_term_meta( $term_id, Marketplace_Pricing::TERM_META_COMMISSION_PERCENT, max( 0.0, (float) str_replace( ',', '.', $comm ) ) );
+			}
+		}
+
+		if ( array_key_exists( 'min_margin', $data ) ) {
+			$mgn = trim( (string) $data['min_margin'] );
+			if ( '' === $mgn ) {
+				delete_term_meta( $term_id, Marketplace_Pricing::TERM_META_MIN_MARGIN );
+			} else {
+				update_term_meta( $term_id, Marketplace_Pricing::TERM_META_MIN_MARGIN, max( 0.0, (float) str_replace( ',', '.', $mgn ) ) );
+			}
+		}
+
 		self::clear_cache();
 	}
 
