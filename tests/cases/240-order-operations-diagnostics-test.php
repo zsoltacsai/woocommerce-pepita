@@ -54,7 +54,7 @@ $make_payload = static function ( array $overrides = array() ): array {
 		'status'                        => 'NEW',
 		'total_shipping_price'          => 1290,
 		'total_shipping_price_currency' => 'HUF',
-		'voucher'                       => 'DISCOUNT10',
+		'voucher'                       => 0,
 		'delivery_mod'                  => 'gls',
 		'customer'                      => array(
 			'email'                 => 'janos.kovacs@example.test',
