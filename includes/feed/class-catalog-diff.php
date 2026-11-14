@@ -40,7 +40,7 @@ final class Catalog_Diff {
 		$max_price_spikes       = (int) ( $options['max_price_spikes'] ?? Settings::get( 'feed_safety_max_price_spikes', 10 ) );
 		$max_quality_exclusions = (int) ( $options['max_quality_exclusions'] ?? Settings::get( 'feed_safety_max_quality_exclusions', 50 ) );
 		$require_approval       = (bool) ( $options['require_approval'] ?? Settings::get( 'feed_safety_require_approval', false ) );
-		$sample_limit           = max( 5, (int) ( $options['sample_limit'] ?? 50 ) );
+		$sample_limit           = min( 50, max( 5, (int) ( $options['sample_limit'] ?? 50 ) ) );
 
 		$has_current  = is_file( $current_path ) && filesize( $current_path ) > 0;
 		$has_previous = is_file( $previous_path ) && filesize( $previous_path ) > 0;

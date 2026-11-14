@@ -490,21 +490,32 @@ $suite->add(
 $suite->add(
 	'scheduler: in-progress batch continuation runs even outside offpeak window',
 	static function (): void {
+		$current_hour = (int) current_time( 'G' );
+		$window_start = ( $current_hour + 2 ) % 24;
+		$window_end   = ( $current_hour + 4 ) % 24;
+
 		Settings::update(
 			array(
 				'offpeak_schedule_enabled' => true,
-				'offpeak_start_hour'       => 1,
-				'offpeak_end_hour'         => 5,
+				'offpeak_start_hour'       => $window_start,
+				'offpeak_end_hour'         => $window_end,
 			)
 		);
 
-		// Simulate current time outside window (12:00)
-		$t_1200 = strtotime( '2026-11-14 12:00:00' );
-		WPS_Assert::false( Scheduler::is_in_offpeak_window( $t_1200 ) );
+		WPS_Assert::false( Scheduler::is_in_offpeak_window() );
 
-		// When no continuation state exists, Scheduler::run(TYPE_FULL) defers
+		// Clear any existing queue
 		delete_option( 'wps_pepita_generation_full' );
-		// When continuation state exists, it is recognized as continuation
+		wp_clear_scheduled_hook( Scheduler::HOOK_QUEUE_FULL );
+
+		// When called outside offpeak window without continuation, run_full() defers and reschedules
+		( new Scheduler() )->run_full();
+
+		$has_rescheduled = ( false !== wp_next_scheduled( Scheduler::HOOK_QUEUE_FULL ) )
+			|| ( function_exists( 'as_has_scheduled_action' ) && as_has_scheduled_action( Scheduler::HOOK_QUEUE_FULL, array(), Scheduler::GROUP ) );
+		WPS_Assert::true( $has_rescheduled, 'Deferral must reschedule HOOK_QUEUE_FULL' );
+
+		// When in-progress continuation state exists, option is recognized
 		update_option(
 			'wps_pepita_generation_full',
 			array(
@@ -519,5 +530,6 @@ $suite->add(
 		WPS_Assert::true( $is_cont, 'In-progress state option must be recognized' );
 
 		delete_option( 'wps_pepita_generation_full' );
+		wp_clear_scheduled_hook( Scheduler::HOOK_QUEUE_FULL );
 	}
 );
