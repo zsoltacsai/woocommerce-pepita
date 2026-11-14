@@ -27,4 +27,4 @@ A pontszám ne legyen feedvalidációs vagy termékkizárási döntés bemenete.
 
 ## Még nem igazolt követelmények / folytatás
 
-Márka, gyártó, attribútumok, szállítás és kategóriaspecifikus kötelező mezők csak ellenőrzött Pepita specifikációval tehetők blokkolóvá. A teljes katalógust szinkron végigjáró admin issue-lekérdezés még nem skálázható; M9-F további munkája ezt háttérben frissülő vagy bounded indexelésre cseréli, az index frissességének és előrehaladásának egyértelmű jelzésével.
+Márka, gyártó, attribútumok, szállítás és kategóriaspecifikus kötelező mezők csak ellenőrzött Pepita specifikációval tehetők blokkolóvá. Az issue-admin lekérdezés M9-F első korrekciójában maximum 50 terméket olvas és ellenőriz kérésenként; a felület jelzi az oldalon ellenőrzött és a keresésben szereplő termékek számát, és katalógusoldalakon lehet végiglapozni. Ez bounded, de nem háttérindex: az egyes oldalak külön időpontban készülnek, ezért változó katalógus mellett nem jelent tranzakciós snapshotot. Egy későbbi aszinkron index frissességi állapottal még vizsgálandó.

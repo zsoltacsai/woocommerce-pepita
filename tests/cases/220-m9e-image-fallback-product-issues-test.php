@@ -818,6 +818,36 @@ $suite->add(
 	}
 );
 
+$suite->add(
+	'm9f product issue admin query: scans a bounded product page and reports catalog progress accurately',
+	static function (): void {
+		WPS_Test_State::reset();
+		Settings::update( array( 'default_included' => true ) );
+		foreach ( array( 7101, 7102, 7103 ) as $product_id ) {
+			WPS_Test_State::add_product(
+				array(
+					'id'          => $product_id,
+					'name'        => 'Issue product ' . $product_id,
+					'description' => 'Description',
+					'price'       => 1000,
+				)
+			);
+		}
+
+		$first_page = Product_Issues::query( array( 'page' => 1, 'per_page' => 1 ) );
+		WPS_Assert::same( true, $first_page['available'] );
+		WPS_Assert::same( 1, $first_page['scanned'] );
+		WPS_Assert::same( 3, $first_page['total_products'] );
+		WPS_Assert::same( 3, $first_page['pages'] );
+		WPS_Assert::same( 1, count( $first_page['items'] ) );
+		WPS_Assert::same( 7103, $first_page['items'][0]['product_id'] );
+
+		$second_page = Product_Issues::query( array( 'page' => 2, 'per_page' => 1 ) );
+		WPS_Assert::same( 1, $second_page['scanned'] );
+		WPS_Assert::same( 7102, $second_page['items'][0]['product_id'] );
+	}
+);
+
 /* =========================================================================
  * 6. FN-DECO 269 Baseline Acceptance: 28 Excluded, 241 Exported, #9897 Verified
  * ========================================================================= */

@@ -82,11 +82,25 @@ $show_quality_score = (bool) Settings::get( 'show_internal_quality_score', false
 		<a class="button" href="<?php echo esc_url( add_query_arg( 'wps_refresh', '1', admin_url( 'admin.php?page=wps-pepita-product-issues' ) ) ); ?>" style="margin-left: auto;"><?php esc_html_e( 'Adatok frissítése', 'wp-pepita-sync' ); ?></a>
 	</form>
 
-	<div class="wps-bulk-bar">
-		<span class="wps-bulk-count">
-			<?php echo esc_html( sprintf( /* translators: %d: product count */ __( '%d hibás / figyelmeztetéses termék található', 'wp-pepita-sync' ), $result['total'] ) ); ?>
-		</span>
-	</div>
+	<?php if ( ! empty( $result['available'] ) ) : ?>
+		<div class="wps-bulk-bar">
+			<span class="wps-bulk-count">
+				<?php
+				echo esc_html(
+					sprintf(
+						/* translators: 1: products checked on page, 2: issue products found on page, 3: total products matching the search */
+						__( 'Ezen az oldalon %1$d terméket vizsgáltunk, ebből %2$d problémás. A keresés összesen %3$d terméket tartalmaz; lapozzon a teljes katalógus áttekintéséhez.', 'wp-pepita-sync' ),
+						(int) $result['scanned'],
+						(int) $result['total'],
+						(int) $result['total_products']
+					)
+				);
+				?>
+			</span>
+		</div>
+	<?php else : ?>
+		<div class="notice notice-error"><p><?php esc_html_e( 'A termékkatalógus lekérdezése nem volt elérhető, ezért a hibás termékek eredménye ismeretlen. Próbálja újra később.', 'wp-pepita-sync' ); ?></p></div>
+	<?php endif; ?>
 
 	<table class="widefat striped wps-table">
 		<thead>
@@ -103,10 +117,10 @@ $show_quality_score = (bool) Settings::get( 'show_internal_quality_score', false
 			</tr>
 		</thead>
 		<tbody>
-			<?php if ( array() === $result['items'] ) : ?>
+			<?php if ( empty( $result['available'] ) || array() === $result['items'] ) : ?>
 				<tr>
 					<td colspan="9" style="text-align: center; padding: 24px;">
-						<em><?php esc_html_e( 'Nincs a szűrésnek megfelelő hibás termék a katalógusban.', 'wp-pepita-sync' ); ?></em>
+						<em><?php esc_html_e( 'Ezen az oldalán nincs megjeleníthető találat. A teljes katalógushoz lapozzon végig a termékoldalakon.', 'wp-pepita-sync' ); ?></em>
 					</td>
 				</tr>
 			<?php endif; ?>

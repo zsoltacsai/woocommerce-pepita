@@ -386,29 +386,37 @@ final class Product_Issues {
 	 * Query products with issues supporting filtering, search, and pagination.
 	 *
 	 * @param array<string, mixed> $filters
-	 * @return array{items: array<int, array<string, mixed>>, total: int, pages: int}
+	 * @return array{available: bool, items: array<int, array<string, mixed>>, total: int, scanned: int, total_products: int, page: int, per_page: int, pages: int}
 	 */
 	public static function query( array $filters ): array {
 		$search      = trim( (string) ( $filters['search'] ?? '' ) );
 		$issue_type  = (string) ( $filters['issue_type'] ?? 'all' );
 		$feed_filter = (string) ( $filters['feed_status'] ?? 'all' );
-		$per_page    = max( 1, min( 100, (int) ( $filters['per_page'] ?? 25 ) ) );
+		$per_page    = max( 1, min( 50, (int) ( $filters['per_page'] ?? 25 ) ) );
 		$page        = max( 1, (int) ( $filters['page'] ?? 1 ) );
 
 		$query_args = array(
-			'limit'   => -1,
-			'status'  => Settings::allowed_product_statuses(),
-			'orderby' => 'ID',
-			'order'   => 'DESC',
-			'return'  => 'ids',
+			'limit'    => $per_page,
+			'page'     => $page,
+			'paginate' => true,
+			'status'   => Settings::allowed_product_statuses(),
+			'orderby'  => 'ID',
+			'order'    => 'DESC',
+			'return'   => 'ids',
 		);
 
 		if ( '' !== $search ) {
 			$query_args['s'] = $search;
 		}
 
-		$all_ids = function_exists( 'wc_get_products' ) ? wc_get_products( $query_args ) : array();
-		$all_ids = is_array( $all_ids ) ? array_map( 'intval', $all_ids ) : array();
+		$product_page  = function_exists( 'wc_get_products' ) ? wc_get_products( $query_args ) : array();
+		$query_available = is_object( $product_page ) && isset( $product_page->products ) && is_array( $product_page->products ) && isset( $product_page->total );
+		$all_ids       = $query_available
+			? array_map( 'intval', $product_page->products )
+			: array();
+		$total_products = $query_available
+			? max( 0, (int) $product_page->total )
+			: 0;
 
 		$matched_items = array();
 
@@ -474,14 +482,17 @@ final class Product_Issues {
 			);
 		}
 
-		$total = count( $matched_items );
-		$pages = max( 1, (int) ceil( $total / $per_page ) );
-		$slice = array_slice( $matched_items, ( $page - 1 ) * $per_page, $per_page );
+		$pages = max( 1, (int) ceil( $total_products / $per_page ) );
 
 		return array(
-			'items' => $slice,
-			'total' => $total,
-			'pages' => $pages,
+			'available'      => $query_available,
+			'items'          => $matched_items,
+			'total'          => count( $matched_items ),
+			'scanned'        => count( $all_ids ),
+			'total_products' => $total_products,
+			'page'           => $page,
+			'per_page'       => $per_page,
+			'pages'          => $pages,
 		);
 	}
 
