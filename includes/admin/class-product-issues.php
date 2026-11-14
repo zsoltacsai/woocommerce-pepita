@@ -406,10 +406,15 @@ final class Product_Issues {
 		);
 
 		if ( '' !== $search ) {
+			$sku_id = function_exists( 'wc_get_product_id_by_sku' ) ? (int) wc_get_product_id_by_sku( $search ) : 0;
+
 			if ( ctype_digit( $search ) ) {
 				// Numeric searches are treated as exact product IDs; WooCommerce's `s`
 				// search covers titles and SKUs but does not promise post-ID matching.
 				$query_args['include'] = array( (int) $search );
+			} elseif ( $sku_id > 0 ) {
+				// Guarantee exact SKU lookup independently of datastore text-search behavior.
+				$query_args['include'] = array( $sku_id );
 			} else {
 				$query_args['s'] = $search;
 			}

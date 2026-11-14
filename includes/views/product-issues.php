@@ -53,7 +53,7 @@ $show_quality_score = (bool) Settings::get( 'show_internal_quality_score', false
 	<form method="get" action="<?php echo esc_url( admin_url( 'admin.php' ) ); ?>" class="wps-filters">
 		<input type="hidden" name="page" value="wps-pepita-product-issues" />
 
-		<input type="search" name="s" value="<?php echo esc_attr( $filters['search'] ); ?>" placeholder="<?php esc_attr_e( 'Név, SKU vagy ID…', 'wp-pepita-sync' ); ?>" />
+		<input type="search" name="s" value="<?php echo esc_attr( $filters['search'] ); ?>" placeholder="<?php esc_attr_e( 'Név, pontos SKU vagy ID…', 'wp-pepita-sync' ); ?>" />
 
 		<select name="issue_type">
 			<option value="all" <?php selected( $filters['issue_type'], 'all' ); ?>><?php esc_html_e( 'Minden hibatípus', 'wp-pepita-sync' ); ?></option>
