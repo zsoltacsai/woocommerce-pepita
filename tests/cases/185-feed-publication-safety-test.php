@@ -474,8 +474,8 @@ $suite->add(
 		$state = get_option( 'wps_pepita_feed_state_full' );
 		WPS_Assert::same( 'gen-v2-valid', $state['generation_id'] );
 		WPS_Assert::same( 'sig-v2-valid', $state['signature'] );
-		WPS_Assert::same( 42, $state['counters']['exported'] );
-		WPS_Assert::null( $state['last_error'] );
+		WPS_Assert::same( 42, $state['attempt_counts']['exported'] );
+		WPS_Assert::same( '', $state['last_error'] );
 
 		// Verify live active pointer moved to gen-v2-valid
 		$ptr = Storage::read_pointer();
