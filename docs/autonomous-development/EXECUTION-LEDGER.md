@@ -116,3 +116,27 @@ Az M9-E ág legfrissebb HEAD-jére teljes CI, majd külön Integration QA és Ap
 - Megerősítő exact CI run `43588942291` az `f80241820ad868340430e2c81c3b28fbbc6e6daa` HEAD-en: **SUCCESS** (8/8 aktív job PASS; PHP 8.1–8.5 unit 284/job, lint és 5 időzónás reprodukálható ZIP, HPOS és legacy integráció; RR20 SKIPPED).
 - Független re-check Integration QA (Claude Opus 5.5, high effort): **PASS**, B1/F1 és A2 javítását igazolta.
 - Ezzel az M9-F minden korábbi hiányossága és review-megállapítása javítva; az M9-F mérföldkő repository- és CI-kapui lezárva (PASS). Nincs staging vagy éles telepítés/merge.
+
+### M9-G Feedvezérlés, Előnézet és Monitoring fejlesztés és lezárás — 2026-11-14
+
+- **Implementáció és architektúra (M9-G.1–M9-G.4)**:
+  - `Catalog_Diff` és `Catalog_Index` korlátos memóriájú streaming összehasonlítással (`includes/feed/class-catalog-diff.php`): nem tárol neveket és variációs fát a memóriában; `crc32` variációs identitás-ellenőrzőösszeget használ; a felületi mintákhoz (max. 50 elem) igény szerint fájlpozíció (`pos`) alapján olvassa a lemezről a termékneveket és cikkszámokat.
+  - Kategóriaváltozás detektálás (`$prev_cat !== $curr_cat`) üres és hozzárendelt kategóriák közötti átmenetekre is.
+  - Publikációs biztonsági kapu és jóváhagyási munkafolyamat (`Storage::stage_full()`, `approve_staged_full()`, `discard_staged_full()`):
+    - Kockázatos eltérések vagy figyelmeztetések esetén (`feed_safety_require_approval`) a feed staged állapotba kerül, megőrizve az éles feed zavartalan kiszolgálását.
+    - **Atomikus rollback-védelem:** A `publish_full()` a kizárólagos tárhely-zár (`acquire_lock()`) alatt ellenőrzi az elvárt bázisgenerációt (`expected_base_gen`), kiküszöbölve a versenyhelyzeteket.
+    - A jóváhagyás azonnal készletfeed-újragenerálást ütemez (`Scheduler::queue(TYPE_STOCK)`).
+    - Normál publikáció automatikusan eltakarítja az elavult staged feedeket.
+  - Szigorúan SSRF-védett telemetria webhook (`wp_safe_remote_post`): RFC 1918, RFC 3927 (169.254/16), RFC 6598 (100.64/10), IPv6 loopback és belső tartományok tiltása; `reject_unsafe_urls => true`, `redirection => 0`, `blocking => false`; csak hosztnév naplózása, érzékeny tokenek kizárva. E-mail riasztás `wp_mail`-en keresztül.
+  - Off-peak ütemezés (`offpeak_schedule_enabled`): ablakon kívüli teljes feed generálás elhalasztása és átütemezése; a folyamatban lévő kötegek (`wps_pepita_generation_full`) és a készletfeed korlátozásmentes futása.
+  - Magyar adminisztrációs felület a Feeds és Settings oldalakon, `manage_woocommerce` jogosultság-ellenőrzéssel és CSRF token védelemmel (`_wpnonce`).
+- **Build és reprodukálhatóság**:
+  - Release epoch: `1794658800`.
+  - Csomag: `dist/wp-pepita-sync.zip` (62 fájl), SHA-256: `a6d8d16a7a81edc50b1c6a308dced1d7556cdd2db8ce58d11ed98b913c94f0bb`.
+  - 5 időzónás tiszta újraépítés (`verify-reproducible.sh`): **PASS** (100% determinisztikus és bitről-bitre egyező).
+- **Független felülvizsgálatok**:
+  - **AppSec Review**: **PASS** (Claude Sonnet 5.5, high effort). SSRF védelem, atomikus publikációs lock, CSRF és jogosultság-ellenőrzések igazolva, blokkoló hiba nincs.
+  - **Integration QA Review**: **PASS** (OpenAI gpt-6.1-sol). Streaming memóriakezelés, rollback guard atomicitás, scheduler folytatás és tesztfedettség igazolva.
+- **CI Ellenőrzés**:
+  - Workflow run `43594104082` és `43594400155`: mind a 8 kötelező job **PASS** (lint, unit PHP 8.1–8.5 296/job, integration-hpos, integration-legacy; RR20 experimental skipped).
+- **Státusz**: M9-G mérföldkő repository- és CI-kapui lezárva (**PASS**). PR #13 Draftként megőrizve a stackben; nincs merge vagy éles telepítés.

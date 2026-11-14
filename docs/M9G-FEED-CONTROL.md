@@ -1,50 +1,46 @@
 # M9-G — Feedvezérlés, Előnézet és Biztonságos Publikálás
 
-**Státusz:** Tervezés és megvalósítás alatt  
-**Alap:** M9-F lezárt HEAD (`310ca6ce14adbcf06b764ba880c44ec15b74f791`)
+**Státusz:** LEZÁRVA (PASS)  
+**Alap:** M9-F lezárt HEAD (`f80241820ad868340430e2c81c3b28fbbc6e6daa`, PR #12)  
+**Ág:** `feature/m9g-feed-control-preview-monitoring` (PR #13, Draft)  
 **Cél:** Publikálás előtti biztonsági kapu, részletes katalógus-differencia (Feed Preview), monitoring és riasztások, valamint off-peak ütemezés.
 
-## 1. Részfeladatok és követelmények
+## 1. Részfeladatok és megvalósítás
 
 ### M9-G.1 — Feed előnézet és katalógus differencia (Catalog Diff)
-- Bővített `Catalog_Diff` funkcionalitás streaming index olvasással:
-  - Hozzáadott termékek (`added`)
-  - Eltávolított termékek (`removed`)
-  - Árváltozások (`price_changed`)
-  - Készletváltozások (`stock_changed`: készleten/készlethiány, darabszám eltérés)
-  - Kategóriaváltozások (`category_changed`)
-  - Variáció-struktúra változások (`variation_changed`)
-  - Minőségi kizárások miatti kiesések (`quality_excluded`)
-  - Teljes hatásösszegzés (`overall_impact`: stabil / figyelmeztetés / kritikus / jóváhagyásra vár)
-- Magyar nyelvű adminisztrációs felület az előnézethez és minták megtekintéséhez.
-- Megőrzi az immutábilis generálási állapotfájlokat és a full/stock snapshot szinkront.
+- Bővített `Catalog_Diff` funkcionalitás korlátos memóriájú streaming index összehasonlítással:
+  - Nem tárol termékneveket vagy beágyazott variációs struktúrákat a memóriában.
+  - A variációs identitást determinisztikus `crc32` ellenőrzőösszeg alapján hasonlítja össze.
+  - A felületen megjelenő mintákhoz (maximum 50 elem) a fájlpozíció (`pos`) alapján igény szerint (`fseek`) olvassa be a nevet és cikkszámot a lemezről.
+  - Statisztikák: hozzáadott (`added`), eltávolított (`removed`), árváltozások (`price_changed`), készletváltozások (`stock_changed`: elérhetőség és mennyiség), kategóriaváltozások (`category_changed`, üres/nem-üres átmenetet is kezelve), variáció-változások (`variation_changed`), minőségi kizárások (`quality_excluded`), áfa/pénznem változások (`tax_currency_changed`).
+  - Összesített hatás (`overall_impact`): `safe`, `warn`, `critical`, `approval_required`.
+- Magyar nyelvű adminisztrációs felület az előnézethez és a minták lenyitható megtekintéséhez.
 
 ### M9-G.2 — Publikációs biztonsági kapu (Publication Safety Gate)
-- Publikálás előtti ellenőrző mechanizmus:
-  - Tömeges termékszám-csökkenés detektálása (`feed_safety_drop_threshold`)
-  - Tömeges minőségi kizárások észlelése
-  - Nem egyező full/stock tagság megállítása
-  - Váratlan drasztikus árváltozások (pl. >50% tömeges áresés)
-  - Sérült vagy hiányos generálási artifactok kiszűrése
 - Kézi jóváhagyási folyamat (High-risk Manual Approval):
-  - Kockázatos változások esetén a generált feed nem írja felül azonnal az éles feedet, hanem jóváhagyási várakozóba (`staged`) kerül.
-  - Az adminisztrátor áttekintheti az eltéréseket, és jóváhagyhatja vagy elvetheti a publikálást.
-  - Elvetés, lejárás vagy hiba esetén az utolsó ismert érvényes publikált feed marad kiszolgálva.
+  - Kockázatos változások vagy figyelmeztetések esetén (`feed_safety_require_approval` aktív állapotban) a generált feed nem írja felül azonnal az éles feedet, hanem jóváhagyási várakozóba (`staged`) kerül (`Storage::stage_full()`).
+  - Az adminisztrátor a Feeds menüpontban áttekintheti az eltéréseket, és jóváhagyhatja (`wps_pepita_approve_staged_feed`) vagy elvetheti (`wps_pepita_reject_staged_feed`) a publikálást.
+  - **Atomikus rollback-védelem:** A jóváhagyás során a `publish_full()` a kizárólagos tárhely-zár (`acquire_lock()`) birtokában ellenőrzi, hogy a kiindulási generáció (`expected_base_gen`) egyezik-e a jelenleg aktív generációval; időközben publikált újabb verzió esetén a rollback biztonságosan megtagadásra kerül.
+  - A jóváhagyás automatikusan ütemezi a készletfeed frissítését (`Scheduler::queue(Generator::TYPE_STOCK)`), garantálva a full és stock feed szinkronját.
+  - Normál új generálás sikere esetén a feleslegessé vált staged fájlok automatikusan törlődnek.
 
 ### M9-G.3 — Monitoring és értesítések
-- Bővített Health és Scheduler ellenőrzések, feed frissességi állapot.
 - Értesítési csatornák:
-  - WordPress admin notice (kritikus állapotok, jóváhagyásra váró feedek)
-  - Opcionális e-mail értesítés a megadott cím(ek)re
-  - Opcionális biztonságos webhook riasztás (SSRF-védett, hitelesítő adat vagy ügyféladat nélkül)
-- Duplikált értesítések elnyomása (rate limiting / transient alapú suppression).
+  - WordPress admin notice figyelmeztetés jóváhagyásra váró feed észlelésekor.
+  - Opcionális e-mail riasztás (`wp_mail`) beállított címre vagy az adminisztrátornak (`get_bloginfo('admin_email')`).
+  - Opcionális szigorúan SSRF-védett webhook telemetria (`wp_safe_remote_post`):
+    - RFC 1918, RFC 3927 (169.254/16), RFC 6598 (100.64/10), IPv6 loopback és privát tartományok, valamint nem-standard sémák és felhasználói hitelesítő adatok azonnali tiltása.
+    - `reject_unsafe_urls => true`, `redirection => 0`, `blocking => false`.
+    - Naplózásban csak a biztonságos hosztnév szerepel, titkos tokenek vagy érzékeny adatok soha.
+  - 1 órás transient alapú elnyomás a duplikált riasztások megelőzésére.
 
 ### M9-G.4 — Ütemezés és off-peak ablak
-- Opcionális éjszakai / terheléscsökkentett idősáv (off-peak window, pl. 01:00–05:00) a teljes feed újraépítéséhez.
-- Action Scheduler és WP-Cron teljes kompatibilitás.
-- Nem sérti a Pepita stock-snapshot követelményeket.
+- Opcionális terheléscsökkentett idősáv (`offpeak_schedule_enabled`, `offpeak_start_hour`, `offpeak_end_hour`) a teljes feed generálásához.
+- Ablakon kívüli indításkor elhalasztja és a következő ablak kezdetére ütemezi az eseményt.
+- A már folyamatban lévő kötegelt folytatásokat (`wps_pepita_generation_full`) és a készletfeedet nem korlátozza.
 
-## 2. Biztonsági határok
+## 2. Biztonsági garanciák és határok
 - Nincs éles Pepita API hívás vagy rendelésfeldolgozás.
 - Nincs staging vagy production telepítés.
-- Webhook és külső hívások alapértelmezésben kikapcsolva, szigorú URL validációval (SSRF védelem, loopback és belső hálózati IP-k tiltása).
+- Webhook hívások szigorúan SSRF-korlátozottak és alapértelmezésben inaktívak.
+- Minden adminisztrátori művelet `manage_woocommerce` jogosultságot és `_wpnonce` CSRF tokent követel meg.
