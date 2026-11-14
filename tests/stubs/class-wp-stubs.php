@@ -915,6 +915,16 @@ function wp_set_post_terms( int $post_id, $terms, string $taxonomy = 'post_tag',
  * URLs, uploads, attachments
  * ---------------------------------------------------------------------- */
 
+function get_bloginfo( string $show = 'name', string $filter = 'raw' ): string {
+	if ( 'admin_email' === $show ) {
+		return 'admin@example.com';
+	}
+	if ( 'name' === $show ) {
+		return 'Test Store';
+	}
+	return '';
+}
+
 function home_url( string $path = '' ): string {
 	return rtrim( WPS_Test_State::$home_url, '/' ) . '/' . ltrim( $path, '/' );
 }
@@ -1236,6 +1246,11 @@ function is_email( string $email ): bool {
 	return false !== filter_var( $email, FILTER_VALIDATE_EMAIL );
 }
 
+function sanitize_email( string $email ): string {
+	$sanitized = filter_var( $email, FILTER_SANITIZE_EMAIL );
+	return false !== $sanitized ? (string) $sanitized : '';
+}
+
 function is_wp_error( $thing ): bool {
 	return $thing instanceof WP_Error;
 }
@@ -1431,4 +1446,48 @@ function disabled( $disabled, $current = true, bool $display = true ): string {
 	}
 
 	return $result;
+}
+
+function wp_mail( $to, string $subject, string $message, $headers = '', array $attachments = array() ): bool {
+	WPS_Test_State::$mails[] = array(
+		'to'      => (string) $to,
+		'subject' => $subject,
+		'message' => $message,
+	);
+
+	return true;
+}
+
+function wp_remote_post( string $url, array $args = array() ): array {
+	WPS_Test_State::$remote_posts[] = array(
+		'url'  => $url,
+		'args' => $args,
+	);
+
+	return array(
+		'response' => array( 'code' => 200, 'message' => 'OK' ),
+		'body'     => '{"success":true}',
+	);
+}
+
+function wp_safe_remote_post( string $url, array $args = array() ): array {
+	$args['reject_unsafe_urls'] = true;
+	return wp_remote_post( $url, $args );
+}
+
+function wp_http_validate_url( string $url ) {
+	if ( '' === $url ) {
+		return false;
+	}
+
+	$parts = wp_parse_url( $url );
+	if ( ! is_array( $parts ) || empty( $parts['host'] ) || empty( $parts['scheme'] ) ) {
+		return false;
+	}
+
+	if ( ! in_array( strtolower( (string) $parts['scheme'] ), array( 'http', 'https' ), true ) ) {
+		return false;
+	}
+
+	return $url;
 }

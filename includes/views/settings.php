@@ -397,6 +397,22 @@ $checked = static function ( string $key ) use ( $settings ): string {
 					</td>
 				</tr>
 				<tr>
+					<th scope="row"><?php esc_html_e( 'Éjszakai / terheléscsökkentett idősáv (Off-peak)', 'wp-pepita-sync' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="wps[offpeak_schedule_enabled]" value="1" <?php echo $checked( 'offpeak_schedule_enabled' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
+							<?php esc_html_e( 'Teljes feed újraépítésének korlátozása éjszakai órákra', 'wp-pepita-sync' ); ?>
+						</label>
+						<br><br>
+						<span><?php esc_html_e( 'Idősáv:', 'wp-pepita-sync' ); ?></span>
+						<input type="number" min="0" max="23" name="wps[offpeak_start_hour]" value="<?php echo esc_attr( (string) $field( 'offpeak_start_hour' ) ); ?>" class="small-text" />
+						<span>:00 &mdash;</span>
+						<input type="number" min="0" max="23" name="wps[offpeak_end_hour]" value="<?php echo esc_attr( (string) $field( 'offpeak_end_hour' ) ); ?>" class="small-text" />
+						<span>:00</span>
+						<p class="description"><?php esc_html_e( 'A teljes feed erőforrás-igényes újraépítése csak ebben az idősávban indul el automatikusan. A készlet- és árfeed ettől függetlenül, folyamatosan frissül.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
 					<th scope="row"><?php esc_html_e( 'Kivezetett termékek kezelése', 'wp-pepita-sync' ); ?></th>
 					<td>
 						<select name="wps[removal_policy]">
@@ -447,6 +463,38 @@ $checked = static function ( string $key ) use ( $settings ): string {
 					</td>
 				</tr>
 				<tr>
+					<th scope="row"><?php esc_html_e( 'Kézi jóváhagyás kockázatos változásokkor', 'wp-pepita-sync' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="wps[feed_safety_require_approval]" value="1" <?php echo $checked( 'feed_safety_require_approval' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
+							<?php esc_html_e( 'Feed publikálás előtti jóváhagyási kapu aktiválása, ha figyelmeztetés vagy eltérés lép fel', 'wp-pepita-sync' ); ?>
+						</label>
+						<p class="description"><?php esc_html_e( 'Ha be van kapcsolva, a rendszer nem publikálja automatikusan a feedet figyelmeztetés esetén, hanem várakozó állapotba (staged) helyezi jóváhagyásig.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="wps-price-drop"><?php esc_html_e( 'Drasztikus árcsökkenési küszöb (%)', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<input type="number" min="10" max="95" id="wps-price-drop" name="wps[feed_safety_max_price_drop_percent]" value="<?php echo esc_attr( (string) $field( 'feed_safety_max_price_drop_percent' ) ); ?>" class="small-text" />
+						<span>%</span>
+						<p class="description"><?php esc_html_e( 'Figyelmeztetést generál, ha egy termék ára legalább ekkora arányban esik (alapértelmezett: 50%).', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="wps-price-spikes"><?php esc_html_e( 'Megengedett drasztikus áresések száma', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<input type="number" min="1" max="1000" id="wps-price-spikes" name="wps[feed_safety_max_price_spikes]" value="<?php echo esc_attr( (string) $field( 'feed_safety_max_price_spikes' ) ); ?>" class="small-text" />
+						<p class="description"><?php esc_html_e( 'Figyelmeztetés és jóváhagyási kérés aktiválódik, ha az árcsökkenési küszöböt meghaladó termékek száma eléri ezt az értéket (alapértelmezett: 10).', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="wps-quality-exclusions"><?php esc_html_e( 'Megengedett minőségi kizárások száma', 'wp-pepita-sync' ); ?></label></th>
+					<td>
+						<input type="number" min="1" max="5000" id="wps-quality-exclusions" name="wps[feed_safety_max_quality_exclusions]" value="<?php echo esc_attr( (string) $field( 'feed_safety_max_quality_exclusions' ) ); ?>" class="small-text" />
+						<p class="description"><?php esc_html_e( 'Figyelmeztetés és jóváhagyási kérés aktiválódik, ha a minőségi hibák miatt kizárt termékek száma eléri ezt a küszöböt (alapértelmezett: 50).', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
 					<th scope="row"><?php esc_html_e( 'Vészhelyzeti feed-leállítás', 'wp-pepita-sync' ); ?></th>
 					<td>
 						<label>
@@ -489,6 +537,39 @@ $checked = static function ( string $key ) use ( $settings ): string {
 							<input type="text" name="wps[feed_stock_slug]" value="<?php echo esc_attr( (string) $field( 'feed_stock_slug' ) ); ?>" class="regular-text" />
 						</label>
 						<p class="description"><?php esc_html_e( 'A wps_feed query paraméter értékei. Módosítás után a Pepita felé is frissíteni kell az URL-t.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+			</table>
+		</div>
+
+		<div class="wps-card wps-card--wide" id="wps-alerts">
+			<h2><?php esc_html_e( 'Értesítések és felügyelet (Monitoring)', 'wp-pepita-sync' ); ?></h2>
+
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row"><?php esc_html_e( 'E-mail értesítések', 'wp-pepita-sync' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="wps[feed_alert_email_enabled]" value="1" <?php echo $checked( 'feed_alert_email_enabled' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
+							<?php esc_html_e( 'Riasztás küldése sikertelen futás, biztonsági kapu aktiválódása vagy jóváhagyási kérés esetén', 'wp-pepita-sync' ); ?>
+						</label>
+						<br /><br />
+						<label for="wps-alert-email"><?php esc_html_e( 'Címzett e-mail címe:', 'wp-pepita-sync' ); ?></label>
+						<input type="email" id="wps-alert-email" name="wps[feed_alert_email]" value="<?php echo esc_attr( (string) $field( 'feed_alert_email' ) ); ?>" class="regular-text" placeholder="admin@pelda.hu" />
+						<p class="description"><?php esc_html_e( 'Hagyja üresen az alapértelmezett WordPress adminisztrátori cím használatához.', 'wp-pepita-sync' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Webhook riasztások (SSRF-védett)', 'wp-pepita-sync' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="wps[feed_alert_webhook_enabled]" value="1" <?php echo $checked( 'feed_alert_webhook_enabled' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
+							<?php esc_html_e( 'Telemetria továbbítása külső felügyeleti rendszernek (pl. Slack, Discord, Uptime monitor)', 'wp-pepita-sync' ); ?>
+						</label>
+						<br /><br />
+						<label for="wps-alert-webhook"><?php esc_html_e( 'Webhook URL (HTTPS):', 'wp-pepita-sync' ); ?></label>
+						<input type="url" id="wps-alert-webhook" name="wps[feed_alert_webhook_url]" value="<?php echo esc_attr( (string) $field( 'feed_alert_webhook_url' ) ); ?>" class="large-text" placeholder="https://pelda.hu/webhook" />
+						<p class="description"><?php esc_html_e( 'Szigorúan csak publikus HTTPS cím engedélyezett (belső/loopback IP-k tiltva). A webhook kizárólag nem érzékeny műveleti telemetriát küld, jelszavakat vagy ügyféladatokat soha nem továbbít.', 'wp-pepita-sync' ); ?></p>
 					</td>
 				</tr>
 			</table>

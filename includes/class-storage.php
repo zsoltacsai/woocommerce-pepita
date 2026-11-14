@@ -560,7 +560,7 @@ final class Storage {
 	 * If the process terminates at any point prior to the pointer rename, the previous generation
 	 * remains 100% active and uncorrupted.
 	 */
-	public static function publish_full( string $feed_temp, string $index_temp, ?string $generation_id = null, ?string $signature = null ): bool {
+	public static function publish_full( string $feed_temp, string $index_temp, ?string $generation_id = null, ?string $signature = null, ?string $expected_base_gen = null, bool $is_staged_approval = false ): bool {
 		self::ensure_directory();
 
 		if ( ! is_file( $feed_temp ) || ! is_file( $index_temp ) ) {
@@ -581,6 +581,22 @@ final class Storage {
 		try {
 			self::clear_pointer_cache();
 			$current_pointer = self::read_pointer();
+
+			// Atomic rollback guard: verify active generation inside the lock to eliminate race conditions
+			if ( null !== $expected_base_gen && '' !== $expected_base_gen ) {
+				$current_gen = $current_pointer['active']['generation_id'] ?? '';
+				if ( '' !== $current_gen && $expected_base_gen !== $current_gen ) {
+					Logger::warning(
+						'feed_safety',
+						'Publikálás elutasítva a kritikus szakaszban: a publikus generáció időközben frissült.',
+						array(
+							'expected_base' => $expected_base_gen,
+							'current_gen'   => $current_gen,
+						)
+					);
+					return false;
+				}
+			}
 			$gen             = $generation_id ?? ( gmdate( 'Ymd_His' ) . '_' . bin2hex( random_bytes( 4 ) ) );
 
 			$catalog_sig     = $signature ?? Catalog_Index::compute_signature_from_file( $index_temp );
@@ -698,6 +714,11 @@ final class Storage {
 
 			self::prune_old_generations( $new_pointer );
 
+			if ( ! $is_staged_approval ) {
+				// A fresh normal publication supersedes any pending staged feed (B2).
+				self::discard_staged_full();
+			}
+
 			clearstatcache( true, $target_feed );
 			clearstatcache( true, $target_index );
 			clearstatcache( true, self::pointer_path() );
@@ -796,6 +817,292 @@ final class Storage {
 	}
 
 	/**
+	 * Stage full catalog XML feed and catalog index for manual review/approval.
+	 *
+	 * Does NOT alter the active generation pointer or live feed paths.
+	 * Stores staging files and persists pending metadata in wps_pepita_feed_staged_full option.
+	 *
+	 * @param string               $feed_temp     Path to temporary XML feed.
+	 * @param string               $index_temp    Path to temporary catalog index.
+	 * @param ?string              $generation_id Generation identifier.
+	 * @param ?string              $signature     Catalog identity signature.
+	 * @param array<string, mixed> $diff          Catalog difference summary.
+	 * @param string               $reason        Reason why feed was staged.
+	 * @param array<string, mixed> $counts        Attempt counters.
+	 * @param array<int, mixed>    $warnings      Generation warnings.
+	 * @return bool
+	 */
+	public static function stage_full(
+		string $feed_temp,
+		string $index_temp,
+		?string $generation_id = null,
+		?string $signature = null,
+		array $diff = array(),
+		string $reason = '',
+		array $counts = array(),
+		array $warnings = array()
+	): bool {
+		self::ensure_directory();
+
+		if ( ! is_file( $feed_temp ) || ! is_file( $index_temp ) || filesize( $feed_temp ) <= 0 ) {
+			return false;
+		}
+
+		$lock_handle = self::acquire_lock();
+		if ( false === $lock_handle ) {
+			@unlink( $feed_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			@unlink( $index_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return false;
+		}
+
+		try {
+			// Delete previous staged files if re-staging to prevent disk accumulation (M3)
+			$existing_staged = get_option( 'wps_pepita_feed_staged_full', null );
+			if ( is_array( $existing_staged ) ) {
+				if ( ! empty( $existing_staged['feed_file'] ) ) {
+					@unlink( self::path( (string) $existing_staged['feed_file'] ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				}
+				if ( ! empty( $existing_staged['index_file'] ) ) {
+					@unlink( self::path( (string) $existing_staged['index_file'] ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				}
+			}
+
+			$current_ptr = self::read_pointer();
+			$base_gen    = $current_ptr['active']['generation_id'] ?? '';
+
+			$gen          = $generation_id ?? ( gmdate( 'Ymd_His' ) . '_' . bin2hex( random_bytes( 4 ) ) );
+			$staged_feed  = sprintf( 'pepita-full.staged.%s.xml', $gen );
+			$staged_index = sprintf( 'catalog.staged.%s.jsonl', $gen );
+			$target_feed  = self::path( $staged_feed );
+			$target_index = self::path( $staged_index );
+
+			if ( ! @rename( $feed_temp, $target_feed ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				if ( ! @copy( $feed_temp, $target_feed ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+					return false;
+				}
+				@unlink( $feed_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+
+			if ( ! @rename( $index_temp, $target_index ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				if ( ! @copy( $index_temp, $target_index ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+					@unlink( $target_feed ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+					return false;
+				}
+				@unlink( $index_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+
+			$catalog_sig = $signature ?? Catalog_Index::compute_signature_from_file( $target_index );
+			$hash        = hash_file( 'sha256', $target_feed );
+
+			$staged_data = array(
+				'generation_id'      => $gen,
+				'base_generation_id' => $base_gen,
+				'feed_file'          => $staged_feed,
+				'index_file'         => $staged_index,
+				'signature'          => $catalog_sig,
+				'hash'               => is_string( $hash ) ? $hash : '',
+				'staged_at'          => time(),
+				'diff'               => $diff,
+				'reason'             => $reason,
+				'counts'             => $counts,
+				'warnings'           => $warnings,
+			);
+
+			update_option( 'wps_pepita_feed_staged_full', $staged_data, false );
+
+			clearstatcache( true, $target_feed );
+			clearstatcache( true, $target_index );
+
+			return true;
+		} finally {
+			self::release_lock( $lock_handle );
+		}
+	}
+
+	/**
+	 * Whether a full feed is staged and waiting for manual approval.
+	 */
+	public static function has_staged_full(): bool {
+		$staged = get_option( 'wps_pepita_feed_staged_full', null );
+		if ( ! is_array( $staged ) || empty( $staged['feed_file'] ) || empty( $staged['index_file'] ) ) {
+			return false;
+		}
+
+		$feed_path = self::path( (string) $staged['feed_file'] );
+		return is_file( $feed_path ) && filesize( $feed_path ) > 0;
+	}
+
+	/**
+	 * Get staged feed metadata if present.
+	 *
+	 * @return array<string, mixed>|null
+	 */
+	public static function get_staged_full(): ?array {
+		if ( ! self::has_staged_full() ) {
+			return null;
+		}
+
+		$staged = get_option( 'wps_pepita_feed_staged_full', null );
+		if ( ! is_array( $staged ) ) {
+			return null;
+		}
+
+		$staged['feed_path']  = self::path( (string) $staged['feed_file'] );
+		$staged['index_path'] = self::path( (string) $staged['index_file'] );
+
+		return $staged;
+	}
+
+	/**
+	 * Atomically approve and promote a staged full feed to live publication.
+	 *
+	 * @param ?string $expected_gen Optional expected generation ID to verify against.
+	 * @return bool
+	 */
+	public static function approve_staged_full( ?string $expected_gen = null ): bool {
+		if ( \WPS\Pepita\Feed\Lock::is_locked( 'full' ) ) {
+			\WPS\Pepita\Logger::warning( 'feed_safety', 'Jóváhagyás elutasítva: a teljes feed generálása jelenleg folyamatban van.' );
+			return false;
+		}
+
+		$staged = self::get_staged_full();
+		if ( null === $staged ) {
+			return false;
+		}
+
+		if ( null !== $expected_gen && ! hash_equals( (string) $staged['generation_id'], (string) $expected_gen ) ) {
+			\WPS\Pepita\Logger::warning(
+				'feed_safety',
+				'Jóváhagyás elutasítva: a generáció azonosítója nem egyezik.',
+				array(
+					'expected' => $expected_gen,
+					'actual'   => $staged['generation_id'],
+				)
+			);
+			return false;
+		}
+
+		$feed_path  = (string) $staged['feed_path'];
+		$index_path = (string) $staged['index_path'];
+
+		if ( ! is_file( $feed_path ) || ! is_file( $index_path ) ) {
+			delete_option( 'wps_pepita_feed_staged_full' );
+			return false;
+		}
+
+		// Re-verify hash before promotion (AppSec M-3)
+		if ( ! empty( $staged['hash'] ) ) {
+			$actual_hash = hash_file( 'sha256', $feed_path );
+			if ( ! is_string( $actual_hash ) || ! hash_equals( (string) $staged['hash'], $actual_hash ) ) {
+				\WPS\Pepita\Logger::error( 'feed_safety', 'Staging jóváhagyás elutasítva: hash ellenőrzés meghiúsult.' );
+				self::discard_staged_full();
+				return false;
+			}
+		}
+
+		// Baseline check (B2): if active generation changed since staging, refuse rollback
+		$current_ptr = self::read_pointer();
+		$current_gen = $current_ptr['active']['generation_id'] ?? '';
+		$base_gen    = $staged['base_generation_id'] ?? '';
+		if ( '' !== $base_gen && '' !== $current_gen && $base_gen !== $current_gen ) {
+			\WPS\Pepita\Logger::warning(
+				'feed_safety',
+				'Jóváhagyás elutasítva: a publikus generáció újabb, mint a staged feed kiinduló generációja.',
+				array(
+					'base'    => $base_gen,
+					'current' => $current_gen,
+				)
+			);
+			return false;
+		}
+
+		$published = self::publish_full(
+			$feed_path,
+			$index_path,
+			(string) ( $staged['generation_id'] ?? '' ),
+			(string) ( $staged['signature'] ?? '' ),
+			$base_gen,
+			true
+		);
+
+		if ( ! $published ) {
+			return false;
+		}
+
+		delete_option( 'wps_pepita_feed_staged_full' );
+
+		if ( ! empty( $staged['diff'] ) && is_array( $staged['diff'] ) ) {
+			$saved_diff                   = $staged['diff'];
+			$saved_diff['status']         = 'ok';
+			$saved_diff['overall_impact'] = 'safe';
+			update_option( \WPS\Pepita\Feed\Catalog_Diff::OPTION_DIFF_FULL, $saved_diff, false );
+		}
+
+		$feed_state = get_option( 'wps_pepita_feed_state_full', array() );
+		$feed_state = is_array( $feed_state ) ? $feed_state : array();
+		$feed_state['last_success']   = time();
+		$feed_state['last_attempt']   = time();
+		$feed_state['last_error']     = '';
+		$feed_state['generation_id']  = (string) ( $staged['generation_id'] ?? '' );
+		$feed_state['signature']      = (string) ( $staged['signature'] ?? '' );
+		$feed_state['file_size']      = self::size( 'full' );
+		$feed_state['hash']           = (string) ( $staged['hash'] ?? '' );
+		if ( ! empty( $staged['counts'] ) && is_array( $staged['counts'] ) ) {
+			$feed_state['attempt_counts'] = $staged['counts'];
+		}
+		if ( isset( $staged['warnings'] ) && is_array( $staged['warnings'] ) ) {
+			$feed_state['warnings'] = $staged['warnings'];
+		}
+		update_option( 'wps_pepita_feed_state_full', $feed_state, false );
+
+		\WPS\Pepita\Logger::info(
+			'feed_safety',
+			'Jóváhagyásra váró feed sikeresen jóváhagyva és közzétéve.',
+			array( 'generation_id' => $staged['generation_id'] )
+		);
+
+		// Queue stock feed generation immediately to align with newly published full catalog (B1)
+		\WPS\Pepita\Feed\Scheduler::queue( \WPS\Pepita\Feed\Generator::TYPE_STOCK );
+
+		return true;
+	}
+
+	/**
+	 * Discard a staged full feed and remove temporary staging artifacts.
+	 *
+	 * @param ?string $expected_gen Optional expected generation ID to verify against.
+	 * @return bool
+	 */
+	public static function discard_staged_full( ?string $expected_gen = null ): bool {
+		$staged = get_option( 'wps_pepita_feed_staged_full', null );
+		if ( ! is_array( $staged ) ) {
+			return false;
+		}
+
+		if ( null !== $expected_gen && ! hash_equals( (string) ( $staged['generation_id'] ?? '' ), (string) $expected_gen ) ) {
+			return false;
+		}
+
+		if ( ! empty( $staged['feed_file'] ) ) {
+			@unlink( self::path( (string) $staged['feed_file'] ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+
+		if ( ! empty( $staged['index_file'] ) ) {
+			@unlink( self::path( (string) $staged['index_file'] ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+
+		delete_option( 'wps_pepita_feed_staged_full' );
+
+		\WPS\Pepita\Logger::info(
+			'feed_safety',
+			'Jóváhagyásra váró feed elvetve.',
+			array( 'generation_id' => $staged['generation_id'] ?? '' )
+		);
+
+		return true;
+	}
+
+	/**
 	 * Remove old versioned generation files that are no longer active or previous.
 	 *
 	 * @param array<string, mixed> $pointer
@@ -835,6 +1142,16 @@ final class Storage {
 			$keep[] = $pointer['previous']['stock_feed'];
 		}
 
+		$staged = get_option( 'wps_pepita_feed_staged_full', null );
+		if ( is_array( $staged ) ) {
+			if ( ! empty( $staged['feed_file'] ) ) {
+				$keep[] = (string) $staged['feed_file'];
+			}
+			if ( ! empty( $staged['index_file'] ) ) {
+				$keep[] = (string) $staged['index_file'];
+			}
+		}
+
 		$files = glob( self::dir() . '/*' );
 		if ( ! is_array( $files ) ) {
 			return;
@@ -854,8 +1171,8 @@ final class Storage {
 					continue;
 				}
 			}
-			// Unlink unreferenced generation file.
-			if ( preg_match( '/^(pepita-full\.|pepita-stock\.|catalog\.)[a-zA-Z0-9_-]+\.(xml|jsonl)$/', $basename ) ) {
+			// Unlink unreferenced generation file (including unreferenced or old staged files).
+			if ( preg_match( '/^(pepita-full|pepita-stock|catalog)\.(staged\.)?[a-zA-Z0-9_-]+\.(xml|jsonl)$/', $basename ) ) {
 				@unlink( $file ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			}
 		}
@@ -866,6 +1183,7 @@ final class Storage {
 	 */
 	public static function purge(): void {
 		self::$pointer_cache = null;
+		delete_option( 'wps_pepita_feed_staged_full' );
 		$dir                 = self::dir();
 
 		if ( ! is_dir( $dir ) ) {

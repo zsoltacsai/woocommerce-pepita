@@ -36,7 +36,11 @@ final class Catalog_Diff {
 
 		$drop_threshold          = (int) ( $options['drop_threshold'] ?? Settings::get( 'feed_safety_drop_threshold', 20 ) );
 		$warn_variation_changes = (bool) ( $options['warn_variation_changes'] ?? Settings::get( 'feed_safety_variation_change_warning', true ) );
-		$sample_limit            = max( 5, (int) ( $options['sample_limit'] ?? 50 ) );
+		$max_price_drop_percent = (int) ( $options['max_price_drop_percent'] ?? Settings::get( 'feed_safety_max_price_drop_percent', 50 ) );
+		$max_price_spikes       = (int) ( $options['max_price_spikes'] ?? Settings::get( 'feed_safety_max_price_spikes', 10 ) );
+		$max_quality_exclusions = (int) ( $options['max_quality_exclusions'] ?? Settings::get( 'feed_safety_max_quality_exclusions', 50 ) );
+		$require_approval       = (bool) ( $options['require_approval'] ?? Settings::get( 'feed_safety_require_approval', false ) );
+		$sample_limit           = min( 50, max( 5, (int) ( $options['sample_limit'] ?? 50 ) ) );
 
 		$has_current  = is_file( $current_path ) && filesize( $current_path ) > 0;
 		$has_previous = is_file( $previous_path ) && filesize( $previous_path ) > 0;
@@ -53,16 +57,25 @@ final class Catalog_Diff {
 				'removed_count'              => 0,
 				'unavailable_count'          => 0,
 				'price_changed_count'        => 0,
+				'price_spike_count'          => 0,
+				'stock_changed_count'        => 0,
+				'category_changed_count'     => 0,
 				'variation_changed_count'    => 0,
+				'quality_excluded_count'     => 0,
 				'tax_currency_changed_count' => 0,
 				'drop_percent'               => 0.0,
+				'overall_impact'             => 'none',
 				'warnings'                   => array(),
 				'samples'                    => array(
 					'added'                => array(),
 					'removed'              => array(),
 					'unavailable'          => array(),
 					'price_changed'        => array(),
+					'price_spike'          => array(),
+					'stock_changed'        => array(),
+					'category_changed'     => array(),
 					'variation_changed'    => array(),
+					'quality_excluded'     => array(),
 					'tax_currency_changed' => array(),
 				),
 				'message'                    => __( 'Nincs publikált teljes feed katalógus index.', 'wp-pepita-sync' ),
@@ -93,16 +106,25 @@ final class Catalog_Diff {
 				'removed_count'              => 0,
 				'unavailable_count'          => $unavailable_count,
 				'price_changed_count'        => 0,
+				'price_spike_count'          => 0,
+				'stock_changed_count'        => 0,
+				'category_changed_count'     => 0,
 				'variation_changed_count'    => 0,
+				'quality_excluded_count'     => 0,
 				'tax_currency_changed_count' => 0,
 				'drop_percent'               => 0.0,
+				'overall_impact'             => 'safe',
 				'warnings'                   => array(),
 				'samples'                    => array(
 					'added'                => array(),
 					'removed'              => array(),
 					'unavailable'          => array(),
 					'price_changed'        => array(),
+					'price_spike'          => array(),
+					'stock_changed'        => array(),
+					'category_changed'     => array(),
 					'variation_changed'    => array(),
+					'quality_excluded'     => array(),
 					'tax_currency_changed' => array(),
 				),
 				'message'                    => __( 'Első generálás — nincs korábbi összehasonlítási alap.', 'wp-pepita-sync' ),
@@ -111,28 +133,57 @@ final class Catalog_Diff {
 		}
 
 		// Stream the previous snapshot into an indexed compact map.
+		// To maintain strictly bounded memory, names and nested variation structures are NOT
+		// held in memory; only compact scalar primitives, checksums, and file offsets are kept.
 		$prev_map          = array();
 		$prev_active_count = 0;
+		$prev_stream       = fopen( $previous_path, 'rb' );
 
-		foreach ( Catalog_Index::read( $previous_path ) as $row ) {
-			$pid        = (int) $row['pid'];
-			$retired_at = (int) ( $row['retired_at'] ?? 0 );
+		if ( false !== $prev_stream ) {
+			while ( true ) {
+				$offset = ftell( $prev_stream );
+				$line   = fgets( $prev_stream );
+				if ( false === $line ) {
+					break;
+				}
 
-			if ( 0 === $retired_at ) {
-				++$prev_active_count;
+				$line = trim( $line );
+				if ( '' === $line ) {
+					continue;
+				}
+
+				$row = json_decode( $line, true );
+				if ( ! is_array( $row ) || ! isset( $row['pid'] ) ) {
+					continue;
+				}
+
+				$pid        = (int) $row['pid'];
+				$retired_at = (int) ( $row['retired_at'] ?? 0 );
+
+				if ( 0 === $retired_at ) {
+					++$prev_active_count;
+				}
+
+				$vars_crc = ! empty( $row['vars'] ) && is_array( $row['vars'] )
+					? crc32( (string) wp_json_encode( $row['vars'] ) )
+					: 0;
+
+				$prev_map[ $pid ] = array(
+					'ret'   => $retired_at,
+					'price' => (float) ( $row['price'] ?? 0.0 ),
+					'sale'  => isset( $row['sale'] ) && null !== $row['sale'] ? (float) $row['sale'] : null,
+					'vat'   => (float) ( $row['vat'] ?? 0.0 ),
+					'curr'  => (string) ( $row['currency'] ?? '' ),
+					'qty'   => isset( $row['qty'] ) ? (int) $row['qty'] : null,
+					'avail' => isset( $row['avail'] ) ? (bool) $row['avail'] : null,
+					'cat'   => (string) ( $row['cat'] ?? '' ),
+					'qual'  => (bool) ( $row['qual_ex'] ?? false ),
+					'vars'  => $vars_crc,
+					'pos'   => $offset,
+				);
 			}
 
-			$prev_map[ $pid ] = array(
-				'pid'        => $pid,
-				'eid'        => (string) ( $row['eid'] ?? '' ),
-				'name'       => (string) ( $row['name'] ?? '' ),
-				'price'      => (float) ( $row['price'] ?? 0.0 ),
-				'sale'       => isset( $row['sale'] ) && null !== $row['sale'] ? (float) $row['sale'] : null,
-				'vat'        => (float) ( $row['vat'] ?? 0.0 ),
-				'currency'   => (string) ( $row['currency'] ?? '' ),
-				'vars'       => (array) ( $row['vars'] ?? array() ),
-				'retired_at' => $retired_at,
-			);
+			fclose( $prev_stream );
 		}
 
 		// Stream the current snapshot, comparing against the previous map.
@@ -140,7 +191,11 @@ final class Catalog_Diff {
 		$curr_unavailable_count     = 0;
 		$added_count                = 0;
 		$price_changed_count        = 0;
+		$price_spike_count          = 0;
+		$stock_changed_count        = 0;
+		$category_changed_count     = 0;
 		$variation_changed_count    = 0;
+		$quality_excluded_count     = 0;
 		$tax_currency_changed_count = 0;
 
 		$samples = array(
@@ -148,7 +203,11 @@ final class Catalog_Diff {
 			'removed'              => array(),
 			'unavailable'          => array(),
 			'price_changed'        => array(),
+			'price_spike'          => array(),
+			'stock_changed'        => array(),
+			'category_changed'     => array(),
 			'variation_changed'    => array(),
+			'quality_excluded'     => array(),
 			'tax_currency_changed' => array(),
 		);
 
@@ -180,7 +239,7 @@ final class Catalog_Diff {
 				unset( $prev_map[ $pid ] ); // Handled; remaining in $prev_map will be items removed from current.
 
 				// 1. Availability / Retired transition.
-				if ( 0 === $prev['retired_at'] && $retired_at > 0 ) {
+				if ( 0 === $prev['ret'] && $retired_at > 0 ) {
 					if ( count( $samples['unavailable'] ) < $sample_limit ) {
 						$samples['unavailable'][] = array(
 							'pid'        => $pid,
@@ -191,30 +250,112 @@ final class Catalog_Diff {
 					}
 				}
 
-				// 2. Price changes.
+				// 2. Price changes and price spikes.
 				$curr_price = (float) ( $row['price'] ?? 0.0 );
 				$curr_sale  = isset( $row['sale'] ) && null !== $row['sale'] ? (float) $row['sale'] : null;
 
 				if ( abs( $prev['price'] - $curr_price ) > 0.001 || $prev['sale'] !== $curr_sale ) {
 					++$price_changed_count;
 
+					$drop_pct = 0.0;
+					if ( $prev['price'] > 0.0 && $curr_price < $prev['price'] ) {
+						$drop_pct = round( ( ( $prev['price'] - $curr_price ) / $prev['price'] ) * 100, 1 );
+						if ( $drop_pct >= $max_price_drop_percent ) {
+							++$price_spike_count;
+							if ( count( $samples['price_spike'] ) < $sample_limit ) {
+								$samples['price_spike'][] = array(
+									'pid'          => $pid,
+									'eid'          => (string) ( $row['eid'] ?? '' ),
+									'name'         => (string) ( $row['name'] ?? '' ),
+									'old_price'    => $prev['price'],
+									'new_price'    => $curr_price,
+									'drop_percent' => $drop_pct,
+								);
+							}
+						}
+					}
+
 					if ( count( $samples['price_changed'] ) < $sample_limit ) {
 						$samples['price_changed'][] = array(
-							'pid'       => $pid,
-							'eid'       => (string) ( $row['eid'] ?? '' ),
-							'name'      => (string) ( $row['name'] ?? '' ),
-							'old_price' => $prev['price'],
-							'new_price' => $curr_price,
-							'old_sale'  => $prev['sale'],
-							'new_sale'  => $curr_sale,
+							'pid'          => $pid,
+							'eid'          => (string) ( $row['eid'] ?? '' ),
+							'name'         => (string) ( $row['name'] ?? '' ),
+							'old_price'    => $prev['price'],
+							'new_price'    => $curr_price,
+							'old_sale'     => $prev['sale'],
+							'new_sale'     => $curr_sale,
+							'drop_percent' => $drop_pct,
 						);
 					}
 				}
 
-				// 3. Variation identity changes.
-				$curr_vars = (array) ( $row['vars'] ?? array() );
+				// 3. Stock changes: availability or quantity.
+				$prev_avail = $prev['avail'];
+				$curr_avail = isset( $row['avail'] ) ? (bool) $row['avail'] : ( 0 === $retired_at );
+				$prev_qty   = $prev['qty'];
+				$curr_qty   = isset( $row['qty'] ) ? (int) $row['qty'] : null;
 
-				if ( $prev['vars'] !== $curr_vars ) {
+				$has_avail_diff = null !== $prev_avail && ( $prev_avail !== $curr_avail );
+				$has_qty_diff   = null !== $prev_qty && null !== $curr_qty && ( $prev_qty !== $curr_qty );
+
+				if ( $has_avail_diff || $has_qty_diff ) {
+					++$stock_changed_count;
+
+					if ( count( $samples['stock_changed'] ) < $sample_limit ) {
+						$samples['stock_changed'][] = array(
+							'pid'       => $pid,
+							'eid'       => (string) ( $row['eid'] ?? '' ),
+							'name'      => (string) ( $row['name'] ?? '' ),
+							'old_avail' => $prev_avail,
+							'new_avail' => $curr_avail,
+							'old_qty'   => $prev_qty,
+							'new_qty'   => $curr_qty,
+						);
+					}
+				}
+
+				// 4. Category changes.
+				$prev_cat = (string) ( $prev['cat'] ?? '' );
+				$curr_cat = (string) ( $row['cat'] ?? '' );
+
+				if ( $prev_cat !== $curr_cat ) {
+					++$category_changed_count;
+
+					if ( count( $samples['category_changed'] ) < $sample_limit ) {
+						$samples['category_changed'][] = array(
+							'pid'     => $pid,
+							'eid'     => (string) ( $row['eid'] ?? '' ),
+							'name'    => (string) ( $row['name'] ?? '' ),
+							'old_cat' => $prev_cat,
+							'new_cat' => $curr_cat,
+						);
+					}
+				}
+
+				// 5. Quality exclusion changes.
+				$prev_qual = (bool) ( $prev['qual'] ?? false );
+				$curr_qual = (bool) ( $row['qual_ex'] ?? false );
+
+				if ( $curr_qual && ! $prev_qual ) {
+					++$quality_excluded_count;
+
+					if ( count( $samples['quality_excluded'] ) < $sample_limit ) {
+						$samples['quality_excluded'][] = array(
+							'pid'    => $pid,
+							'eid'    => (string) ( $row['eid'] ?? '' ),
+							'name'   => (string) ( $row['name'] ?? '' ),
+							'reason' => 'quality_excluded',
+						);
+					}
+				}
+
+				// 6. Variation identity changes.
+				$curr_vars     = (array) ( $row['vars'] ?? array() );
+				$curr_vars_crc = ! empty( $curr_vars )
+					? crc32( (string) wp_json_encode( $curr_vars ) )
+					: 0;
+
+				if ( $prev['vars'] !== $curr_vars_crc ) {
 					++$variation_changed_count;
 
 					if ( count( $samples['variation_changed'] ) < $sample_limit ) {
@@ -222,17 +363,16 @@ final class Catalog_Diff {
 							'pid'      => $pid,
 							'eid'      => (string) ( $row['eid'] ?? '' ),
 							'name'     => (string) ( $row['name'] ?? '' ),
-							'old_vars' => $prev['vars'],
 							'new_vars' => $curr_vars,
 						);
 					}
 				}
 
-				// 4. Tax / Currency changes.
+				// 7. Tax / Currency changes.
 				$curr_vat = (float) ( $row['vat'] ?? 0.0 );
 				$curr_cur = (string) ( $row['currency'] ?? '' );
 
-				if ( abs( $prev['vat'] - $curr_vat ) > 0.001 || $prev['currency'] !== $curr_cur ) {
+				if ( abs( $prev['vat'] - $curr_vat ) > 0.001 || $prev['curr'] !== $curr_cur ) {
 					++$tax_currency_changed_count;
 
 					if ( count( $samples['tax_currency_changed'] ) < $sample_limit ) {
@@ -242,7 +382,7 @@ final class Catalog_Diff {
 							'name'         => (string) ( $row['name'] ?? '' ),
 							'old_vat'      => $prev['vat'],
 							'new_vat'      => $curr_vat,
-							'old_currency' => $prev['currency'],
+							'old_currency' => $prev['curr'],
 							'new_currency' => $curr_cur,
 						);
 					}
@@ -252,20 +392,62 @@ final class Catalog_Diff {
 
 		// Items remaining in $prev_map were active in previous, but are completely gone from current.
 		$removed_count = 0;
+		$prev_fh       = ( count( $prev_map ) > 0 && is_file( $previous_path ) ) ? fopen( $previous_path, 'rb' ) : false;
 
-		foreach ( $prev_map as $prev_item ) {
-			if ( 0 === (int) $prev_item['retired_at'] ) {
+		foreach ( $prev_map as $pid => $prev_item ) {
+			if ( 0 === (int) $prev_item['ret'] ) {
 				++$removed_count;
 
-				if ( count( $samples['removed'] ) < $sample_limit ) {
+				$item_name = '';
+				$item_eid  = '';
+
+				$is_qual = false;
+				if ( class_exists( '\WPS\Pepita\Catalog\Product_Selection' ) ) {
+					$sel = \WPS\Pepita\Catalog\Product_Selection::resolve( (int) $pid );
+					if ( \WPS\Pepita\Catalog\Product_Selection::SOURCE_QUALITY_EXCLUDED === ( $sel['source'] ?? '' ) ) {
+						$is_qual = true;
+						++$quality_excluded_count;
+					}
+				}
+
+				$need_removed_sample = count( $samples['removed'] ) < $sample_limit;
+				$need_qual_sample    = $is_qual && ( count( $samples['quality_excluded'] ) < $sample_limit );
+
+				if ( false !== $prev_fh && ( $need_removed_sample || $need_qual_sample ) ) {
+					fseek( $prev_fh, (int) $prev_item['pos'] );
+					$line = fgets( $prev_fh );
+					if ( false !== $line ) {
+						$r = json_decode( trim( $line ), true );
+						if ( is_array( $r ) ) {
+							$item_name = (string) ( $r['name'] ?? '' );
+							$item_eid  = (string) ( $r['eid'] ?? '' );
+						}
+					}
+				}
+
+				if ( $need_qual_sample ) {
+					$samples['quality_excluded'][] = array(
+						'pid'    => (int) $pid,
+						'eid'    => $item_eid,
+						'name'   => $item_name,
+						'reason' => 'quality_excluded',
+					);
+				}
+
+				if ( $need_removed_sample ) {
 					$samples['removed'][] = array(
-						'pid'   => (int) $prev_item['pid'],
-						'eid'   => (string) $prev_item['eid'],
-						'name'  => (string) $prev_item['name'],
-						'price' => (float) $prev_item['price'],
+						'pid'              => (int) $pid,
+						'eid'              => $item_eid,
+						'name'             => $item_name,
+						'price'            => (float) $prev_item['price'],
+						'quality_excluded' => $is_qual,
 					);
 				}
 			}
+		}
+
+		if ( false !== $prev_fh ) {
+			fclose( $prev_fh );
 		}
 
 		// Calculate drop percentage based on active previous catalog.
@@ -310,6 +492,45 @@ final class Catalog_Diff {
 			);
 		}
 
+		// Safety warning 3: unexpected drastic price spikes.
+		if ( $price_spike_count >= $max_price_spikes ) {
+			if ( 'ok' === $status ) {
+				$status = 'warn';
+			}
+
+			$warnings[] = sprintf(
+				/* translators: 1: count of price spikes, 2: drop percentage */
+				__( 'Drasztikus árcsökkenés észlelve: %1$d termék ára esett több mint %2$d%%-kal.', 'wp-pepita-sync' ),
+				$price_spike_count,
+				$max_price_drop_percent
+			);
+		}
+
+		// Safety warning 4: mass quality exclusions.
+		if ( $quality_excluded_count >= $max_quality_exclusions ) {
+			if ( 'ok' === $status ) {
+				$status = 'warn';
+			}
+
+			$warnings[] = sprintf(
+				/* translators: %d: count */
+				__( 'Tömeges minőségi kizárás: %d termék került kizárásra minőségi hibák miatt.', 'wp-pepita-sync' ),
+				$quality_excluded_count
+			);
+		}
+
+		// Determine overall impact.
+		$overall_impact = 'safe';
+		if ( 'fail' === $status ) {
+			$overall_impact = 'critical';
+		} elseif ( 'warn' === $status ) {
+			$overall_impact = 'warn';
+		}
+
+		if ( $require_approval && ( 'warn' === $status || 'fail' === $status || ! empty( $warnings ) || $price_spike_count > 0 || $quality_excluded_count > 0 ) ) {
+			$overall_impact = 'approval_required';
+		}
+
 		return array(
 			'status'                     => $status,
 			'is_initial'                 => false,
@@ -321,9 +542,14 @@ final class Catalog_Diff {
 			'removed_count'              => $removed_count,
 			'unavailable_count'          => $curr_unavailable_count,
 			'price_changed_count'        => $price_changed_count,
+			'price_spike_count'          => $price_spike_count,
+			'stock_changed_count'        => $stock_changed_count,
+			'category_changed_count'     => $category_changed_count,
 			'variation_changed_count'    => $variation_changed_count,
+			'quality_excluded_count'     => $quality_excluded_count,
 			'tax_currency_changed_count' => $tax_currency_changed_count,
 			'drop_percent'               => $drop_percent,
+			'overall_impact'             => $overall_impact,
 			'warnings'                   => $warnings,
 			'samples'                    => $samples,
 			'message'                    => '',

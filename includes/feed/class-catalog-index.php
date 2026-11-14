@@ -146,6 +146,25 @@ final class Catalog_Index {
 			}
 		}
 
+		$cat_str    = '';
+		$categories = $data['categories'] ?? array();
+		if ( ! empty( $categories ) ) {
+			$first_cat = $categories[0];
+			if ( is_array( $first_cat ) ) {
+				$names = array();
+				foreach ( $first_cat as $term ) {
+					if ( is_array( $term ) && isset( $term['name'] ) ) {
+						$names[] = (string) $term['name'];
+					} elseif ( is_string( $term ) ) {
+						$names[] = $term;
+					}
+				}
+				$cat_str = implode( ' > ', $names );
+			} elseif ( is_string( $first_cat ) ) {
+				$cat_str = $first_cat;
+			}
+		}
+
 		return array(
 			'pid'        => (int) $data['product_id'],
 			'eid'        => (string) $data['export_id'],
@@ -155,6 +174,10 @@ final class Catalog_Index {
 			'sale'       => null !== $data['sale_price'] ? (float) $data['sale_price'] : null,
 			'currency'   => (string) $data['currency'],
 			'vat'        => (float) $data['vat_percent'],
+			'qty'        => isset( $data['quantity'] ) ? (int) $data['quantity'] : null,
+			'avail'      => (bool) ( $data['available'] ?? false ),
+			'cat'        => $cat_str,
+			'qual_ex'    => (bool) ( $data['quality_excluded'] ?? false ),
 			'vars'       => $vars,
 			'retired_at' => $retired_at,
 		);

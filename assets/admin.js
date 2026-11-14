@@ -235,6 +235,17 @@
 					return;
 				}
 
+				if ( status === 'staged' ) {
+					setProgress(
+						100,
+						data.message || 'A feed elkészült, de jóváhagyásra vár a közzététel előtt.'
+					);
+					window.setTimeout( function () {
+						window.location.reload();
+					}, 1200 );
+					return;
+				}
+
 				if ( status === 'skipped' ) {
 					setProgress( 100, data.message || 'A generálás már fut.' );
 					return;

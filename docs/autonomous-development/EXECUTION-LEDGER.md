@@ -10,7 +10,7 @@
 |---|---|---|---|---|---|---|
 | M9-E | PASS (repo-kód és szintetikus elfogadás) | `feature/m9e-image-fallback-product-issues` / `a4854cdf9b20bcd54b0180fb2cc31b4bfa97aab9` | [#10](https://github.com/zsoltacsai/woocommerce-pepita/pull/10), OPEN/Draft | `43573024669` exact `a4854cd`: **SUCCESS**; PHP 8.1–8.5 unit (279/job), lint/reproducible ZIP, HPOS és legacy integráció PASS; RR20 experimental SKIPPED. ZIP SHA-256: `7eea712276d82c395ea1b0778b87a4d3bb361285f1d435cc0c5d8d941b71d2ef`, öt időzónás clean build egyezett. | Exact-head QA PASS (Gemini 3.8 Flash, inline report, nincs report-artifact hash); AppSec PASS (Gemini 3.8 Flash, report SHA-256 `95217ffd2ebfc9e33bbc9526007b17550206bf8d995ba07dbdb4025907de9057`), mindkettő base `0f0fe1c`. | Kód/CI kapu zárva. FN-DECO staging eredmény és valódi 269→241 katalógus nincs igazolva; merge és telepítés nem történt. |
 | M9-F | PASS (repo-kód, keresés, attribútum-mapping, CI és független QA/AppSec lezárva) | Base `feature/m9f-intelligent-catalog-quality`; stacked Draft PR #12 `neville/pepita-m9f-handoff` / `f80241820ad868340430e2c81c3b28fbbc6e6daa` | Exact CI `43588942291`: **SUCCESS**; PHP 8.1–8.5 unit (284/job), lint/reproducible package, HPOS és legacy integráció PASS; RR20 SKIPPED. | Független AppSec PASS (Claude Sonnet 5.5); Integration QA PASS (Claude Opus 5.5). B1/F1 és A2 javítva és igazolva. | Kód kész: keresés (név/SKU/ID/variáció), lapozási limit (1000 oldal, max 50 termék/kérés), attribútumnév-mapping szabályok perzisztálással és statikus gyorsítótárral. ZIP SHA-256 `3423bc2486cedee0804b96d20431db76f5ed704856788b726c222d666fbe9d78`. |
-| M9-G | HOLD | — | — | — | — | M9-E/M9-F függőségek után |
+| M9-G | PASS (feedvezérlés, streaming diff, biztonsági kapu, monitoring, off-peak ütemezés, CI és független QA/AppSec lezárva) | `feature/m9g-feed-control-preview-monitoring` / HEAD | [#13](https://github.com/zsoltacsai/woocommerce-pepita/pull/13), OPEN/Draft | Exact CI `43594851504`: **SUCCESS** (mind a 8 kötelező job PASS; unit PHP 8.1–8.5, lint/reproducible package, HPOS és legacy integráció). | Független AppSec PASS (Claude Sonnet 5.5); Integration QA (OpenAI gpt-6.1-sol) advisory észrevételek címezve. | Kód és CI kapu zárva. ZIP SHA-256 `701c0dfad8a1fa33aa1d6505ed40b95e2ceca32d7c5f54823e51aa19e7a08a05`, 5 időzónás clean build egyezett. Merge és telepítés nem történt. |
 | M9-H | HOLD | — | — | — | — | M9-E–M9-G után |
 | M10 | HOLD | — | — | — | — | Katalógus/feed-mérföldkövek után, csak szintetikus tesztekkel |
 | M11 | HOLD | — | — | — | — | Korábbi minőségkapuk után |
@@ -116,3 +116,27 @@ Az M9-E ág legfrissebb HEAD-jére teljes CI, majd külön Integration QA és Ap
 - Megerősítő exact CI run `43588942291` az `f80241820ad868340430e2c81c3b28fbbc6e6daa` HEAD-en: **SUCCESS** (8/8 aktív job PASS; PHP 8.1–8.5 unit 284/job, lint és 5 időzónás reprodukálható ZIP, HPOS és legacy integráció; RR20 SKIPPED).
 - Független re-check Integration QA (Claude Opus 5.5, high effort): **PASS**, B1/F1 és A2 javítását igazolta.
 - Ezzel az M9-F minden korábbi hiányossága és review-megállapítása javítva; az M9-F mérföldkő repository- és CI-kapui lezárva (PASS). Nincs staging vagy éles telepítés/merge.
+
+### M9-G Feedvezérlés, Előnézet és Monitoring fejlesztés és lezárás — 2026-11-14
+
+- **Implementáció és architektúra (M9-G.1–M9-G.4)**:
+  - `Catalog_Diff` és `Catalog_Index` korlátos memóriájú streaming összehasonlítással (`includes/feed/class-catalog-diff.php`): nem tárol neveket és variációs fát a memóriában; `crc32` variációs identitás-ellenőrzőösszeget használ; a felületi mintákhoz (max. 50 elem) igény szerint fájlpozíció (`pos`) alapján olvassa a lemezről a termékneveket és cikkszámokat.
+  - Kategóriaváltozás detektálás (`$prev_cat !== $curr_cat`) üres és hozzárendelt kategóriák közötti átmenetekre is.
+  - Publikációs biztonsági kapu és jóváhagyási munkafolyamat (`Storage::stage_full()`, `approve_staged_full()`, `discard_staged_full()`):
+    - Kockázatos eltérések vagy figyelmeztetések esetén (`feed_safety_require_approval`) a feed staged állapotba kerül, megőrizve az éles feed zavartalan kiszolgálását.
+    - **Atomikus rollback-védelem:** A `publish_full()` a kizárólagos tárhely-zár (`acquire_lock()`) alatt ellenőrzi az elvárt bázisgenerációt (`expected_base_gen`), kiküszöbölve a versenyhelyzeteket.
+    - A jóváhagyás azonnal készletfeed-újragenerálást ütemez (`Scheduler::queue(TYPE_STOCK)`).
+    - Normál publikáció automatikusan eltakarítja az elavult staged feedeket.
+  - Szigorúan SSRF-védett telemetria webhook (`wp_safe_remote_post`): RFC 1918, RFC 3927 (169.254/16), RFC 6598 (100.64/10), IPv6 loopback és belső tartományok tiltása; `reject_unsafe_urls => true`, `redirection => 0`, `blocking => false`; csak hosztnév naplózása, érzékeny tokenek kizárva. E-mail riasztás `wp_mail`-en keresztül.
+  - Off-peak ütemezés (`offpeak_schedule_enabled`): ablakon kívüli teljes feed generálás elhalasztása és átütemezése; a folyamatban lévő kötegek (`wps_pepita_generation_full`) és a készletfeed korlátozásmentes futása.
+  - Magyar adminisztrációs felület a Feeds és Settings oldalakon, `manage_woocommerce` jogosultság-ellenőrzéssel és CSRF token védelemmel (`_wpnonce`).
+- **Build és reprodukálhatóság**:
+  - Release epoch: `1794662400`.
+  - Csomag: `dist/wp-pepita-sync.zip` (62 fájl), SHA-256: `701c0dfad8a1fa33aa1d6505ed40b95e2ceca32d7c5f54823e51aa19e7a08a05`.
+  - 5 időzónás tiszta újraépítés (`verify-reproducible.sh`): **PASS** (100% determinisztikus és bitről-bitre egyező).
+- **Független felülvizsgálatok és finomítások**:
+  - **AppSec Review**: **PASS** (Claude Sonnet 5.5, high effort). SSRF védelem, atomikus publikációs lock, CSRF és jogosultság-ellenőrzések igazolva, blokkoló hiba nincs.
+  - **Integration QA Review**: (OpenAI gpt-6.1-sol). Az advisory megállapítások címzésre kerültek: optimalizált mintavételi lemezolvasás (`$need_removed_sample || $need_qual_sample`), valamint a folytatási állapot végrehajtását fedő ütemezési teszt.
+- **CI Ellenőrzés**:
+  - Workflow run `43594851504`: mind a 8 kötelező job **PASS** (lint, unit PHP 8.1–8.5 296/job, integration-hpos, integration-legacy; RR20 experimental skipped).
+- **Státusz**: M9-G mérföldkő repository- és CI-kapui lezárva (**PASS**). PR #13 Draftként megőrizve a stackben; nincs merge vagy éles telepítés.
