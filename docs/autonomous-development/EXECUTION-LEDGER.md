@@ -174,3 +174,27 @@ Az M9-E ág legfrissebb HEAD-jére teljes CI, majd külön Integration QA és Ap
   - Workflow run `43641052135`: mind a 8 kötelező job **PASS** (lint, unit PHP 8.1–8.5 312 teszt/job, integration-hpos, integration-legacy; RR20 experimental skipped).
 - **Státusz**: M9-H mérföldkő repository- és CI-kapui lezárva (**PASS**). PR #14 Draftként megőrizve a stackben; nincs merge vagy éles telepítés.
 
+### M10 Rendelésműveletek, Diagnosztika és Integrációs Felkészültség — 2026-11-14
+
+- **Implementáció és architektúra (M10.1–M10.4)**:
+  - `Order_Admin` (`includes/admin/class-order-admin.php`):
+    - Egyéni rendeléslista oszlop (`Order_Admin::COLUMN_ID = 'wps_pepita_order'`) HPOS (`woocommerce_page_wc-orders`) és klasszikus (`shop_order`) felületeken: Pepita rendelésazonosító, státuszjelvény és közvetlen link a diagnosztikai nézetre.
+    - Részletes rendelés metabox (`wps_pepita_order_details`) a szerkesztőfelületeken: külső azonosító, piactéri forrás, szállítási mód, fizetési státusz, kupon, csomagcímke letöltési hivatkozás és közvetlen diagnosztikai link.
+    - Szigorúan védett csomagcímke letöltés (`handle_download_label`): `Storage::label_dir()` szerinti könyvtárelválasztós (`DIRECTORY_SEPARATOR`) `realpath` ellenőrzés (testvérkönyvtár-bejárás kizárva), `is_file()` és `.pdf` kiterjesztés megkövetelése, `X-Content-Type-Options: nosniff` és `Cache-Control: private, no-store, must-revalidate` fejlécek.
+    - Kezelői rendelés-újrafeldolgozás (`handle_retry_order`): idempotens újrafuttatás tárolt adatcsomagból; létező rendelés esetén `duplicate` állapot felismerése sikerként; befejezett követelés újranyitása csak akkor, ha nincs létező WooCommerce rendelés.
+    - Kezelői kapcsolat-helyreállítás (`handle_recover_order` és `Order_Repository::recover_orphan_order`): árva WooCommerce rendelések megbízható társítása és követelés lezárása (`completed`), `processing` és korábban meghiúsult (`failed`) állapotokból is, kizárva a hiányos vázrendeléseket (`Importer::META_IN_PROGRESS = '_wps_pepita_in_progress'`).
+  - Diagnosztikai nézet (`includes/views/orders.php`):
+    - Egyedi rendelési diagnosztikai lap (`?action=view&id=...`) claim statisztikákkal, árva rendelés detektálással, rendelés-specifikus audit naplóval és műveleti űrlapokkal.
+    - Szigorú fail-closed adatvédelem: a maszkolt adatcsomag-megjelenítő sérült vagy érvénytelen JSON esetén hibaüzenetet ad és kizárja a nyers adat kiírását; a rendelési árak `wp_kses_post()` szanitizáláson mennek keresztül; az importőr ütközési indokaiban az e-mail címek automatikusan maszkolva vannak (`Redactor::mask_email`).
+- **Build és reprodukálhatóság**:
+  - Release epoch: `1794666600`.
+  - Csomag: `dist/wp-pepita-sync.zip` (66 fájl), SHA-256: `6bbf069d17c6c8bd14e9defed5d8de0f68760621343f4874bf3b0d35c8e5a110`.
+  - 5 időzónás tiszta újraépítés (`verify-reproducible.sh`): **PASS** (100% determinisztikus és bitről-bitre egyező UTC, Europe/Budapest, America/Los_Angeles, Asia/Tokyo, Australia/Sydney környezetben).
+- **Független felülvizsgálatok**:
+  - **Integration QA Review**: **PASS** (OpenAI `gpt-6.1-sol`). Címkeleletölési védelem, árva rendelés helyreállítás és fail-closed nyers adatcsomag-megjelenítés igazolva.
+  - **AppSec Review**: **PASS** (Claude Sonnet 5.5). Traversal védelem (N1), idempotens retry (N3), e-mail maszkolás (N5), fail-closed PII védelem (N8), jogosultság (`manage_woocommerce`) és CSRF védelem igazolva.
+- **CI Ellenőrzés**:
+  - Workflow run `43648818700` a `954521b` HEAD-en: **SUCCESS** (8/8 job PASS: lint, unit PHP 8.1–8.5 327 teszt/job, integration-hpos, integration-legacy; RR20 experimental skipped).
+- **Státusz**: M10 mérföldkő repository- és CI-kapui lezárva (**PASS**). Stacked Draft PR #15 linkelve; nincs merge vagy éles telepítés.
+
+
