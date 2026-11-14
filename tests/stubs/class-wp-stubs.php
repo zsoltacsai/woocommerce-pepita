@@ -1012,6 +1012,10 @@ function wp_get_attachment_url( int $attachment_id ): string {
 	return WPS_Test_State::$attachments[ $attachment_id ] ?? '';
 }
 
+function wp_get_attachment_metadata( int $attachment_id ) {
+	return WPS_Test_State::$attachment_metadata[ $attachment_id ] ?? null;
+}
+
 function get_attached_file( int $attachment_id, bool $unfiltered = false ): string {
 	return WPS_Test_State::$attached_files[ $attachment_id ] ?? ( WPS_Test_State::$attachments[ $attachment_id ] ?? '' );
 }

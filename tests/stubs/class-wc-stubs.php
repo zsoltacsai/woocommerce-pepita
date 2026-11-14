@@ -152,6 +152,10 @@ class WC_Product {
 		return array_map( 'intval', (array) $this->data['gallery_image_ids'] );
 	}
 
+	public function set_gallery_image_ids( array $ids ): void {
+		$this->data['gallery_image_ids'] = array_map( 'intval', $ids );
+	}
+
 	/**
 	 * @return array<int, WC_Product_Attribute>
 	 */

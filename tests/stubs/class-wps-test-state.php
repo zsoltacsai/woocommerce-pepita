@@ -60,6 +60,9 @@ final class WPS_Test_State {
 	/** @var array<int, string> attachment_id => mime_type */
 	public static array $mime_types = array();
 
+	/** @var array<int, array<string, mixed>> attachment_id => metadata */
+	public static array $attachment_metadata = array();
+
 	/** @var array<string, array<int, array<string, mixed>>> tax class => rates */
 	public static array $tax_rates = array();
 
@@ -125,6 +128,7 @@ final class WPS_Test_State {
 		self::$attachments    = array();
 		self::$attached_files = array();
 		self::$mime_types     = array();
+		self::$attachment_metadata = array();
 		self::$tax_rates      = array();
 		self::$tax_enabled    = false;
 		self::$ssl            = false;
