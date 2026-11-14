@@ -1008,10 +1008,20 @@ final class Product_Mapper {
 	 * @return array<string, string>
 	 */
 	public static function attribute_name_map(): array {
-		$name_map = array();
-		$raw_map  = (string) Settings::get( 'attribute_name_map', '' );
+		static $cache_raw = null;
+		static $cache_map = array();
+
+		$raw_map = (string) Settings::get( 'attribute_name_map', '' );
+
+		if ( $raw_map === $cache_raw ) {
+			return $cache_map;
+		}
+
+		$cache_raw = $raw_map;
+		$name_map  = array();
 
 		if ( '' === trim( $raw_map ) ) {
+			$cache_map = $name_map;
 			return $name_map;
 		}
 
@@ -1036,6 +1046,7 @@ final class Product_Mapper {
 			}
 		}
 
+		$cache_map = $name_map;
 		return $name_map;
 	}
 

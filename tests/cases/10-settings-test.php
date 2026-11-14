@@ -194,3 +194,21 @@ $suite->add(
 		WPS_Assert::same( '', $clean_non_string['attribute_name_map'] );
 	}
 );
+
+$suite->add(
+	'settings: Admin::settings_input preserves attribute_name_map from POST payload',
+	static function (): void {
+		$admin  = new \WPS\Pepita\Admin\Admin();
+		$ref    = new \ReflectionClass( $admin );
+		$method = $ref->getMethod( 'settings_input' );
+		$method->setAccessible( true );
+
+		$raw = array(
+			'attribute_name_map' => "pa_color=Szín\npa_size=Méret",
+		);
+
+		$parsed = $method->invoke( $admin, $raw );
+
+		WPS_Assert::same( "pa_color=Szín\npa_size=Méret", $parsed['attribute_name_map'] );
+	}
+);

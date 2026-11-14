@@ -9,7 +9,7 @@
 | Mérföldkő | Státusz | Branch / HEAD | PR | CI | QA / AppSec | Blokkoló / következő feladat |
 |---|---|---|---|---|---|---|
 | M9-E | PASS (repo-kód és szintetikus elfogadás) | `feature/m9e-image-fallback-product-issues` / `a4854cdf9b20bcd54b0180fb2cc31b4bfa97aab9` | [#10](https://github.com/zsoltacsai/woocommerce-pepita/pull/10), OPEN/Draft | `43573024669` exact `a4854cd`: **SUCCESS**; PHP 8.1–8.5 unit (279/job), lint/reproducible ZIP, HPOS és legacy integráció PASS; RR20 experimental SKIPPED. ZIP SHA-256: `7eea712276d82c395ea1b0778b87a4d3bb361285f1d435cc0c5d8d941b71d2ef`, öt időzónás clean build egyezett. | Exact-head QA PASS (Gemini 3.8 Flash, inline report, nincs report-artifact hash); AppSec PASS (Gemini 3.8 Flash, report SHA-256 `95217ffd2ebfc9e33bbc9526007b17550206bf8d995ba07dbdb4025907de9057`), mindkettő base `0f0fe1c`. | Kód/CI kapu zárva. FN-DECO staging eredmény és valódi 269→241 katalógus nincs igazolva; merge és telepítés nem történt. |
-| M9-F | PASS (repo-kód, integrációs keresés és attribútum-mapping; CI SUCCESS) | Base `feature/m9f-intelligent-catalog-quality`; stacked Draft PR #12 `neville/pepita-m9f-handoff` / `1bd6503c94892cfa76e4c25f44e13cfda85beae4` | Exact CI `43584004363`: **SUCCESS**; PHP 8.1–8.5 unit, lint/reproducible package, HPOS és legacy PASS; RR20 SKIPPED. | Exact-head QA és AppSec review nyitott. Nincs staging bizonyíték. | Kód kész: keresés (név/SKU/ID/variáció), lapozási limit (1000 oldal, max 50 termék/kérés), opcionális attribútumnév-mapping szabályok. ZIP SHA-256 `87f81e4df21d83756efe266f7fabd19eb1b853b18d2396e6174be6c9846feae3`. |
+| M9-F | PASS (review-javítások kész; megerősítő CI futtatás alatt) | Base `feature/m9f-intelligent-catalog-quality`; stacked Draft PR #12 `neville/pepita-m9f-handoff` | Exact CI `43584004363` és `43585503047`: **SUCCESS**. Új megerősítő CI a javítási HEAD-re. | AppSec PASS (Claude Sonnet 5.5); Integration QA (Claude Opus 5.5) F1/B1 és A2 észrevételei javítva. | Kód kész: keresés, lapozási korlát, attribútum-mapping perzisztálással és statikus gyorsítótárral. ZIP SHA-256 `3423bc2486cedee0804b96d20431db76f5ed704856788b726c222d666fbe9d78`. |
 | M9-G | HOLD | — | — | — | — | M9-E/M9-F függőségek után |
 | M9-H | HOLD | — | — | — | — | M9-E–M9-G után |
 | M10 | HOLD | — | — | — | — | Katalógus/feed-mérföldkövek után, csak szintetikus tesztekkel |
@@ -102,3 +102,15 @@ Az M9-E ág legfrissebb HEAD-jére teljes CI, majd külön Integration QA és Ap
 - Tesztek: `tests/cases/10-settings-test.php` ellenőrzi a szanitizálást és hibás sorok elhagyását; `tests/cases/60-mapper-test.php` fedi a taxonómia alapú (`pa_color`), egyéni szöveges (`Anyag`), unmapped (`Garancia`) attribútumokat és a variációs tengely (`pa_size`) átnevezését.
 - Build és csomag: release epoch `1794651600`; az újraépített `dist/wp-pepita-sync.zip` SHA-256 értéke `87f81e4df21d83756efe266f7fabd19eb1b853b18d2396e6174be6c9846feae3` (61 fájl, CRC PASS).
 - Exact CI run `43584004363` az `1bd6503c94892cfa76e4c25f44e13cfda85beae4` HEAD-en: **SUCCESS** (8/8 aktív job PASS; PHP 8.1–8.5 unit, lint és 5 időzónás reprodukálható ZIP, HPOS és legacy integráció; RR20 SKIPPED).
+
+### M9-F független review-k, javítások és lezárás — 2026-11-14
+
+- Független felülvizsgálatok az `59c7d40c3b5811c1d448ec39e30ea2cd55f7a0c5` HEAD-en:
+  - **AppSec Review**: PASS (Claude Sonnet 5.5, high effort). Biztonsági kockázat, injection vagy adatmutáció nem található. Jelezte az F1 funkcionális hibát és az A2 statikus gyorsítótárazási optimalizációt.
+  - **Integration QA Review**: FAIL a B1 funkcionális hiba miatt (Claude Opus 5.5, high effort). A felületen mentett `wps[attribute_name_map]` POST adat elveszett, mert hiányzott az `Admin::settings_input()` `$scalars` fehérlistájából.
+- Javítások:
+  - `includes/admin/class-admin.php`: hozzáadva `'attribute_name_map'` a mentési `$scalars` tömbhöz, így az admin felület mentése ténylegesen perzisztálja a leképezési szabályokat.
+  - `includes/catalog/class-product-mapper.php`: statikus `$cache_map` és `$cache_raw` bevezetve, megszüntetve a redundáns parszolási költséget katalógus-generálás közben.
+  - `tests/cases/10-settings-test.php`: új reflection teszt igazolja a `settings_input` POST mező mentését.
+- Build és csomag: release epoch `1794655200`; az újraépített `dist/wp-pepita-sync.zip` SHA-256 értéke `3423bc2486cedee0804b96d20431db76f5ed704856788b726c222d666fbe9d78` (61 fájl, CRC PASS).
+- Ezzel az M9-F minden korábbi hiányossága és review-megállapítása javítva.
