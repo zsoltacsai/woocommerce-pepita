@@ -543,13 +543,13 @@ final class Product_Mapper {
 		return max( 0, $qty );
 	}
 
-	private static function name( \WC_Product $product ): string {
+	public static function name( \WC_Product $product ): string {
 		$override = Description_Sanitizer::line( get_post_meta( $product->get_id(), self::META_TITLE_OVERRIDE, true ) );
 
 		return '' !== $override ? $override : Description_Sanitizer::line( $product->get_name() );
 	}
 
-	private static function description( \WC_Product $product ): string {
+	public static function description( \WC_Product $product ): string {
 		$override = Description_Sanitizer::clean( get_post_meta( $product->get_id(), self::META_DESCRIPTION_OVERRIDE, true ) );
 
 		if ( '' !== $override ) {
@@ -634,7 +634,7 @@ final class Product_Mapper {
 		return false;
 	}
 
-	private static function gtin( int $product_id ): string {
+	public static function gtin( int $product_id ): string {
 		foreach ( Settings::gtin_meta_keys() as $key ) {
 			$raw = get_post_meta( $product_id, $key, true );
 
