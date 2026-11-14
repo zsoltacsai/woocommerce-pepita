@@ -20,6 +20,7 @@ use WPS\Pepita\Catalog\Product_Mapper;
 use WPS\Pepita\Catalog\Product_Selection;
 use WPS\Pepita\Feed\Generator;
 use WPS\Pepita\Settings;
+use WPS\Pepita\Storage;
 
 $suite = $GLOBALS['wps_suite'];
 
@@ -396,6 +397,102 @@ $suite->add(
 		$status2 = Product_Issues::feed_status( 7011 );
 		WPS_Assert::same( 'quality_excluded', $status2['key'] );
 		WPS_Assert::same( 'Kizárva a minőség miatt', $status2['label'] );
+	}
+);
+
+$suite->add(
+	'm9e exclusion: full and stock snapshots stay aligned when quality rules change',
+	static function (): void {
+		WPS_Test_State::reset();
+		Settings::update(
+			array(
+				'default_included'       => true,
+				'exclude_quality_issues' => true,
+				'batch_size'             => 10,
+				'batches_per_run'        => 10,
+			)
+		);
+
+		WPS_Test_State::add_term( 100, 'Kategória 100' );
+		WPS_Test_State::add_attachment( 820, 'https://example.test/good.jpg' );
+		WPS_Test_State::$attachment_metadata[ 820 ] = array( 'width' => 1200, 'height' => 800 );
+		WPS_Test_State::add_attachment( 821, 'https://example.test/undersized.jpg' );
+		WPS_Test_State::$attachment_metadata[ 821 ] = array( 'width' => 500, 'height' => 500 );
+
+		foreach (
+			array(
+				7301 => array( 'name' => 'Megfelelő termék', 'image_id' => 820, 'price' => 1500, 'stock_quantity' => 35 ),
+				7302 => array( 'name' => 'Kizárt termék', 'image_id' => 821, 'price' => 2300, 'stock_quantity' => 11 ),
+			) as $id => $values
+		) {
+			WPS_Test_State::add_product(
+				array_merge(
+					array(
+						'id'          => $id,
+						'description' => 'Érvényes termékleírás',
+						'sku'         => 'SKU-' . $id,
+						'manage_stock' => true,
+					),
+					$values
+				)
+			);
+			WPS_Test_State::assign_term( $id, 100 );
+		}
+
+		$run = static function ( string $type ): array {
+			$generator = new Generator();
+			$result    = $generator->run( $type, array( 'max_runtime' => 0 ) );
+			$attempts  = 0;
+			while ( 'running' === ( $result['status'] ?? '' ) && ++$attempts < 20 ) {
+				$result = $generator->run( $type, array( 'max_runtime' => 0 ) );
+			}
+			return $result;
+		};
+
+		$full_result = $run( 'full' );
+		WPS_Assert::same( 'completed', $full_result['status'] );
+		$full_first   = file_get_contents( Storage::feed_path( 'full' ) );
+		$stock_result = $run( 'stock' );
+		WPS_Assert::same( 'completed', $stock_result['status'] );
+		$stock_first = file_get_contents( Storage::feed_path( 'stock' ) );
+
+		$rows = static function ( string $path ): array {
+			$document = simplexml_load_file( $path );
+			$namespace = 'https://pepita.hu/feed/1.0';
+			$result = array();
+			foreach ( $document->children( $namespace )->Product as $product ) {
+				$id           = (string) $product->children( $namespace )->Id;
+				$price        = (string) $product->children( $namespace )->Prices->children( $namespace )->Price;
+				$quantity     = (string) $product->children( $namespace )->Availability->children( $namespace )->Quantity;
+				$result[ $id ] = array(
+					'price'    => $price,
+					'quantity' => $quantity,
+				);
+			}
+			return $result;
+		};
+
+		$full_rows_first  = $rows( Storage::feed_path( 'full' ) );
+		$stock_rows_first = $rows( Storage::feed_path( 'stock' ) );
+		WPS_Assert::same( array( 'wps-7301' ), array_keys( $full_rows_first ) );
+		WPS_Assert::same( $full_rows_first, $stock_rows_first );
+
+		// A stock-only publication must not silently adopt a new quality-filtered catalog.
+		Settings::update( array( 'exclude_quality_issues' => false ) );
+		Product_Selection::clear_cache();
+		$blocked = $run( 'stock' );
+		WPS_Assert::same( 'error', $blocked['status'] );
+		WPS_Assert::same( $stock_first, file_get_contents( Storage::feed_path( 'stock' ) ) );
+
+		// Refresh the full snapshot first, then its matching stock snapshot.
+		WPS_Assert::same( 'completed', $run( 'full' )['status'] );
+		WPS_Assert::same( 'completed', $run( 'stock' )['status'] );
+		$full_rows  = $rows( Storage::feed_path( 'full' ) );
+		$stock_rows = $rows( Storage::feed_path( 'stock' ) );
+		WPS_Assert::same( array( 'wps-7301', 'wps-7302' ), array_keys( $full_rows ) );
+		WPS_Assert::same( $full_rows, $stock_rows );
+		WPS_Assert::true( $full_first !== file_get_contents( Storage::feed_path( 'full' ) ) );
+		WPS_Assert::true( $stock_first !== file_get_contents( Storage::feed_path( 'stock' ) ) );
 	}
 );
 
