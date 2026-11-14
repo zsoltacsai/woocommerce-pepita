@@ -25,6 +25,20 @@ use WPS\Pepita\Storage;
 $suite = $GLOBALS['wps_suite'];
 
 /**
+ * Seed a catalog product for order line mapping.
+ */
+$seed_product = static function ( int $id = 101, string $sku = 'SKU-M10-1' ): WC_Product {
+	return WPS_Test_State::add_product(
+		array(
+			'id'    => $id,
+			'name'  => 'M10 Termék ' . $id,
+			'sku'   => $sku,
+			'price' => '5000',
+		)
+	);
+};
+
+/**
  * Helper to build a standard verified Pepita payload.
  *
  * @param array<string, mixed> $overrides
@@ -232,8 +246,11 @@ $suite->add(
 
 $suite->add(
 	'm10 order diagnostics: view rendering with PII redacted payload',
-	static function () use ( $make_payload ): void {
+	static function () use ( $make_payload, $seed_product ): void {
 		Settings::update( array( 'order_api_keep_payloads' => true ) );
+
+		$seed_product();
+		WPS_Test_State::add_user( 'bela.kovacs@testdomain.hu', 'Béla', 'Kovács' );
 
 		$p = $make_payload(
 			array(
@@ -250,7 +267,7 @@ $suite->add(
 
 		$importer = new Importer();
 		$res      = $importer->import( $p );
-		WPS_Assert::same( 'success', $res['status'] );
+		WPS_Assert::same( 'created', $res['status'] );
 
 		// Render orders view with action=view and id=PEP-M10-PII-1.
 		$_GET['action'] = 'view';
@@ -308,21 +325,25 @@ $suite->add(
 
 $suite->add(
 	'm10 operator retry: idempotent retry with stored payload',
-	static function () use ( $make_payload ): void {
+	static function () use ( $make_payload, $seed_product ): void {
 		Settings::update( array( 'order_api_keep_payloads' => true ) );
+
+		$seed_product();
+		WPS_Test_State::add_user( 'janos.kovacs@example.test', 'János', 'Kovács' );
 
 		$p        = $make_payload( array( 'id' => 'PEP-M10-RETRY-1' ) );
 		$importer = new Importer();
 		$init     = $importer->import( $p );
-		WPS_Assert::same( 'success', $init['status'] );
+		WPS_Assert::same( 'created', $init['status'] );
 		$first_order_id = $init['order_id'];
 
 		// Now simulate retry action via Order_Admin::handle_retry_order.
 		$admin = new Order_Admin();
 
-		$_POST['id'] = 'PEP-M10-RETRY-1';
-		// wp_create_nonce stub in tests.
-		$_POST['_wpnonce'] = wp_create_nonce( 'wps_pepita_retry_order_PEP-M10-RETRY-1' );
+		$nonce = wp_create_nonce( 'wps_pepita_retry_order_PEP-M10-RETRY-1' );
+		$_POST['id']          = 'PEP-M10-RETRY-1';
+		$_POST['_wpnonce']    = $nonce;
+		$_REQUEST['_wpnonce'] = $nonce;
 
 		// Execute retry (handling safe exit/redirect).
 		try {
@@ -331,7 +352,7 @@ $suite->add(
 			// wp_safe_redirect / exit in stub or testing.
 		}
 
-		unset( $_POST['id'], $_POST['_wpnonce'] );
+		unset( $_POST['id'], $_POST['_wpnonce'], $_REQUEST['_wpnonce'] );
 
 		// Verify claim is completed and order exists.
 		$claim = Order_Repository::get( 'PEP-M10-RETRY-1' );
@@ -351,8 +372,10 @@ $suite->add(
 
 		$admin = new Order_Admin();
 
-		$_POST['id']       = 'PEP-M10-NO-PAYLOAD-RETRY';
-		$_POST['_wpnonce'] = wp_create_nonce( 'wps_pepita_retry_order_PEP-M10-NO-PAYLOAD-RETRY' );
+		$nonce = wp_create_nonce( 'wps_pepita_retry_order_PEP-M10-NO-PAYLOAD-RETRY' );
+		$_POST['id']          = 'PEP-M10-NO-PAYLOAD-RETRY';
+		$_POST['_wpnonce']    = $nonce;
+		$_REQUEST['_wpnonce'] = $nonce;
 
 		try {
 			$admin->handle_retry_order();
@@ -360,7 +383,7 @@ $suite->add(
 			// redirect
 		}
 
-		unset( $_POST['id'], $_POST['_wpnonce'] );
+		unset( $_POST['id'], $_POST['_wpnonce'], $_REQUEST['_wpnonce'] );
 
 		$claim = Order_Repository::get( 'PEP-M10-NO-PAYLOAD-RETRY' );
 		WPS_Assert::true( null !== $claim );
@@ -387,9 +410,11 @@ $suite->add(
 		WPS_Assert::same( 0, (int) $row['wc_order_id'] );
 
 		// Operator executes recovery.
-		$admin             = new Order_Admin();
-		$_POST['id']       = 'PEP-M10-ORPHAN-1';
-		$_POST['_wpnonce'] = wp_create_nonce( 'wps_pepita_recover_order_PEP-M10-ORPHAN-1' );
+		$admin                = new Order_Admin();
+		$nonce                = wp_create_nonce( 'wps_pepita_recover_order_PEP-M10-ORPHAN-1' );
+		$_POST['id']          = 'PEP-M10-ORPHAN-1';
+		$_POST['_wpnonce']    = $nonce;
+		$_REQUEST['_wpnonce'] = $nonce;
 
 		try {
 			$admin->handle_recover_order();
@@ -397,7 +422,7 @@ $suite->add(
 			// redirect
 		}
 
-		unset( $_POST['id'], $_POST['_wpnonce'] );
+		unset( $_POST['id'], $_POST['_wpnonce'], $_REQUEST['_wpnonce'] );
 
 		// Claim must now be associated with the WooCommerce order ID.
 		$updated = Order_Repository::get( 'PEP-M10-ORPHAN-1' );
@@ -415,9 +440,11 @@ $suite->add(
 		// Verify order 99999 does not exist in WPS_Test_State::$orders.
 		unset( WPS_Test_State::$orders[99999] );
 
-		$admin             = new Order_Admin();
-		$_POST['id']       = 'PEP-M10-LOST-ORDER';
-		$_POST['_wpnonce'] = wp_create_nonce( 'wps_pepita_recover_order_PEP-M10-LOST-ORDER' );
+		$admin                = new Order_Admin();
+		$nonce                = wp_create_nonce( 'wps_pepita_recover_order_PEP-M10-LOST-ORDER' );
+		$_POST['id']          = 'PEP-M10-LOST-ORDER';
+		$_POST['_wpnonce']    = $nonce;
+		$_REQUEST['_wpnonce'] = $nonce;
 
 		try {
 			$admin->handle_recover_order();
@@ -425,7 +452,7 @@ $suite->add(
 			// redirect
 		}
 
-		unset( $_POST['id'], $_POST['_wpnonce'] );
+		unset( $_POST['id'], $_POST['_wpnonce'], $_REQUEST['_wpnonce'] );
 
 		$reopened = Order_Repository::get( 'PEP-M10-LOST-ORDER' );
 		WPS_Assert::same( Order_Repository::STATUS_FAILED, $reopened['status'], 'Lost claim must be reopened to failed.' );
@@ -447,8 +474,10 @@ $suite->add(
 		$order->update_meta_data( Importer::META_PACKAGE_LABEL, '/etc/passwd' );
 		WPS_Test_State::add_order( $order );
 
-		$_GET['order_id'] = $order->get_id();
-		$_GET['_wpnonce'] = wp_create_nonce( 'wps_pepita_download_label_' . $order->get_id() );
+		$nonce                = wp_create_nonce( 'wps_pepita_download_label_' . $order->get_id() );
+		$_GET['order_id']     = $order->get_id();
+		$_GET['_wpnonce']     = $nonce;
+		$_REQUEST['_wpnonce'] = $nonce;
 
 		$died = false;
 		try {
@@ -457,7 +486,7 @@ $suite->add(
 			$died = true;
 		}
 
-		unset( $_GET['order_id'], $_GET['_wpnonce'] );
+		unset( $_GET['order_id'], $_GET['_wpnonce'], $_REQUEST['_wpnonce'] );
 
 		WPS_Assert::true( $died, 'Path traversal must be blocked and die.' );
 	}

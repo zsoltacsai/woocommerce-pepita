@@ -320,7 +320,7 @@ final class Order_Admin {
 		$importer = new Importer();
 		$result   = $importer->import( $payload );
 
-		if ( 'success' === ( $result['status'] ?? '' ) ) {
+		if ( in_array( (string) ( $result['status'] ?? '' ), array( 'created', 'updated', 'success' ), true ) ) {
 			Logger::info(
 				'order_retry',
 				'Kezelői rendelés újrafeldolgozás sikeres.',
