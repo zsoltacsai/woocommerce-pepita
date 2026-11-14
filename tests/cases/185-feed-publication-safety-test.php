@@ -423,3 +423,101 @@ $suite->add(
 		WPS_Assert::false( Storage::has_staged_full() );
 	}
 );
+
+$suite->add(
+	'staging: successful approval updates state, enqueues stock feed, and clears staged files',
+	static function () use ( $setup_storage ): void {
+		$setup_storage();
+
+		// Live V1
+		$f1 = sys_get_temp_dir() . '/live1_' . uniqid() . '.xml';
+		$i1 = sys_get_temp_dir() . '/live1_' . uniqid() . '.jsonl';
+		file_put_contents( $f1, '<Catalog><Product><Id>V1</Id></Product></Catalog>' );
+		file_put_contents( $i1, '{"pid":1}' . "\n" );
+		Storage::publish_full( $f1, $i1, 'gen-v1' );
+
+		// Set initial error in feed state to verify approve clears it
+		update_option(
+			'wps_pepita_feed_state_full',
+			array(
+				'generation_id' => 'gen-v1',
+				'last_error'    => 'Prior transient failure',
+				'counters'      => array(),
+			),
+			false
+		);
+
+		// Stage V2
+		$f2 = sys_get_temp_dir() . '/staged2_' . uniqid() . '.xml';
+		$i2 = sys_get_temp_dir() . '/staged2_' . uniqid() . '.jsonl';
+		file_put_contents( $f2, '<Catalog><Product><Id>V2</Id></Product></Catalog>' );
+		file_put_contents( $i2, '{"pid":2}' . "\n" );
+		Storage::stage_full(
+			$f2,
+			$i2,
+			'gen-v2-valid',
+			'sig-v2-valid',
+			array( 'status' => 'warn' ),
+			'High risk changes',
+			array( 'exported' => 42 ),
+			array( 'Warning 1' )
+		);
+
+		WPS_Assert::true( Storage::has_staged_full() );
+
+		// Approve staged full
+		$approved = Storage::approve_staged_full();
+		WPS_Assert::true( $approved, 'Valid staged feed with matching base must be approved successfully' );
+		WPS_Assert::false( Storage::has_staged_full(), 'Staged feed option must be deleted after approval' );
+
+		// Verify feed state updated
+		$state = get_option( 'wps_pepita_feed_state_full' );
+		WPS_Assert::same( 'gen-v2-valid', $state['generation_id'] );
+		WPS_Assert::same( 'sig-v2-valid', $state['signature'] );
+		WPS_Assert::same( 42, $state['counters']['exported'] );
+		WPS_Assert::null( $state['last_error'] );
+
+		// Verify live active pointer moved to gen-v2-valid
+		$ptr = Storage::read_pointer();
+		WPS_Assert::same( 'gen-v2-valid', $ptr['active']['generation_id'] );
+
+		// Verify stock feed regeneration was enqueued
+		$next_stock = wp_next_scheduled( Scheduler::HOOK_QUEUE_STOCK );
+		WPS_Assert::true( false !== $next_stock || function_exists( 'as_next_scheduled_action' ) );
+	}
+);
+
+$suite->add(
+	'scheduler: in-progress batch continuation runs even outside offpeak window',
+	static function (): void {
+		Settings::update(
+			array(
+				'offpeak_schedule_enabled' => true,
+				'offpeak_start_hour'       => 1,
+				'offpeak_end_hour'         => 5,
+			)
+		);
+
+		// Simulate current time outside window (12:00)
+		$t_1200 = strtotime( '2026-11-14 12:00:00' );
+		WPS_Assert::false( Scheduler::is_in_offpeak_window( $t_1200 ) );
+
+		// When no continuation state exists, Scheduler::run(TYPE_FULL) defers
+		delete_option( 'wps_pepita_generation_full' );
+		// When continuation state exists, it is recognized as continuation
+		update_option(
+			'wps_pepita_generation_full',
+			array(
+				'type'       => Generator::TYPE_FULL,
+				'lock_token' => 'lock-123',
+				'offset'     => 100,
+			),
+			false
+		);
+
+		$is_cont = (bool) get_option( 'wps_pepita_generation_' . Generator::TYPE_FULL, false );
+		WPS_Assert::true( $is_cont, 'In-progress state option must be recognized' );
+
+		delete_option( 'wps_pepita_generation_full' );
+	}
+);

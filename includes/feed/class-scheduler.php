@@ -239,7 +239,7 @@ final class Scheduler {
 		}
 
 		if ( Generator::TYPE_FULL === $type && (bool) Settings::get( 'offpeak_schedule_enabled', false ) ) {
-			$is_continuation = (bool) get_option( 'wps_pepita_generation_state_' . $type, false );
+			$is_continuation = (bool) get_option( 'wps_pepita_generation_' . $type, false );
 			if ( ! $is_continuation && ! self::is_in_offpeak_window() ) {
 				$next_window_ts = self::next_offpeak_window_timestamp();
 

@@ -133,32 +133,57 @@ final class Catalog_Diff {
 		}
 
 		// Stream the previous snapshot into an indexed compact map.
+		// To maintain strictly bounded memory, names and nested variation structures are NOT
+		// held in memory; only compact scalar primitives, checksums, and file offsets are kept.
 		$prev_map          = array();
 		$prev_active_count = 0;
+		$prev_stream       = fopen( $previous_path, 'rb' );
 
-		foreach ( Catalog_Index::read( $previous_path ) as $row ) {
-			$pid        = (int) $row['pid'];
-			$retired_at = (int) ( $row['retired_at'] ?? 0 );
+		if ( false !== $prev_stream ) {
+			while ( true ) {
+				$offset = ftell( $prev_stream );
+				$line   = fgets( $prev_stream );
+				if ( false === $line ) {
+					break;
+				}
 
-			if ( 0 === $retired_at ) {
-				++$prev_active_count;
+				$line = trim( $line );
+				if ( '' === $line ) {
+					continue;
+				}
+
+				$row = json_decode( $line, true );
+				if ( ! is_array( $row ) || ! isset( $row['pid'] ) ) {
+					continue;
+				}
+
+				$pid        = (int) $row['pid'];
+				$retired_at = (int) ( $row['retired_at'] ?? 0 );
+
+				if ( 0 === $retired_at ) {
+					++$prev_active_count;
+				}
+
+				$vars_crc = ! empty( $row['vars'] ) && is_array( $row['vars'] )
+					? crc32( (string) wp_json_encode( $row['vars'] ) )
+					: 0;
+
+				$prev_map[ $pid ] = array(
+					'ret'   => $retired_at,
+					'price' => (float) ( $row['price'] ?? 0.0 ),
+					'sale'  => isset( $row['sale'] ) && null !== $row['sale'] ? (float) $row['sale'] : null,
+					'vat'   => (float) ( $row['vat'] ?? 0.0 ),
+					'curr'  => (string) ( $row['currency'] ?? '' ),
+					'qty'   => isset( $row['qty'] ) ? (int) $row['qty'] : null,
+					'avail' => isset( $row['avail'] ) ? (bool) $row['avail'] : null,
+					'cat'   => (string) ( $row['cat'] ?? '' ),
+					'qual'  => (bool) ( $row['qual_ex'] ?? false ),
+					'vars'  => $vars_crc,
+					'pos'   => $offset,
+				);
 			}
 
-			$prev_map[ $pid ] = array(
-				'pid'        => $pid,
-				'eid'        => (string) ( $row['eid'] ?? '' ),
-				'name'       => (string) ( $row['name'] ?? '' ),
-				'price'      => (float) ( $row['price'] ?? 0.0 ),
-				'sale'       => isset( $row['sale'] ) && null !== $row['sale'] ? (float) $row['sale'] : null,
-				'vat'        => (float) ( $row['vat'] ?? 0.0 ),
-				'currency'   => (string) ( $row['currency'] ?? '' ),
-				'qty'        => isset( $row['qty'] ) ? (int) $row['qty'] : null,
-				'avail'      => isset( $row['avail'] ) ? (bool) $row['avail'] : null,
-				'cat'        => (string) ( $row['cat'] ?? '' ),
-				'qual_ex'    => (bool) ( $row['qual_ex'] ?? false ),
-				'vars'       => (array) ( $row['vars'] ?? array() ),
-				'retired_at' => $retired_at,
-			);
+			fclose( $prev_stream );
 		}
 
 		// Stream the current snapshot, comparing against the previous map.
@@ -214,7 +239,7 @@ final class Catalog_Diff {
 				unset( $prev_map[ $pid ] ); // Handled; remaining in $prev_map will be items removed from current.
 
 				// 1. Availability / Retired transition.
-				if ( 0 === $prev['retired_at'] && $retired_at > 0 ) {
+				if ( 0 === $prev['ret'] && $retired_at > 0 ) {
 					if ( count( $samples['unavailable'] ) < $sample_limit ) {
 						$samples['unavailable'][] = array(
 							'pid'        => $pid,
@@ -293,7 +318,7 @@ final class Catalog_Diff {
 				$prev_cat = (string) ( $prev['cat'] ?? '' );
 				$curr_cat = (string) ( $row['cat'] ?? '' );
 
-				if ( '' !== $prev_cat && '' !== $curr_cat && $prev_cat !== $curr_cat ) {
+				if ( $prev_cat !== $curr_cat ) {
 					++$category_changed_count;
 
 					if ( count( $samples['category_changed'] ) < $sample_limit ) {
@@ -308,7 +333,7 @@ final class Catalog_Diff {
 				}
 
 				// 5. Quality exclusion changes.
-				$prev_qual = (bool) ( $prev['qual_ex'] ?? false );
+				$prev_qual = (bool) ( $prev['qual'] ?? false );
 				$curr_qual = (bool) ( $row['qual_ex'] ?? false );
 
 				if ( $curr_qual && ! $prev_qual ) {
@@ -325,9 +350,12 @@ final class Catalog_Diff {
 				}
 
 				// 6. Variation identity changes.
-				$curr_vars = (array) ( $row['vars'] ?? array() );
+				$curr_vars     = (array) ( $row['vars'] ?? array() );
+				$curr_vars_crc = ! empty( $curr_vars )
+					? crc32( (string) wp_json_encode( $curr_vars ) )
+					: 0;
 
-				if ( $prev['vars'] !== $curr_vars ) {
+				if ( $prev['vars'] !== $curr_vars_crc ) {
 					++$variation_changed_count;
 
 					if ( count( $samples['variation_changed'] ) < $sample_limit ) {
@@ -335,7 +363,6 @@ final class Catalog_Diff {
 							'pid'      => $pid,
 							'eid'      => (string) ( $row['eid'] ?? '' ),
 							'name'     => (string) ( $row['name'] ?? '' ),
-							'old_vars' => $prev['vars'],
 							'new_vars' => $curr_vars,
 						);
 					}
@@ -345,7 +372,7 @@ final class Catalog_Diff {
 				$curr_vat = (float) ( $row['vat'] ?? 0.0 );
 				$curr_cur = (string) ( $row['currency'] ?? '' );
 
-				if ( abs( $prev['vat'] - $curr_vat ) > 0.001 || $prev['currency'] !== $curr_cur ) {
+				if ( abs( $prev['vat'] - $curr_vat ) > 0.001 || $prev['curr'] !== $curr_cur ) {
 					++$tax_currency_changed_count;
 
 					if ( count( $samples['tax_currency_changed'] ) < $sample_limit ) {
@@ -355,7 +382,7 @@ final class Catalog_Diff {
 							'name'         => (string) ( $row['name'] ?? '' ),
 							'old_vat'      => $prev['vat'],
 							'new_vat'      => $curr_vat,
-							'old_currency' => $prev['currency'],
+							'old_currency' => $prev['curr'],
 							'new_currency' => $curr_cur,
 						);
 					}
@@ -365,23 +392,39 @@ final class Catalog_Diff {
 
 		// Items remaining in $prev_map were active in previous, but are completely gone from current.
 		$removed_count = 0;
+		$prev_fh       = ( count( $prev_map ) > 0 && is_file( $previous_path ) ) ? fopen( $previous_path, 'rb' ) : false;
 
-		foreach ( $prev_map as $prev_item ) {
-			if ( 0 === (int) $prev_item['retired_at'] ) {
+		foreach ( $prev_map as $pid => $prev_item ) {
+			if ( 0 === (int) $prev_item['ret'] ) {
 				++$removed_count;
+
+				$item_name = '';
+				$item_eid  = '';
+
+				if ( false !== $prev_fh && ( count( $samples['removed'] ) < $sample_limit || count( $samples['quality_excluded'] ) < $sample_limit ) ) {
+					fseek( $prev_fh, (int) $prev_item['pos'] );
+					$line = fgets( $prev_fh );
+					if ( false !== $line ) {
+						$r = json_decode( trim( $line ), true );
+						if ( is_array( $r ) ) {
+							$item_name = (string) ( $r['name'] ?? '' );
+							$item_eid  = (string) ( $r['eid'] ?? '' );
+						}
+					}
+				}
 
 				$is_qual = false;
 				if ( class_exists( '\WPS\Pepita\Catalog\Product_Selection' ) ) {
-					$sel = \WPS\Pepita\Catalog\Product_Selection::resolve( (int) $prev_item['pid'] );
+					$sel = \WPS\Pepita\Catalog\Product_Selection::resolve( (int) $pid );
 					if ( \WPS\Pepita\Catalog\Product_Selection::SOURCE_QUALITY_EXCLUDED === ( $sel['source'] ?? '' ) ) {
 						$is_qual = true;
 						++$quality_excluded_count;
 
 						if ( count( $samples['quality_excluded'] ) < $sample_limit ) {
 							$samples['quality_excluded'][] = array(
-								'pid'    => (int) $prev_item['pid'],
-								'eid'    => (string) $prev_item['eid'],
-								'name'   => (string) $prev_item['name'],
+								'pid'    => (int) $pid,
+								'eid'    => $item_eid,
+								'name'   => $item_name,
 								'reason' => 'quality_excluded',
 							);
 						}
@@ -390,14 +433,18 @@ final class Catalog_Diff {
 
 				if ( count( $samples['removed'] ) < $sample_limit ) {
 					$samples['removed'][] = array(
-						'pid'              => (int) $prev_item['pid'],
-						'eid'              => (string) $prev_item['eid'],
-						'name'             => (string) $prev_item['name'],
+						'pid'              => (int) $pid,
+						'eid'              => $item_eid,
+						'name'             => $item_name,
 						'price'            => (float) $prev_item['price'],
 						'quality_excluded' => $is_qual,
 					);
 				}
 			}
+		}
+
+		if ( false !== $prev_fh ) {
+			fclose( $prev_fh );
 		}
 
 		// Calculate drop percentage based on active previous catalog.

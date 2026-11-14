@@ -560,7 +560,7 @@ final class Storage {
 	 * If the process terminates at any point prior to the pointer rename, the previous generation
 	 * remains 100% active and uncorrupted.
 	 */
-	public static function publish_full( string $feed_temp, string $index_temp, ?string $generation_id = null, ?string $signature = null ): bool {
+	public static function publish_full( string $feed_temp, string $index_temp, ?string $generation_id = null, ?string $signature = null, ?string $expected_base_gen = null, bool $is_staged_approval = false ): bool {
 		self::ensure_directory();
 
 		if ( ! is_file( $feed_temp ) || ! is_file( $index_temp ) ) {
@@ -581,6 +581,22 @@ final class Storage {
 		try {
 			self::clear_pointer_cache();
 			$current_pointer = self::read_pointer();
+
+			// Atomic rollback guard: verify active generation inside the lock to eliminate race conditions
+			if ( null !== $expected_base_gen && '' !== $expected_base_gen ) {
+				$current_gen = $current_pointer['active']['generation_id'] ?? '';
+				if ( '' !== $current_gen && $expected_base_gen !== $current_gen ) {
+					Logger::warning(
+						'feed_safety',
+						'Publikálás elutasítva a kritikus szakaszban: a publikus generáció időközben frissült.',
+						array(
+							'expected_base' => $expected_base_gen,
+							'current_gen'   => $current_gen,
+						)
+					);
+					return false;
+				}
+			}
 			$gen             = $generation_id ?? ( gmdate( 'Ymd_His' ) . '_' . bin2hex( random_bytes( 4 ) ) );
 
 			$catalog_sig     = $signature ?? Catalog_Index::compute_signature_from_file( $index_temp );
@@ -698,8 +714,10 @@ final class Storage {
 
 			self::prune_old_generations( $new_pointer );
 
-			// A fresh normal publication supersedes any pending staged feed (B2).
-			self::discard_staged_full();
+			if ( ! $is_staged_approval ) {
+				// A fresh normal publication supersedes any pending staged feed (B2).
+				self::discard_staged_full();
+			}
 
 			clearstatcache( true, $target_feed );
 			clearstatcache( true, $target_index );
@@ -1002,7 +1020,9 @@ final class Storage {
 			$feed_path,
 			$index_path,
 			(string) ( $staged['generation_id'] ?? '' ),
-			(string) ( $staged['signature'] ?? '' )
+			(string) ( $staged['signature'] ?? '' ),
+			$base_gen,
+			true
 		);
 
 		if ( ! $published ) {
