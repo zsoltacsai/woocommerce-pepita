@@ -638,7 +638,7 @@ $suite->add(
 
 		// Run generator
 		$generator = new \WPS\Pepita\Feed\Generator();
-		$generator->run( \WPS\Pepita\Feed\Generator::TYPE_FULL, 100 );
+		$generator->run( \WPS\Pepita\Feed\Generator::TYPE_FULL, array( 'max_runtime' => 100 ) );
 
 		// The uncapped counter must record the margin warning and stage for approval
 		WPS_Assert::true( \WPS\Pepita\Storage::is_staged(), 'Feed must be staged for approval when margin is below threshold' );
