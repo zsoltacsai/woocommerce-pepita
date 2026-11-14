@@ -1327,6 +1327,7 @@ function add_submenu_page( ...$args ) {
 }
 
 function add_meta_box( ...$args ): void {
+	WPS_Test_State::$meta_boxes[] = $args;
 }
 
 function register_rest_route( string $namespace, string $route, array $args = array(), bool $override = false ): bool {

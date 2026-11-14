@@ -594,6 +594,10 @@ class WC_Order {
 		return $this->id;
 	}
 
+	public function get_edit_order_url(): string {
+		return 'https://example.test/wp-admin/admin.php?page=wc-orders&action=edit&id=' . $this->id;
+	}
+
 	public function assign_id( int $id ): void {
 		$this->id = $id;
 	}
@@ -1308,6 +1312,13 @@ function wc_get_order_statuses(): array {
 		'wc-refunded'   => 'Visszatérítve',
 		'wc-failed'     => 'Sikertelen',
 	);
+}
+
+function wc_get_order_status_name( string $status ): string {
+	$statuses = wc_get_order_statuses();
+	$status   = str_starts_with( $status, 'wc-' ) ? $status : 'wc-' . $status;
+
+	return $statuses[ $status ] ?? ucfirst( str_replace( 'wc-', '', $status ) );
 }
 
 function wc_tax_enabled(): bool {
