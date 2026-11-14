@@ -346,13 +346,18 @@ $suite->add(
 		$_REQUEST['_wpnonce'] = $nonce;
 
 		// Execute retry (handling safe exit/redirect).
+		$redirect_notice = '';
 		try {
 			$admin->handle_retry_order();
-		} catch ( \Throwable $t ) {
-			// wp_safe_redirect / exit in stub or testing.
+		} catch ( \RuntimeException $e ) {
+			if ( preg_match( '/wps_notice=([a-z_]+)/', $e->getMessage(), $m ) ) {
+				$redirect_notice = $m[1];
+			}
 		}
 
 		unset( $_POST['id'], $_POST['_wpnonce'], $_REQUEST['_wpnonce'] );
+
+		WPS_Assert::same( 'retry_success', $redirect_notice, 'Retry of existing order should redirect with retry_success notice.' );
 
 		// Verify claim is completed and order exists.
 		$claim = Order_Repository::get( 'PEP-M10-RETRY-1' );
@@ -508,6 +513,8 @@ $suite->add(
 $suite->add(
 	'm10 order diagnostics: malformed payload fails closed and never leaks raw content',
 	static function (): void {
+		Settings::update( array( 'order_api_keep_payloads' => true ) );
+
 		$malformed_raw = '{"broken": json, "secret_email": "leaked_victim@example.test", "tax_number": "99999999-1-11"';
 
 		Order_Repository::claim( 'PEP-M10-MALFORMED', 'pepita.hu', $malformed_raw, 'hash_malformed' );

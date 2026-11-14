@@ -323,7 +323,7 @@ final class Order_Admin {
 		$importer = new Importer();
 		$result   = $importer->import( $payload );
 
-		if ( in_array( (string) ( $result['status'] ?? '' ), array( 'created', 'updated', 'success' ), true ) ) {
+		if ( in_array( (string) ( $result['status'] ?? '' ), array( 'created', 'updated', 'success', 'duplicate' ), true ) ) {
 			Logger::info(
 				'order_retry',
 				'Kezelői rendelés újrafeldolgozás sikeres.',
@@ -528,6 +528,10 @@ final class Order_Admin {
 			wp_die( esc_html__( 'A csomagcímke fájl nem található vagy elérési útja érvénytelen.', 'wp-pepita-sync' ), 404 );
 		}
 
+		if ( ! apply_filters( 'wps_pepita_serve_label_download', true, $real_file, $order ) ) {
+			return;
+		}
+
 		while ( ob_get_level() > 0 ) {
 			ob_end_clean();
 		}
@@ -537,10 +541,6 @@ final class Order_Admin {
 		header( 'Content-Length: ' . (int) filesize( $real_file ) );
 		header( 'X-Content-Type-Options: nosniff' );
 		header( 'Cache-Control: private, no-store, must-revalidate' );
-
-		if ( ! apply_filters( 'wps_pepita_serve_label_download', true, $real_file, $order ) ) {
-			return;
-		}
 
 		readfile( $real_file );
 		exit;
@@ -569,6 +569,10 @@ final class Order_Admin {
 			$order = wc_get_order( (int) $orders[0] );
 
 			if ( $order instanceof \WC_Order ) {
+				if ( 'yes' === (string) $order->get_meta( Importer::META_IN_PROGRESS ) ) {
+					return 0; // Exclude incomplete shell orders.
+				}
+
 				$stored = (string) $order->get_meta( Importer::META_ORDER_ID );
 
 				if ( '' === $stored || hash_equals( $stored, $external_id ) ) {
