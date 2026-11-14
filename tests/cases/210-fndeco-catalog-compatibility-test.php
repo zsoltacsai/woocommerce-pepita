@@ -684,18 +684,18 @@ $suite->add(
 		}
 
 		$source_file = $target_dir . '/test-dummy.webp';
-		file_put_contents( $source_file, 'dummy-webp-data' );
+		copy( __DIR__ . '/../fixtures/images/pepita-compatible-1200x630.webp', $source_file );
 
 		WPS_Test_State::add_attachment( 555, 'https://example.test/uploads/test-dummy.webp' );
 		WPS_Test_State::$attached_files[ 555 ] = $source_file;
 		WPS_Test_State::$mime_types[ 555 ] = 'image/webp';
 
-		$mtime = (int) filemtime( $source_file );
-		$hash = substr( md5( '555-' . $mtime . '-' . filesize( $source_file ) ), 0, 12 );
+		$source_hash = hash_file( 'sha256', $source_file );
+		$hash = substr( hash( 'sha256', '555:' . $source_hash ), 0, 16 );
 		$derivative_filename = sprintf( 'att-%d-%s.jpg', 555, $hash );
 		$derivative_path = $target_dir . '/' . $derivative_filename;
-		// Valid 1x1 JPEG bytes to satisfy image integrity check.
-		file_put_contents( $derivative_path, base64_decode( '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=' ) );
+		// A valid full-size derivative must be reused from the content-addressed cache.
+		copy( __DIR__ . '/../fixtures/images/pepita-compatible-1200x630.jpg', $derivative_path );
 
 		$warnings = array();
 		$resolved = Image_Converter::resolve_attachment_url( 555, $warnings );

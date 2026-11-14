@@ -122,7 +122,7 @@ final class Image_Converter {
 	 */
 	public static function generate_jpeg_derivative( int $attachment_id, ?array &$warnings = null ): string {
 		$source_path = function_exists( 'get_attached_file' ) ? (string) get_attached_file( $attachment_id ) : '';
-		if ( '' === $source_path || ! is_file( $source_path ) || ! is_readable( $source_path ) ) {
+		if ( '' === $source_path || is_link( $source_path ) || ! is_file( $source_path ) || ! is_readable( $source_path ) ) {
 			self::add_warning( $warnings, self::image_warning( 'image_source_unavailable', sprintf( 'A(z) #%d WebP forrásfájl nem érhető el.', $attachment_id ) ) );
 			return '';
 		}
@@ -223,40 +223,43 @@ final class Image_Converter {
 
 		// 2. Try Imagick if GD was not available or failed.
 		if ( ! $converted && class_exists( '\Imagick' ) ) {
-			$decode_budget   = min( 128 * 1024 * 1024, max( 1, self::memory_limit_bytes( ini_get( 'memory_limit' ) ) - memory_get_usage( true ) ) );
+			$memory_limit    = self::memory_limit_bytes( ini_get( 'memory_limit' ) );
+			$decode_budget   = min( 128 * 1024 * 1024, max( 1, $memory_limit - memory_get_usage( true ) ) );
 			$previous_limits = self::set_imagick_limits( $decode_budget );
 			$probe           = null;
 			$imagick         = null;
 			$canvas          = null;
-			try {
-				$probe = new \Imagick();
-				$probe->pingImage( $source_path );
-				if ( 1 === $probe->getNumberImages() ) {
-					$imagick = new \Imagick();
-					$imagick->readImage( $source_path );
-					$width  = (int) $imagick->getImageWidth();
-					$height = (int) $imagick->getImageHeight();
+			if ( null !== $previous_limits ) {
+				try {
+					$probe = new \Imagick();
+					$probe->pingImage( $source_path );
+					if ( 1 === $probe->getNumberImages() ) {
+						$imagick = new \Imagick();
+						$imagick->readImage( $source_path );
+						$width  = (int) $imagick->getImageWidth();
+						$height = (int) $imagick->getImageHeight();
 
-					if ( $width >= self::MIN_WIDTH && $height >= self::MIN_HEIGHT ) {
-						$canvas = new \Imagick();
-						$canvas->newImage( $width, $height, new \ImagickPixel( 'white' ) );
-						$canvas->compositeImage( $imagick, \Imagick::COMPOSITE_OVER, 0, 0 );
-						$canvas->setImageFormat( 'jpeg' );
-						$canvas->setImageCompressionQuality( 90 );
-						$canvas->writeImage( $tmp_path );
-						$converted = file_exists( $tmp_path ) && filesize( $tmp_path ) > 0;
+						if ( $width >= self::MIN_WIDTH && $height >= self::MIN_HEIGHT ) {
+							$canvas = new \Imagick();
+							$canvas->newImage( $width, $height, new \ImagickPixel( 'white' ) );
+							$canvas->compositeImage( $imagick, \Imagick::COMPOSITE_OVER, 0, 0 );
+							$canvas->setImageFormat( 'jpeg' );
+							$canvas->setImageCompressionQuality( 90 );
+							$canvas->writeImage( $tmp_path );
+							$converted = file_exists( $tmp_path ) && filesize( $tmp_path ) > 0;
+						}
 					}
-				}
-			} catch ( \Throwable ) {
-				$converted = false;
-			} finally {
-				foreach ( array( $probe, $imagick, $canvas ) as $image ) {
-					if ( $image instanceof \Imagick ) {
-						$image->clear();
-						$image->destroy();
+				} catch ( \Throwable ) {
+					$converted = false;
+				} finally {
+					foreach ( array( $probe, $imagick, $canvas ) as $image ) {
+						if ( $image instanceof \Imagick ) {
+							$image->clear();
+							$image->destroy();
+						}
 					}
+					self::restore_imagick_limits( $previous_limits );
 				}
-				self::restore_imagick_limits( $previous_limits );
 			}
 		}
 
@@ -369,7 +372,7 @@ final class Image_Converter {
 	 * @return array{code: string, message: string}|null
 	 */
 	private static function validate_image_path( string $path, string $url, string $declared_mime, int $attachment_id, array $allowed_mimes, bool $check_metadata ): ?array {
-		if ( '' === $path || ! is_file( $path ) || ! is_readable( $path ) ) {
+		if ( '' === $path || is_link( $path ) || ! is_file( $path ) || ! is_readable( $path ) ) {
 			return self::image_warning( 'image_source_unavailable', sprintf( 'A(z) #%d kép helyi forrásfájlja nem érhető el biztonságos ellenőrzésre.', $attachment_id ) );
 		}
 		if ( '' !== $url ) {
@@ -524,6 +527,9 @@ final class Image_Converter {
 		}
 		if ( class_exists( '\\Imagick' ) ) {
 			$previous_limits = self::set_imagick_limits( $decode_budget );
+			if ( null === $previous_limits ) {
+				return false;
+			}
 			try {
 				$probe = new \Imagick();
 				$probe->pingImage( $path );
@@ -555,7 +561,7 @@ final class Image_Converter {
 
 	private static function memory_limit_bytes( string|false $limit ): int {
 		if ( false === $limit || '' === $limit || '-1' === $limit ) {
-			return 0;
+			return 128 * 1024 * 1024;
 		}
 		$unit  = strtolower( substr( $limit, -1 ) );
 		$value = (int) $limit;
@@ -567,8 +573,8 @@ final class Image_Converter {
 		};
 	}
 
-	/** @return array<int, int> Previous Imagick resource limits. */
-	private static function set_imagick_limits( int $decode_budget ): array {
+	/** @return array<int, int>|null Previous limits, or null if every cap could not be applied. */
+	private static function set_imagick_limits( int $decode_budget ): ?array {
 		$requested = array(
 			'RESOURCETYPE_MEMORY' => min( $decode_budget, 128 * 1024 * 1024 ),
 			'RESOURCETYPE_MAP'    => min( $decode_budget, 128 * 1024 * 1024 ),
@@ -577,14 +583,24 @@ final class Image_Converter {
 			'RESOURCETYPE_THREAD' => 1,
 		);
 		$previous = array();
-		foreach ( $requested as $name => $limit ) {
-			$constant = \Imagick::class . '::' . $name;
-			if ( ! defined( $constant ) ) {
-				continue;
+		try {
+			foreach ( $requested as $name => $limit ) {
+				$constant = \Imagick::class . '::' . $name;
+				if ( ! defined( $constant ) ) {
+					self::restore_imagick_limits( $previous );
+					return null;
+				}
+				$resource = constant( $constant );
+				$previous[ $resource ] = \Imagick::getResourceLimit( $resource );
+				$applied = \Imagick::setResourceLimit( $resource, max( 1, $limit ) );
+				if ( true !== $applied ) {
+					self::restore_imagick_limits( $previous );
+					return null;
+				}
 			}
-			$resource = constant( $constant );
-			$previous[ $resource ] = \Imagick::getResourceLimit( $resource );
-			\Imagick::setResourceLimit( $resource, max( 1, $limit ) );
+		} catch ( \Throwable ) {
+			self::restore_imagick_limits( $previous );
+			return null;
 		}
 		return $previous;
 	}
@@ -592,7 +608,11 @@ final class Image_Converter {
 	/** @param array<int, int> $limits */
 	private static function restore_imagick_limits( array $limits ): void {
 		foreach ( $limits as $resource => $limit ) {
-			\Imagick::setResourceLimit( $resource, $limit );
+			try {
+				\Imagick::setResourceLimit( $resource, $limit );
+			} catch ( \Throwable ) {
+				// The operation is already failing closed; continue restoring other limits.
+			}
 		}
 	}
 }

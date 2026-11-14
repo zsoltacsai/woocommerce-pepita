@@ -69,6 +69,7 @@ $suite->add(
 		$warnings = array();
 
 		WPS_Test_State::add_attachment( 840, 'https://example.test/unsupported.gif' );
+		WPS_Assert::true( is_file( WPS_Test_State::$attached_files[ 840 ] ?? '' ), 'Fixture path must resolve before image inspection.' );
 		WPS_Assert::same( '', Image_Converter::resolve_attachment_url( 840, $warnings ) );
 		WPS_Assert::same( 'unsupported_image_format', $warnings[0]['code'] );
 

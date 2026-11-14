@@ -970,7 +970,7 @@ function wp_parse_url( string $url, int $component = -1 ) {
 	}
 
 	if ( -1 !== $component ) {
-		return $parts[ $component ] ?? null;
+		return parse_url( $url, $component );
 	}
 
 	return $parts;
