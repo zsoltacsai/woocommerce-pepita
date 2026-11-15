@@ -447,7 +447,7 @@ final class Merchant_Profiles {
 	public static function delete_option_if_token( string $key, string $token ): bool {
 		global $wpdb;
 
-		if ( empty( $token ) ) {
+		if ( empty( $token ) || ( ! str_starts_with( $key, 'wps_pepita' ) && ! str_starts_with( $key, '_wps' ) ) ) {
 			return false;
 		}
 
@@ -466,7 +466,7 @@ final class Merchant_Profiles {
 			$like    = '%' . $wpdb->esc_like( $token ) . '%';
 			$deleted = $wpdb->query(
 				$wpdb->prepare(
-					"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value LIKE %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					"DELETE FROM {$wpdb->options} WHERE option_name = %s AND ( option_name LIKE 'wps_pepita_%' OR option_name LIKE '_wps%' ) AND option_value LIKE %s", // Scoped to wps_pepita rows. phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 					$key,
 					$like
 				)
