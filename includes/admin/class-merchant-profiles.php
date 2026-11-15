@@ -760,6 +760,21 @@ final class Merchant_Profiles {
 	}
 
 	/**
+	 * Delete exactly the journal that was observed: token-bound journals only by their own token,
+	 * tokenless legacy journals (written before owner binding) by name while the caller holds the lock.
+	 *
+	 * @param array<string, mixed> $journal Journal as read by the caller.
+	 */
+	private static function delete_observed_journal( array $journal ): void {
+		$token = (string) ( $journal['token'] ?? '' );
+		if ( '' !== $token ) {
+			self::delete_option_if_token( self::JOURNAL_OPTION, $token );
+			return;
+		}
+		delete_option( self::JOURNAL_OPTION );
+	}
+
+	/**
 	 * Whether the persisted recovery journal still belongs to the given lock owner.
 	 */
 	private static function journal_is_owned( ?string $token ): bool {
@@ -867,7 +882,8 @@ final class Merchant_Profiles {
 
 			// A journal marked completed belongs to an import that already succeeded; it must never be undone.
 			if ( ! empty( $journal['completed'] ) ) {
-				delete_option( self::JOURNAL_OPTION );
+				self::assert_lock_owned( $lock_token );
+				self::delete_observed_journal( $journal );
 				return array(
 					'recovered'       => false,
 					'rollback_clean'  => true,
@@ -884,6 +900,7 @@ final class Merchant_Profiles {
 			}
 
 			if ( ! empty( $journal['original_settings'] ) && is_array( $journal['original_settings'] ) ) {
+				self::assert_lock_owned( $lock_token );
 				try {
 					Settings::update( $journal['original_settings'] );
 				} catch ( \Throwable $settings_err ) {
@@ -911,6 +928,7 @@ final class Merchant_Profiles {
 				if ( ! is_array( $metas ) ) {
 					continue;
 				}
+				self::assert_lock_owned( $lock_token );
 				foreach ( $metas as $meta_key => $state ) {
 					if ( ! empty( $state['exists'] ) ) {
 						$res = update_term_meta( (int) $term_id, $meta_key, $state['value'] );
@@ -942,7 +960,8 @@ final class Merchant_Profiles {
 		}
 
 		if ( $rollback_clean ) {
-			delete_option( self::JOURNAL_OPTION );
+			self::assert_lock_owned( $lock_token );
+			self::delete_observed_journal( $journal );
 		}
 
 		Logger::warning(
@@ -960,6 +979,16 @@ final class Merchant_Profiles {
 			'rollback_clean'  => $rollback_clean,
 			'rollback_errors' => $rollback_errors,
 		);
+		} catch ( \RuntimeException $lost ) {
+			// Fencing: recovery that lost its lease stops immediately and leaves the journal for the current owner.
+			if ( self::LOCK_LOST_CODE !== $lost->getCode() ) {
+				throw $lost;
+			}
+			return array(
+				'recovered'       => false,
+				'rollback_clean'  => false,
+				'rollback_errors' => array( 'Recovery lock lost; journal retained for the current lock owner.' ),
+			);
 		} finally {
 			if ( $own_lock ) {
 				self::release_import_lock( $lock_token );
@@ -993,7 +1022,7 @@ final class Merchant_Profiles {
 
 		try {
 			$recovery = self::recover_interrupted_import( $lock_token );
-			if ( $recovery['recovered'] && ! $recovery['rollback_clean'] ) {
+			if ( ! $recovery['rollback_clean'] ) {
 				return array(
 					'success'             => false,
 					'rolled_back'         => false,
@@ -1256,6 +1285,9 @@ final class Merchant_Profiles {
 			}
 
 			foreach ( $original_term_meta as $term_id => $metas ) {
+				if ( ! self::renew_import_lock( $lock_token ) || ! self::journal_is_owned( $lock_token ) ) {
+					return self::lock_lost_result();
+				}
 				foreach ( $metas as $meta_key => $state ) {
 					if ( ! empty( $state['exists'] ) ) {
 						$res = update_term_meta( $term_id, $meta_key, $state['value'] );

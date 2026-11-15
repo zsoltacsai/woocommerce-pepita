@@ -1125,3 +1125,47 @@ $suite->add(
 		WPS_Assert::true( str_starts_with( Operational_Reports::safe_identifier( "ID1\n" ), 'hash:' ), 'Identifier with trailing newline must be hashed.' );
 	}
 );
+
+$suite->add(
+	'm11 recovery fencing: a recovery without lock ownership restores nothing and deletes nothing',
+	static function (): void {
+		delete_option( Merchant_Profiles::LOCK_OPTION );
+		delete_option( Merchant_Profiles::JOURNAL_OPTION );
+
+		Settings::update( array( 'shipping_delay' => 9 ) );
+		update_option(
+			Merchant_Profiles::JOURNAL_OPTION,
+			array(
+				'token'             => 'owner-b',
+				'timestamp'         => time() - 10,
+				'original_settings' => array( 'shipping_delay' => 1 ),
+			),
+			false
+		);
+
+		// A recovery holding a token that does not own the lock (lease taken over) must abort untouched.
+		$lost = Merchant_Profiles::recover_interrupted_import( 'stale-owner-a' );
+		WPS_Assert::false( $lost['recovered'], 'A recovery without ownership must not report recovery.' );
+		WPS_Assert::false( $lost['rollback_clean'], 'Lost recovery lease must be reported as not clean.' );
+		WPS_Assert::same( 9, Settings::get( 'shipping_delay' ), 'Stale recovery must not restore its snapshot.' );
+		$kept = get_option( Merchant_Profiles::JOURNAL_OPTION, false );
+		WPS_Assert::true( is_array( $kept ) && 'owner-b' === ( $kept['token'] ?? '' ), 'Stale recovery must not delete the current journal.' );
+
+		// A proper recovery under its own lock restores and removes exactly the observed journal.
+		$ok = Merchant_Profiles::recover_interrupted_import();
+		WPS_Assert::true( $ok['recovered'] && $ok['rollback_clean'], 'Owned recovery succeeds.' );
+		WPS_Assert::same( 1, Settings::get( 'shipping_delay' ), 'Owned recovery restores the journal snapshot.' );
+		WPS_Assert::false( get_option( Merchant_Profiles::JOURNAL_OPTION, false ), 'Observed journal removed.' );
+
+		// A blocked import (lost recovery) must refuse to proceed.
+		update_option(
+			Merchant_Profiles::JOURNAL_OPTION,
+			array( 'token' => 'owner-c', 'timestamp' => time() - 10, 'original_settings' => array( 'shipping_delay' => 3 ) ),
+			false
+		);
+		$rec = Merchant_Profiles::recover_interrupted_import( 'stale-owner-a' );
+		WPS_Assert::false( $rec['rollback_clean'], 'Unowned recovery is not clean.' );
+		delete_option( Merchant_Profiles::JOURNAL_OPTION );
+		delete_option( Merchant_Profiles::LOCK_OPTION );
+	}
+);
