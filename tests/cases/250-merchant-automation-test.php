@@ -930,5 +930,10 @@ $suite->add(
 		WPS_Assert::false( Merchant_Profiles::delete_option_if_token( 'wps_pepita_test_token_opt', 'secret_token' ), 'delete_option_if_token must reject partial token match.' );
 		WPS_Assert::true( Merchant_Profiles::delete_option_if_token( 'wps_pepita_test_token_opt', 'exact_secret_token_123' ), 'delete_option_if_token must accept exact token and delete option.' );
 		WPS_Assert::false( get_option( 'wps_pepita_test_token_opt', false ), 'Option must be deleted.' );
+
+		// 7. JSON with braces inside string values (string-aware extraction).
+		$json_with_braces = 'Payload: {"first_name":"Jane","detail":"{"} error occurred';
+		$sanitized_braces = Operational_Reports::sanitize_error_message( $json_with_braces );
+		WPS_Assert::false( str_contains( $sanitized_braces, 'Jane' ), 'Jane must be redacted from JSON with internal braces' );
 	}
 );

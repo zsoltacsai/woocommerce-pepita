@@ -43,8 +43,9 @@ final class Operational_Reports {
 		}
 
 		// 1. If error message contains embedded or full JSON objects/arrays, find, decode and redact structured fields.
+		// String-aware regex accounts for braces inside quoted strings (e.g. {"detail":"{"}) and recursive nested objects.
 		$raw_err = (string) preg_replace_callback(
-			'/\{(?:[^{}]|(?R))*\}/s',
+			'/\{(?:[^"{}]|"(?:[^"\\\\]|\\\\.)*"|(?R))*\}/s',
 			static function ( array $matches ): string {
 				$candidate = $matches[0];
 				$decoded   = json_decode( $candidate, true );
@@ -60,7 +61,7 @@ final class Operational_Reports {
 		);
 
 		$raw_err = (string) preg_replace_callback(
-			'/\[(?:[^\[\]]|(?R))*\]/s',
+			'/\[(?:[^"\[\]]|"(?:[^"\\\\]|\\\\.)*"|(?R))*\]/s',
 			static function ( array $matches ): string {
 				$candidate = $matches[0];
 				$decoded   = json_decode( $candidate, true );
@@ -72,6 +73,13 @@ final class Operational_Reports {
 				}
 				return $candidate;
 			},
+			$raw_err
+		);
+
+		// Mask JSON name key-value pairs that might appear outside well-formed root objects.
+		$raw_err = (string) preg_replace(
+			'/"(first_name|last_name|full_name|billing_name|shipping_name|billing_first_name|billing_last_name|shipping_first_name|shipping_last_name)"\s*:\s*"[^"]+"/i',
+			'"$1":"[redacted]"',
 			$raw_err
 		);
 
@@ -108,8 +116,8 @@ final class Operational_Reports {
 		$result = preg_replace( $addr_pattern, '[REDACTED_ADDRESS]', $result );
 		$result = is_string( $result ) ? $result : $masked;
 
-		// 6. Redact person names following common context markers (e.g., "for Jane Smith", "customer John Doe", "címzett: Kovács János").
-		$name_pattern = '/\b(for|customer|recipient|buyer|user|címzett|vásárló|ügyfél|név|name|first\s+name|last\s+name|full\s+name|contact|client):?\s+([A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+){0,3})\b/ui';
+		// 6. Redact person names following common context markers (e.g., "for Jane Smith", "customer John Doe", "címzett: Kovács János", "first_name: Jane").
+		$name_pattern = '/\b(?:for|customer|recipient|buyer|user|címzett|vásárló|ügyfél|név|name|first[_\s]+name|last[_\s]+name|full[_\s]+name|contact|client)[:\s=]+\s*"?([A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+){0,3})"?/ui';
 		$result = preg_replace( $name_pattern, '$1 [REDACTED_NAME]', $result );
 		$result = is_string( $result ) ? $result : $masked;
 
