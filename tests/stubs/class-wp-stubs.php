@@ -581,6 +581,10 @@ function wp_get_current_user(): WP_User {
 	return new WP_User( 1, 'admin@example.test', 'Admin', 'User' );
 }
 
+function get_current_user_id(): int {
+	return 1;
+}
+
 /**
  * @return WP_User|false
  */
@@ -734,6 +738,10 @@ function get_term_meta( int $term_id, string $key = '', bool $single = false, $d
  * @return int|bool
  */
 function update_term_meta( int $term_id, string $key, $value, $prev_value = '' ) {
+	if ( ! empty( WPS_Test_State::$fail_term_meta ) ) {
+		return new WP_Error( 'term_meta_failure', 'Term meta update failure' );
+	}
+
 	WPS_Test_State::$term_meta[ $term_id ][ $key ] = $value;
 
 	return true;
