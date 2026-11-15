@@ -28,8 +28,6 @@ final class Admin {
 	public const CAPABILITY = 'manage_woocommerce';
 
 	public function register(): void {
-		Merchant_Profiles::recover_interrupted_import();
-
 		add_action( 'admin_menu', array( $this, 'register_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'admin_post_wps_pepita_save_settings', array( $this, 'handle_save_settings' ) );

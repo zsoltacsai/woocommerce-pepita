@@ -38,7 +38,10 @@ final class Merchant_Profiles {
 	 * Option key and TTL for exclusive import lock to protect against concurrency.
 	 */
 	public const LOCK_OPTION = 'wps_pepita_import_lock';
-	public const LOCK_TTL    = 120; // 2 minutes
+	public const LOCK_TTL    = 120; // 2 minutes, renewed before every write phase.
+
+	/** Exception code signalling that the import lock was lost (fencing). */
+	private const LOCK_LOST_CODE = 7001;
 
 	/**
 	 * Settings that are explicitly permitted in configuration exports and imports.
@@ -84,7 +87,8 @@ final class Merchant_Profiles {
 		'manufacturer_default',
 		'attribute_name_map',
 		'gtin_meta_keys',
-		'gtin_required_categories',
+		// 'gtin_required_categories' is intentionally NOT portable: it stores numeric term IDs that differ per store
+		// (portable only once translated through term slugs).
 		'primary_category_strategy',
 		'max_category_paths',
 		'max_gallery_images',
@@ -490,6 +494,105 @@ final class Merchant_Profiles {
 	}
 
 	/**
+	 * Exact serialized-token LIKE pattern for the lock/mutex option value.
+	 */
+	private static function token_like_pattern( string $token ): string {
+		global $wpdb;
+		return '%s:5:"token";s:' . strlen( $token ) . ':"' . $wpdb->esc_like( $token ) . '"%';
+	}
+
+	/**
+	 * Truly atomic "create option only if absent".
+	 *
+	 * WordPress core add_option() reads first and then upserts, so two racing requests can both
+	 * succeed. INSERT IGNORE on the unique option_name key gives exactly one winner.
+	 *
+	 * @param string               $key
+	 * @param array<string, mixed> $value
+	 * @return bool True only for the single process that created the row.
+	 */
+	private static function insert_option_if_absent( string $key, array $value ): bool {
+		global $wpdb;
+
+		if ( class_exists( '\WPS_Test_State' ) && isset( \WPS_Test_State::$options ) ) {
+			return (bool) add_option( $key, $value, '', false );
+		}
+
+		if ( isset( $wpdb->options ) && is_string( $wpdb->options ) && method_exists( $wpdb, 'query' ) && method_exists( $wpdb, 'prepare' ) ) {
+			$rows = $wpdb->query(
+				$wpdb->prepare(
+					"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					$key,
+					maybe_serialize( $value )
+				)
+			);
+			if ( function_exists( 'wp_cache_delete' ) ) {
+				wp_cache_delete( $key, 'options' );
+				wp_cache_delete( 'notoptions', 'options' );
+				wp_cache_delete( 'alloptions', 'options' );
+			}
+			return 1 === (int) $rows;
+		}
+
+		return (bool) add_option( $key, $value, '', false );
+	}
+
+	/**
+	 * Renew the lease of the import lock, only while this token still owns it (fencing).
+	 *
+	 * @param string|null $token Lock token returned by acquire_import_lock().
+	 * @return bool False when the lock was lost (expired and reclaimed); the caller must stop writing.
+	 */
+	public static function renew_import_lock( ?string $token ): bool {
+		global $wpdb;
+
+		if ( empty( $token ) ) {
+			return false;
+		}
+
+		$new = array(
+			'token'   => $token,
+			'expires' => time() + self::LOCK_TTL,
+			'pid'     => function_exists( 'getmypid' ) ? (int) getmypid() : 0,
+		);
+
+		if ( class_exists( '\WPS_Test_State' ) && isset( \WPS_Test_State::$options ) ) {
+			$cur = \WPS_Test_State::$options[ self::LOCK_OPTION ] ?? null;
+			if ( is_array( $cur ) && (string) ( $cur['token'] ?? '' ) === $token ) {
+				\WPS_Test_State::$options[ self::LOCK_OPTION ] = $new;
+				return true;
+			}
+			return false;
+		}
+
+		if ( isset( $wpdb->options ) && is_string( $wpdb->options ) && method_exists( $wpdb, 'query' ) && method_exists( $wpdb, 'prepare' ) ) {
+			$pattern = self::token_like_pattern( $token );
+			$wpdb->query(
+				$wpdb->prepare(
+					"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value LIKE %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					maybe_serialize( $new ),
+					self::LOCK_OPTION,
+					$pattern
+				)
+			);
+			if ( function_exists( 'wp_cache_delete' ) ) {
+				wp_cache_delete( self::LOCK_OPTION, 'options' );
+			}
+			// Row count is 0 when the value is unchanged within the same second, so verify ownership explicitly.
+			$owned = $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name = %s AND option_value LIKE %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					self::LOCK_OPTION,
+					$pattern
+				)
+			);
+			return (int) $owned > 0;
+		}
+
+		return false;
+	}
+
+	/**
 	 * Acquire a short-lived mutex token for lock reclamation.
 	 *
 	 * Uses atomic add_option() and atomic conditional token-verified deletion.
@@ -502,7 +605,7 @@ final class Merchant_Profiles {
 			'expires' => $now + $ttl,
 		);
 
-		if ( add_option( $key, $val, '', false ) ) {
+		if ( self::insert_option_if_absent( $key, $val ) ) {
 			return $token;
 		}
 
@@ -519,7 +622,7 @@ final class Merchant_Profiles {
 		// Atomically delete the expired mutex ONLY if it still holds the exact stale token.
 		// Eliminates check-then-delete races against competing reclaimers.
 		if ( self::delete_option_if_token( $key, $stale_token ) ) {
-			if ( add_option( $key, $val, '', false ) ) {
+			if ( self::insert_option_if_absent( $key, $val ) ) {
 				return $token;
 			}
 		}
@@ -540,7 +643,7 @@ final class Merchant_Profiles {
 	/**
 	 * Acquire an exclusive import lock to protect against concurrent imports.
 	 *
-	 * Uses atomic add_option() to ensure single-process execution.
+	 * Uses an atomic INSERT IGNORE (see insert_option_if_absent()) to ensure single-process execution.
 	 *
 	 * @return string|null Lock token on success, null on contention.
 	 */
@@ -553,7 +656,7 @@ final class Merchant_Profiles {
 			'pid'     => function_exists( 'getmypid' ) ? (int) getmypid() : 0,
 		);
 
-		if ( add_option( self::LOCK_OPTION, $val, '', false ) ) {
+		if ( self::insert_option_if_absent( self::LOCK_OPTION, $val ) ) {
 			return $token;
 		}
 
@@ -583,13 +686,24 @@ final class Merchant_Profiles {
 				delete_option( self::LOCK_OPTION );
 			}
 
-			if ( add_option( self::LOCK_OPTION, $val, '', false ) ) {
+			if ( self::insert_option_if_absent( self::LOCK_OPTION, $val ) ) {
 				return $token;
 			}
 
 			return null;
 		} finally {
 			self::release_reclaim_mutex( $mutex_key, $mutex_token );
+		}
+	}
+
+	/**
+	 * Fencing check: throw if this process no longer owns the (renewed) import lock.
+	 *
+	 * @throws \RuntimeException With LOCK_LOST_CODE when ownership was lost.
+	 */
+	private static function assert_lock_owned( ?string $token ): void {
+		if ( ! self::renew_import_lock( $token ) ) {
+			throw new \RuntimeException( 'Import lock lost.', self::LOCK_LOST_CODE );
 		}
 	}
 
@@ -662,8 +776,23 @@ final class Merchant_Profiles {
 				);
 			}
 
+			// A journal marked completed belongs to an import that already succeeded; it must never be undone.
+			if ( ! empty( $journal['completed'] ) ) {
+				delete_option( self::JOURNAL_OPTION );
+				return array(
+					'recovered'       => false,
+					'rollback_clean'  => true,
+					'rollback_errors' => array(),
+				);
+			}
+
 			$rollback_clean  = true;
 			$rollback_errors = array();
+
+			// Never restore secrets from a journal (legacy journals stored full snapshots).
+			if ( ! empty( $journal['original_settings'] ) && is_array( $journal['original_settings'] ) ) {
+				$journal['original_settings'] = array_diff_key( $journal['original_settings'], array_flip( self::SECRET_KEYS ) );
+			}
 
 			if ( ! empty( $journal['original_settings'] ) && is_array( $journal['original_settings'] ) ) {
 				try {
@@ -867,10 +996,13 @@ final class Merchant_Profiles {
 		$settings_applied = false;
 		$imported_categories = 0;
 
+		// Journal and rollback cover ONLY the keys this import changes (never secrets, never unrelated keys).
+		$restore_settings = array_intersect_key( $current_settings, $filtered_import );
+
 		// Persist recovery journal to ensure crash-safe atomicity.
 		$journal = array(
 			'timestamp'          => time(),
-			'original_settings'  => $current_settings,
+			'original_settings'  => $restore_settings,
 			'original_term_meta' => $original_term_meta,
 		);
 		$journal_persisted = update_option( self::JOURNAL_OPTION, $journal, false );
@@ -887,8 +1019,9 @@ final class Merchant_Profiles {
 		}
 
 		try {
-			// Step 1: Apply sanitized settings.
-			Settings::update( $sanitized );
+			// Step 1: Apply sanitized settings (only the imported keys).
+			self::assert_lock_owned( $lock_token );
+			Settings::update( array_intersect_key( $sanitized, $filtered_import ) );
 			$settings_applied = true;
 
 			// Verify that settings are actually persisted in the DB before proceeding.
@@ -903,6 +1036,11 @@ final class Merchant_Profiles {
 				}
 			}
 
+			// Test hook: simulate losing the lock (expiry + reclaim by another process) mid-import.
+			if ( ! empty( $options['simulate_lock_loss'] ) ) {
+				delete_option( self::LOCK_OPTION );
+			}
+
 			// Check for simulated failure injection (used in test cases).
 			if ( ! empty( $options['simulate_failure_at_category'] ) ) {
 				throw new \RuntimeException( 'Szimulált hiba a kategóriaszabályok alkalmazása során.' );
@@ -915,6 +1053,8 @@ final class Merchant_Profiles {
 					if ( ! $term instanceof \WP_Term ) {
 						continue;
 					}
+
+					self::assert_lock_owned( $lock_token );
 
 					if ( ! empty( $options['fail_on_slug'] ) && (string) $slug === (string) $options['fail_on_slug'] ) {
 						throw new \RuntimeException( sprintf( 'Szimulált hiba a(z) %s kategóriánál.', $slug ) );
@@ -939,7 +1079,18 @@ final class Merchant_Profiles {
 				}
 			}
 
+			// Durable finalization: the success must not be reported while a retained journal could
+			// make a later recovery undo this import.
+			self::assert_lock_owned( $lock_token );
 			delete_option( self::JOURNAL_OPTION );
+			if ( false !== get_option( self::JOURNAL_OPTION, false ) ) {
+				$marked = update_option( self::JOURNAL_OPTION, array_merge( $journal, array( 'completed' => true ) ), false );
+				$check  = get_option( self::JOURNAL_OPTION, false );
+				if ( ! is_array( $check ) || empty( $check['completed'] ) ) {
+					throw new \RuntimeException( 'A helyreállítási napló véglegesítése sikertelen.' );
+				}
+				unset( $marked );
+			}
 
 			Logger::info(
 				'profile_import',
@@ -959,12 +1110,27 @@ final class Merchant_Profiles {
 				'imported_categories' => $imported_categories,
 			);
 		} catch ( \Throwable $e ) {
-			// COMPENSATING ROLLBACK: Unconditionally restore original settings and term metadata to exact pre-import state.
+			// Fencing: a former lock owner must not roll back or write anything; the current owner's
+			// recovery restores state from the retained journal.
+			if ( self::LOCK_LOST_CODE === $e->getCode() ) {
+				Logger::error( 'profile_import_lock_lost', 'Az import zárja elveszett; a helyreállítási napló megmarad a következő biztonságos helyreállításhoz.', array() );
+				return array(
+					'success'             => false,
+					'rolled_back'         => false,
+					'rollback_clean'      => false,
+					'rollback_errors'     => array( 'Import lock lost; recovery journal retained.' ),
+					'message'             => 'Az importálás zárja lejárt, ezért az importálás leállt. A következő importálás vagy helyreállítás visszaállítja a korábbi állapotot.',
+					'imported_settings'   => 0,
+					'imported_categories' => 0,
+				);
+			}
+
+			// COMPENSATING ROLLBACK: restore original settings and term metadata for the keys this import changed.
 			$rollback_clean  = true;
 			$rollback_errors = array();
 
 			try {
-				Settings::update( $current_settings );
+				Settings::update( $restore_settings );
 			} catch ( \Throwable $settings_err ) {
 				$rollback_clean   = false;
 				$rollback_errors[] = 'Settings rollback restore failed: ' . $settings_err->getMessage();
@@ -976,7 +1142,7 @@ final class Merchant_Profiles {
 				$rollback_clean   = false;
 				$rollback_errors[] = 'Settings option read from DB failed during rollback.';
 			} else {
-				foreach ( $current_settings as $k => $v ) {
+				foreach ( $restore_settings as $k => $v ) {
 					if ( ! array_key_exists( $k, $db_settings ) || $db_settings[ $k ] !== $v ) {
 						$rollback_clean   = false;
 						$rollback_errors[] = sprintf( 'Setting %s DB restore mismatch during rollback.', $k );

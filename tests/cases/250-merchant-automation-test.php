@@ -6,7 +6,7 @@
  * - Merchant Configuration Profiles (Secret-free export and schema-validated import).
  * - Multi-store Category Rules portability by category slug.
  * - Bounded Operational Reporting and summary metrics.
- * - Memory-bounded, PII-free Operational CSV export with email and phone masking and formula neutralization.
+ * - Memory-bounded, fail-closed Operational CSV export (fixed error codes, hashed identifiers, formula neutralization).
  * - Authorization and CSRF protection for profile and report actions.
  * - Fail-closed upload validation.
  *
@@ -260,7 +260,7 @@ $suite->add(
  * ---------------------------------------------------------------------- */
 
 $suite->add(
-	'm11 operational reports: CSV export has zero customer PII and masks emails in errors',
+	'm11 operational reports: fail-closed CSV export never contains raw free-text errors or untrusted identifiers',
 	static function (): void {
 		$sensitive_email = 'customer.private.order@personal-domain.test';
 		$sensitive_phone = '+36 30 123 4567';
@@ -278,28 +278,63 @@ $suite->add(
 		// 1. CSV Structure.
 		WPS_Assert::true( str_contains( $csv, 'Pepita ID,WC Order ID,Origin,Status' ) || str_contains( $csv, '"Pepita ID"' ), 'CSV header must be present.' );
 
-		// 2. Strict PII Non-Disclosure: raw personal email & phone must NOT appear in output.
+		// 2. Raw free-text errors are never exported: no email, phone, name or address in any form.
 		WPS_Assert::false( str_contains( $csv, $sensitive_email ), 'Raw customer email must NEVER appear in operational CSV.' );
 		WPS_Assert::false( str_contains( $csv, $sensitive_phone ), 'Raw customer phone must NEVER appear in operational CSV.' );
+		WPS_Assert::false( str_contains( $csv, 'personal-domain' ), 'Not even a masked email domain may appear.' );
+		WPS_Assert::false( str_contains( $csv, 'Conflict on delivery' ), 'Raw error text must NEVER appear in operational CSV.' );
 
-		// 3. Masked email and redacted phone format must be present.
-		WPS_Assert::true( str_contains( $csv, 'c***@personal-domain.test' ), 'Email in error details must be masked.' );
-		WPS_Assert::true( str_contains( $csv, '[REDACTED_PHONE]' ), 'Phone in error details must be redacted.' );
+		// 3. Only fixed codes with predefined explanations are exported.
+		WPS_Assert::true( str_contains( $csv, 'Error Code' ), 'CSV must contain the Error Code column.' );
+		WPS_Assert::true( str_contains( $csv, 'unclassified_error' ) || str_contains( $csv, 'validation_error' ), 'Error must be exported as a fixed classification code.' );
 
-		// 4. Formula injection neutralization: cells starting with '=', '+', '-', '@' must be prepended with single quote.
-		WPS_Assert::true( str_contains( $csv, "'=cmd|" ) || str_contains( $csv, "\"'=cmd|" ), 'Formula injection in external_id must be neutralized.' );
-		WPS_Assert::true( str_contains( $csv, "'+SUM" ) || str_contains( $csv, "\"'+SUM" ), 'Formula injection in error message must be neutralized.' );
+		// 4. Untrusted identifiers are hashed instead of exported raw (also neutralizes formula injection).
+		WPS_Assert::false( str_contains( $csv, 'cmd|' ), 'Unsafe external_id must not be exported raw.' );
+		WPS_Assert::true( str_contains( $csv, 'hash:' ), 'Unsafe external_id must be exported as a salted hash.' );
+		WPS_Assert::false( str_contains( $csv, '+SUM' ), 'Raw formula error text must not be exported.' );
 
-		// 5. Customer name and street address redaction.
-		$name_addr_error = 'Delivery failed for Jane Smith at 12 Example Street.';
-		Order_Repository::claim( 'PEP-REP-CSV-3', 'pepita.hu', '{}', 'hash_csv3' );
-		Order_Repository::fail( 'PEP-REP-CSV-3', $name_addr_error, 1 );
-
+		// 5. Bypass corpus from the AppSec review: none of these may ever surface in the export.
+		$bypasses = array(
+			'delivery to Nagy Éva',
+			'Kovács János, Budapest',
+			'kovács jános',
+			'Иван Петров',
+			'山田太郎',
+			'Jean-Luc Picard',
+			'Szeged Kárász u 5',
+			'Andrássy útja 60',
+			'221B Baker Street',
+			'Hauptstraße 5, 10115 Berlin',
+			'x@localhost',
+			'jane%40example.test',
+			'Bearer abcdef0123456789',
+			'https://shop.test/?token=SECRETTOKEN123',
+			"Duplicate entry 'Kovács János' for key",
+			'kovacs_janos_kossuth_lajos_utca_12',
+		);
+		foreach ( $bypasses as $i => $text ) {
+			Order_Repository::claim( 'PEP-REP-BYP-' . $i, 'pepita.hu', '{}', 'hash_byp' . $i );
+			Order_Repository::fail( 'PEP-REP-BYP-' . $i, $text, 1 );
+		}
 		$csv_updated = Operational_Reports::export_report_csv( 30 );
-		WPS_Assert::false( str_contains( $csv_updated, 'Jane Smith' ), 'Customer name must be redacted from error details.' );
-		WPS_Assert::false( str_contains( $csv_updated, '12 Example Street' ), 'Customer street address must be redacted from error details.' );
-		WPS_Assert::true( str_contains( $csv_updated, '[REDACTED_NAME]' ), 'Redacted name placeholder must be present.' );
-		WPS_Assert::true( str_contains( $csv_updated, '[REDACTED_ADDRESS]' ), 'Redacted address placeholder must be present.' );
+		foreach ( $bypasses as $text ) {
+			foreach ( preg_split( '/[\s,]+/u', $text ) ?: array() as $fragment ) {
+				if ( mb_strlen( $fragment ) >= 4 ) {
+					WPS_Assert::false( str_contains( $csv_updated, $fragment ), 'Personal fragment must not be exported: ' . $fragment );
+				}
+			}
+		}
+
+		// 6. Invalid UTF-8 must fail closed to a fixed code, never to raw text.
+		WPS_Assert::same( 'unclassified_error', Operational_Reports::classify_error( "Nagy \xC3\x28 Éva" ), 'Malformed UTF-8 must classify as unclassified_error.' );
+		WPS_Assert::same( '', Operational_Reports::classify_error( '   ' ), 'Empty input classifies as empty.' );
+
+		// 7. Summary top_errors also carry only codes and predefined explanations.
+		$summary = Operational_Reports::get_summary( 30 );
+		foreach ( $summary['top_errors'] as $err ) {
+			WPS_Assert::false( str_contains( (string) $err['error'], 'Nagy' ), 'Summary explanation must be predefined text.' );
+			WPS_Assert::true( '' !== (string) $err['code'], 'Summary error must carry a code.' );
+		}
 	}
 );
 
@@ -911,19 +946,6 @@ $suite->add(
 
 		delete_option( Merchant_Profiles::JOURNAL_OPTION );
 
-		// 4. Embedded / Prefixed JSON sanitization in error messages.
-		$embedded_json_err = 'Upstream gateway returned error: {"customer": {"first_name": "Alice", "email": "alice@personal.test"}} (HTTP 502)';
-		$sanitized_embedded = Operational_Reports::sanitize_error_message( $embedded_json_err );
-		WPS_Assert::false( str_contains( $sanitized_embedded, 'alice@personal.test' ), 'Customer email in embedded JSON must be redacted.' );
-		WPS_Assert::false( str_contains( $sanitized_embedded, '"first_name":"Alice"' ), 'Customer name in embedded JSON must be redacted.' );
-		WPS_Assert::true( str_contains( $sanitized_embedded, 'a***@personal.test' ), 'Masked email must be present in embedded JSON.' );
-
-		// 5. Multiple embedded JSON objects in error messages.
-		$multi_json_err = 'Failed: {"first_name":"Jane"} then {"last_name":"Smith"}';
-		$sanitized_multi = Operational_Reports::sanitize_error_message( $multi_json_err );
-		WPS_Assert::false( str_contains( $sanitized_multi, 'Jane' ), 'Jane must be redacted from multi-JSON error' );
-		WPS_Assert::false( str_contains( $sanitized_multi, 'Smith' ), 'Smith must be redacted from multi-JSON error' );
-
 		// 6. delete_option_if_token prefix and exact token validation.
 		update_option( 'wps_pepita_test_token_opt', array( 'token' => 'exact_secret_token_123' ), false );
 		WPS_Assert::false( Merchant_Profiles::delete_option_if_token( 'wps_pepitax_invalid_prefix', 'exact_secret_token_123' ), 'delete_option_if_token must reject unapproved prefix.' );
@@ -931,9 +953,121 @@ $suite->add(
 		WPS_Assert::true( Merchant_Profiles::delete_option_if_token( 'wps_pepita_test_token_opt', 'exact_secret_token_123' ), 'delete_option_if_token must accept exact token and delete option.' );
 		WPS_Assert::false( get_option( 'wps_pepita_test_token_opt', false ), 'Option must be deleted.' );
 
-		// 7. JSON with braces inside string values (string-aware extraction).
-		$json_with_braces = 'Payload: {"first_name":"Jane","detail":"{"} error occurred';
-		$sanitized_braces = Operational_Reports::sanitize_error_message( $json_with_braces );
-		WPS_Assert::false( str_contains( $sanitized_braces, 'Jane' ), 'Jane must be redacted from JSON with internal braces' );
+	}
+);
+
+/* -------------------------------------------------------------------------
+ * 17. Review remediation: fencing, journal integrity, portability
+ * ---------------------------------------------------------------------- */
+
+$suite->add(
+	'm11 lock fencing: renew requires ownership and a lost lock aborts without writes or rollback',
+	static function (): void {
+		delete_option( Merchant_Profiles::JOURNAL_OPTION );
+		delete_option( Merchant_Profiles::LOCK_OPTION );
+
+		$token = Merchant_Profiles::acquire_import_lock();
+		WPS_Assert::true( ! empty( $token ), 'Lock acquired.' );
+		WPS_Assert::true( Merchant_Profiles::renew_import_lock( $token ), 'Owner can renew its lease.' );
+		WPS_Assert::false( Merchant_Profiles::renew_import_lock( 'not-the-owner' ), 'A non-owner must not renew the lease.' );
+		WPS_Assert::false( Merchant_Profiles::renew_import_lock( null ), 'Empty token must not renew.' );
+		Merchant_Profiles::release_import_lock( $token );
+		WPS_Assert::false( Merchant_Profiles::renew_import_lock( $token ), 'A released lock cannot be renewed.' );
+
+		Settings::update( array( 'shipping_delay' => 2, 'order_api_key' => 'CURRENT_KEY_ABC' ) );
+
+		$res = Merchant_Profiles::import_profile(
+			array(
+				'schema_version' => 1,
+				'generator'      => 'wp-pepita-sync',
+				'settings'       => array( 'shipping_delay' => 6 ),
+			),
+			array( 'simulate_lock_loss' => true )
+		);
+		WPS_Assert::false( $res['success'], 'Import must not report success after losing its lock.' );
+		WPS_Assert::false( $res['rolled_back'], 'A former lock owner must not roll back.' );
+
+		$journal = get_option( Merchant_Profiles::JOURNAL_OPTION, false );
+		WPS_Assert::true( is_array( $journal ), 'Recovery journal must be retained for the current owner.' );
+		WPS_Assert::true( array_key_exists( 'shipping_delay', $journal['original_settings'] ), 'Journal covers the changed key.' );
+		WPS_Assert::false( array_key_exists( 'order_api_key', $journal['original_settings'] ), 'Journal must never contain secrets.' );
+		WPS_Assert::false( array_key_exists( 'feed_token', $journal['original_settings'] ), 'Journal must never contain secrets.' );
+		WPS_Assert::same( 'CURRENT_KEY_ABC', Settings::get( 'order_api_key' ), 'Secrets are never touched by import.' );
+
+		// The next import recovers (restores shipping_delay=2) and then applies its own change.
+		$next = Merchant_Profiles::import_profile(
+			array(
+				'schema_version' => 1,
+				'generator'      => 'wp-pepita-sync',
+				'settings'       => array( 'shipping_delay' => 4 ),
+			)
+		);
+		WPS_Assert::true( $next['success'], 'Next import recovers the retained journal and succeeds.' );
+		WPS_Assert::same( 4, Settings::get( 'shipping_delay' ), 'Next import applied.' );
+		WPS_Assert::false( get_option( Merchant_Profiles::JOURNAL_OPTION, false ), 'Journal removed after durable finalization.' );
+	}
+);
+
+$suite->add(
+	'm11 journal integrity: completed journals are never undone and legacy secrets are never restored',
+	static function (): void {
+		delete_option( Merchant_Profiles::LOCK_OPTION );
+
+		Settings::update( array( 'shipping_delay' => 7 ) );
+		update_option(
+			Merchant_Profiles::JOURNAL_OPTION,
+			array(
+				'timestamp'         => time() - 10,
+				'completed'         => true,
+				'original_settings' => array( 'shipping_delay' => 1 ),
+			),
+			false
+		);
+		$rec = Merchant_Profiles::recover_interrupted_import();
+		WPS_Assert::false( $rec['recovered'], 'A completed journal must not be treated as an interrupted import.' );
+		WPS_Assert::same( 7, Settings::get( 'shipping_delay' ), 'A successful import must not be undone by a retained completed journal.' );
+		WPS_Assert::false( get_option( Merchant_Profiles::JOURNAL_OPTION, false ), 'Completed journal is cleaned up.' );
+
+		// Legacy full-snapshot journal containing secrets: secrets must not be restored.
+		Settings::update( array( 'order_api_key' => 'ROTATED_NEW_KEY' ) );
+		update_option(
+			Merchant_Profiles::JOURNAL_OPTION,
+			array(
+				'timestamp'         => time() - 10,
+				'original_settings' => array(
+					'shipping_delay' => 2,
+					'order_api_key'  => 'OLD_LEAKED_KEY',
+					'feed_token'     => 'OLD_FEED_TOKEN',
+				),
+			),
+			false
+		);
+		$rec2 = Merchant_Profiles::recover_interrupted_import();
+		WPS_Assert::true( $rec2['recovered'], 'Interrupted journal is recovered.' );
+		WPS_Assert::same( 2, Settings::get( 'shipping_delay' ), 'Non-secret setting restored.' );
+		WPS_Assert::same( 'ROTATED_NEW_KEY', Settings::get( 'order_api_key' ), 'A rotated secret must not be rolled back to an old value.' );
+	}
+);
+
+$suite->add(
+	'm11 portability: numeric category-ID settings are not exported or imported',
+	static function (): void {
+		delete_option( Merchant_Profiles::LOCK_OPTION );
+		delete_option( Merchant_Profiles::JOURNAL_OPTION );
+
+		WPS_Assert::false( in_array( 'gtin_required_categories', Merchant_Profiles::PORTABLE_SETTINGS_ALLOWLIST, true ), 'Store-specific term IDs must not be portable.' );
+
+		Settings::update( array( 'gtin_required_categories' => array( 10 ) ) );
+		$profile = Merchant_Profiles::export_profile();
+		WPS_Assert::false( array_key_exists( 'gtin_required_categories', $profile['settings'] ), 'Export must not contain numeric term IDs.' );
+
+		Merchant_Profiles::import_profile(
+			array(
+				'schema_version' => 1,
+				'generator'      => 'wp-pepita-sync',
+				'settings'       => array( 'gtin_required_categories' => array( 99 ), 'shipping_delay' => 3 ),
+			)
+		);
+		WPS_Assert::same( array( 10 ), Settings::gtin_required_categories(), 'Import must not overwrite destination term IDs.' );
 	}
 );

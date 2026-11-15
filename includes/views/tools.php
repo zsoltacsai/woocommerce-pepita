@@ -222,7 +222,7 @@ $preview   = is_array( $staged ) && isset( $staged['preview'] ) && is_array( $st
 				<input type="hidden" name="days" value="<?php echo esc_attr( (string) $days ); ?>" />
 				<?php wp_nonce_field( 'wps_pepita_export_report_csv' ); ?>
 				<button type="submit" class="button button-secondary">
-					<?php esc_html_e( 'Operációs riport letöltése (.csv, PII-mentes)', 'wp-pepita-sync' ); ?>
+					<?php esc_html_e( 'Operációs riport letöltése (.csv, nyers hibaszövegek nélkül)', 'wp-pepita-sync' ); ?>
 				</button>
 			</form>
 		</div>
@@ -235,14 +235,14 @@ $preview   = is_array( $staged ) && isset( $staged['preview'] ) && is_array( $st
 				<table class="widefat striped">
 					<thead>
 						<tr>
-							<th><?php esc_html_e( 'Hibaüzenet (Személyes adatok védve)', 'wp-pepita-sync' ); ?></th>
+							<th><?php esc_html_e( 'Hibabesorolás (nyers hibaszöveg nélkül)', 'wp-pepita-sync' ); ?></th>
 							<th style="width: 80px; text-align: right;"><?php esc_html_e( 'Előfordulás', 'wp-pepita-sync' ); ?></th>
 						</tr>
 					</thead>
 					<tbody>
 						<?php foreach ( $summary['top_errors'] as $err ) : ?>
 							<tr>
-								<td><code><?php echo esc_html( $err['error'] ); ?></code></td>
+								<td><code><?php echo esc_html( (string) ( $err['code'] ?? '' ) ); ?></code> <?php echo esc_html( $err['error'] ); ?></td>
 								<td style="text-align: right;"><strong><?php echo esc_html( (string) $err['count'] ); ?></strong></td>
 							</tr>
 						<?php endforeach; ?>

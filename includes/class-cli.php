@@ -296,8 +296,8 @@ final class Cli {
 	 * <file>
 	 * : Path to the profile JSON file.
 	 *
-	 * [--no-categories]
-	 * : Skip importing category rules.
+	 * [--[no-]categories]
+	 * : Import category rules (default). Pass --no-categories to skip them.
 	 *
 	 * @subcommand import-profile
 	 */
@@ -315,7 +315,9 @@ final class Cli {
 			return;
 		}
 
-		$import_cats = ! isset( $assoc_args['no-categories'] );
+		// WP-CLI parses --no-categories into categories=false; the legacy 'no-categories' key is tolerated too.
+		$categories_arg = array_key_exists( 'categories', $assoc_args ) ? $assoc_args['categories'] : true;
+		$import_cats    = ! isset( $assoc_args['no-categories'] ) && ! in_array( $categories_arg, array( false, 'false', '0', 0 ), true );
 		$res         = \WPS\Pepita\Admin\Merchant_Profiles::import_profile( $decoded, array( 'import_category_rules' => $import_cats ) );
 
 		if ( ! $res['success'] ) {

@@ -2,12 +2,14 @@
 /**
  * Operational Reports & Multi-Store Reconciliation.
  *
- * Provides aggregated operational metrics, audit summaries, and memory-bounded,
- * PII-free operational exports for merchants and support.
+ * Provides aggregated operational metrics, audit summaries, and memory-bounded
+ * operational exports for merchants and support.
  *
- * Strict security invariants:
- * - NEVER exports customer names, delivery addresses, billing addresses, phone numbers.
- * - Masks any email addresses and phone numbers in error messages.
+ * Strict security invariants (fail-closed, no regex redaction of free text):
+ * - Raw free-text errors are NEVER exported; they are only classified into fixed codes
+ *   with predefined PII-free explanations.
+ * - Untrusted identifiers (external_id, origin) are exported only if they match a strict
+ *   safe pattern, otherwise as a salted hash / "other".
  * - Sanitizes all CSV cells via Logger::sanitize_csv_field() to neutralize formula injection.
  * - Bounded queries prevent memory exhaustion on high-volume stores.
  * - Compatible with both MySQL and in-memory test stubs (no GROUP BY dependencies).
@@ -21,7 +23,6 @@ use WPS\Pepita\Admin\Order_Admin;
 use WPS\Pepita\Feed\Generator;
 use WPS\Pepita\Logger;
 use WPS\Pepita\Orders\Order_Repository;
-use WPS\Pepita\Redactor;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -30,107 +31,80 @@ final class Operational_Reports {
 	public const MAX_EXPORT_ROWS = 1000;
 
 	/**
-	 * Sanitize and mask sensitive information in error messages.
+	 * Fixed, PII-free error classification table.
 	 *
-	 * Masks emails, redacts phone numbers, names, and addresses, and truncates long strings.
+	 * Free-text error messages can contain customer data the plugin cannot reliably
+	 * recognise, so exports and reports NEVER include raw text. A raw message is only
+	 * ever used as classifier input; the output is always one of these fixed codes.
 	 *
-	 * @param string $raw_err
-	 * @return string
+	 * @var array<string, array{0: string, 1: string}> code => [ pattern, explanation ]
 	 */
-	public static function sanitize_error_message( string $raw_err ): string {
+	private const ERROR_CLASSES = array(
+		'replay_conflict'   => array( '/conflicting replay|hash mismatch/i', 'Az ismételt értesítés tartalma eltér az eredetitől.' ),
+		'sku_not_found'     => array( '/\bsku\b|product not found|unknown product|termék/i', 'A rendelésben szereplő termék nem azonosítható az áruházban.' ),
+		'payment_mode'      => array( '/payment|fizet/i', 'A fizetési mód nem támogatott vagy érvénytelen.' ),
+		'stock_problem'     => array( '/stock|készlet/i', 'Készletprobléma a rendelés létrehozásakor.' ),
+		'shipping_problem'  => array( '/shipping|delivery|szállít/i', 'A szállítási adatok hiányosak vagy érvénytelenek.' ),
+		'database_error'    => array( '/database|\bsql\b|duplicate entry|wpdb|deadlock/i', 'Adatbázis hiba a feldolgozás közben.' ),
+		'validation_error'  => array( '/invalid|required|missing|validation|empty|érvénytelen|hiányz/i', 'A beérkezett adatok nem felelnek meg az elvárt formátumnak.' ),
+		'order_creation'    => array( '/order|rendelés|wc_|woocommerce/i', 'A WooCommerce rendelés létrehozása sikertelen volt.' ),
+	);
+
+	public const UNCLASSIFIED_CODE = 'unclassified_error';
+
+	/**
+	 * Classify a raw error into a fixed code. Never returns any part of the input.
+	 *
+	 * @param string $raw_err Raw, possibly personal, error text (classifier input only).
+	 * @return string One of the ERROR_CLASSES keys or UNCLASSIFIED_CODE; '' for empty input.
+	 */
+	public static function classify_error( string $raw_err ): string {
 		if ( '' === trim( $raw_err ) ) {
 			return '';
 		}
-
-		// 1. If error message contains embedded or full JSON objects/arrays, find, decode and redact structured fields.
-		// String-aware regex accounts for braces inside quoted strings (e.g. {"detail":"{"}) and recursive nested objects.
-		$raw_err = (string) preg_replace_callback(
-			'/\{(?:[^"{}]|"(?:[^"\\\\]|\\\\.)*"|(?R))*\}/s',
-			static function ( array $matches ): string {
-				$candidate = $matches[0];
-				$decoded   = json_decode( $candidate, true );
-				if ( is_array( $decoded ) ) {
-					$redacted = function_exists( 'wp_json_encode' )
-						? wp_json_encode( Redactor::redact( $decoded ) )
-						: json_encode( Redactor::redact( $decoded ) );
-					return is_string( $redacted ) ? $redacted : $candidate;
-				}
-				return $candidate;
-			},
-			$raw_err
-		);
-
-		$raw_err = (string) preg_replace_callback(
-			'/\[(?:[^"\[\]]|"(?:[^"\\\\]|\\\\.)*"|(?R))*\]/s',
-			static function ( array $matches ): string {
-				$candidate = $matches[0];
-				$decoded   = json_decode( $candidate, true );
-				if ( is_array( $decoded ) ) {
-					$redacted = function_exists( 'wp_json_encode' )
-						? wp_json_encode( Redactor::redact( $decoded ) )
-						: json_encode( Redactor::redact( $decoded ) );
-					return is_string( $redacted ) ? $redacted : $candidate;
-				}
-				return $candidate;
-			},
-			$raw_err
-		);
-
-		// Mask JSON name key-value pairs that might appear outside well-formed root objects.
-		$raw_err = (string) preg_replace(
-			'/"(first_name|last_name|full_name|billing_name|shipping_name|billing_first_name|billing_last_name|shipping_first_name|shipping_last_name)"\s*:\s*"[^"]+"/i',
-			'"$1":"[redacted]"',
-			$raw_err
-		);
-
-		// 2. Mask email addresses.
-		$masked = preg_replace_callback(
-			'/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/',
-			static function ( array $m ): string {
-				return Redactor::mask_email( $m[0] );
-			},
-			$raw_err
-		);
-
-		$masked = is_string( $masked ) ? $masked : $raw_err;
-
-		// 3. Redact phone numbers (Hungarian, international, and compact digit sequences).
-		$redacted = preg_replace(
-			'/(?:\+?[0-9]{1,3}[-.\s]?)?\(?[0-9]{1,4}?\)?[-.\s]?[0-9]{2,4}[-.\s]?[0-9]{2,4}[-.\s]?[0-9]{2,4}|\b(?:06|\+36)[0-9]{8,9}\b|\b[0-9]{10,12}\b/',
-			'[REDACTED_PHONE]',
-			$masked
-		);
-
-		$result = is_string( $redacted ) ? $redacted : $masked;
-
-		// 4. Redact postal codes and city names (e.g., "1117 Budapest", "H-1052 Budapest").
-		$result = preg_replace(
-			'/\b(?:H-)?\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:,\s*)?/u',
-			'[REDACTED_LOCATION], ',
-			$result
-		);
-		$result = is_string( $result ) ? $result : $masked;
-
-		// 5. Redact street addresses (both Hungarian "Kossuth Lajos utca 12." and English "12 Example Street").
-		$addr_pattern = '/\b(?:\d{1,5}\s+[A-Za-z0-9ÁÉÍÓÖŐÚÜŰáéíóöőúüű\.\-\s]{2,40}?\s*(?:street|st|road|rd|avenue|ave|boulevard|blvd|lane|ln|drive|dr|court|ct|utca|út|u\.|tér|sor|köz|fasor|körút|krt)\.?\b|[A-Za-z0-9ÁÉÍÓÖŐÚÜŰáéíóöőúüű\.\-\s]{2,40}?\s*(?:street|st|road|rd|avenue|ave|boulevard|blvd|lane|ln|drive|dr|court|ct|utca|út|u\.|tér|sor|köz|fasor|körút|krt)\.?\s+\d{1,5}[\/\-a-zA-Z0-9]*)/ui';
-		$result = preg_replace( $addr_pattern, '[REDACTED_ADDRESS]', $result );
-		$result = is_string( $result ) ? $result : $masked;
-
-		// 6. Redact person names following common context markers (e.g., "for Jane Smith", "customer John Doe", "címzett: Kovács János", "first_name: Jane").
-		$name_pattern = '/\b((?i:for|customer|recipient|buyer|user|címzett|vásárló|ügyfél|név|name|first[_\s]+name|last[_\s]+name|full[_\s]+name|contact|client))[:\s=]+\s*"?[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+){0,3}"?/u';
-		$result = preg_replace( $name_pattern, '$1 [REDACTED_NAME]', $result );
-		$result = is_string( $result ) ? $result : $masked;
-
-		// 7. Clean up multiple spaces.
-		$result = preg_replace( '/\s{2,}/', ' ', $result );
-		$result = is_string( $result ) ? $result : $masked;
-
-		// 8. Truncate long error details to bound memory and display size.
-		if ( mb_strlen( $result ) > 255 ) {
-			$result = mb_substr( $result, 0, 252 ) . '...';
+		foreach ( self::ERROR_CLASSES as $code => $def ) {
+			if ( 1 === @preg_match( $def[0], $raw_err ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- invalid UTF-8 must fail closed, not warn.
+				return $code;
+			}
 		}
+		return self::UNCLASSIFIED_CODE;
+	}
 
-		return trim( $result );
+	/**
+	 * Predefined PII-free explanation for a classification code.
+	 *
+	 * @param string $code Result of classify_error().
+	 * @return string
+	 */
+	public static function explain_error( string $code ): string {
+		if ( isset( self::ERROR_CLASSES[ $code ] ) ) {
+			return self::ERROR_CLASSES[ $code ][1];
+		}
+		return '' === $code ? '' : 'Nem besorolható hiba; részletek a rendelés adminisztrációs nézetében.';
+	}
+
+	/**
+	 * Export-safe identifier: strict safe charset passes through, anything else becomes a salted hash.
+	 *
+	 * @param string $id Untrusted external identifier.
+	 * @return string
+	 */
+	public static function safe_identifier( string $id ): string {
+		if ( 1 === preg_match( '/^[A-Za-z0-9_-]{1,64}$/', $id ) ) {
+			return $id;
+		}
+		$key = function_exists( 'wp_salt' ) ? (string) wp_salt( 'auth' ) : 'wps-pepita';
+		return 'hash:' . substr( hash_hmac( 'sha256', $id, $key ), 0, 16 );
+	}
+
+	/**
+	 * Export-safe origin: only short marketplace-style identifiers are exported.
+	 *
+	 * @param string $origin Untrusted origin.
+	 * @return string
+	 */
+	public static function safe_origin( string $origin ): string {
+		return 1 === preg_match( '/^(?:[a-z]{2,3}|pepita\.[a-z]{2,3})$/', $origin ) ? $origin : 'other';
 	}
 
 	/**
@@ -213,8 +187,8 @@ final class Operational_Reports {
 
 				// Top error aggregation.
 				if ( '' !== trim( $last_err ) ) {
-					$sanitized_err = self::sanitize_error_message( $last_err );
-					$error_counts[ $sanitized_err ] = ( $error_counts[ $sanitized_err ] ?? 0 ) + 1;
+					$code                  = self::classify_error( $last_err );
+					$error_counts[ $code ] = ( $error_counts[ $code ] ?? 0 ) + 1;
 				}
 			}
 		}
@@ -222,9 +196,10 @@ final class Operational_Reports {
 		if ( ! empty( $error_counts ) ) {
 			arsort( $error_counts, SORT_NUMERIC );
 			$top = array_slice( $error_counts, 0, 5, true );
-			foreach ( $top as $msg => $cnt ) {
+			foreach ( $top as $code => $cnt ) {
 				$defaults['top_errors'][] = array(
-					'error' => $msg,
+					'code'  => (string) $code,
+					'error' => self::explain_error( (string) $code ),
 					'count' => $cnt,
 				);
 			}
@@ -247,7 +222,7 @@ final class Operational_Reports {
 	}
 
 	/**
-	 * Export order operations as a memory-bounded, PII-free CSV document.
+	 * Export order operations as a memory-bounded, CSV document that never contains raw free-text errors or untrusted identifiers.
 	 *
 	 * Sanitizes every cell against spreadsheet formula injection via Logger::sanitize_csv_field().
 	 *
@@ -293,27 +268,28 @@ final class Operational_Reports {
 				'Attempts',
 				'Created At (UTC)',
 				'Updated At (UTC)',
-				'Error Details',
+				'Error Code',
+				'Error Explanation',
 			)
 		);
 
 		if ( is_array( $orders ) ) {
 			foreach ( $orders as $row ) {
-				$raw_err = (string) ( $row['last_error'] ?? '' );
-				$sanitized_err = self::sanitize_error_message( $raw_err );
+				$err_code = self::classify_error( (string) ( $row['last_error'] ?? '' ) );
 
 				// All cells sanitized against formula injection via Logger::sanitize_csv_field().
 				fputcsv(
 					$fp,
 					array(
-						Logger::sanitize_csv_field( (string) ( $row['external_id'] ?? '' ) ),
+						Logger::sanitize_csv_field( self::safe_identifier( (string) ( $row['external_id'] ?? '' ) ) ),
 						(int) ( $row['wc_order_id'] ?? 0 ),
-						Logger::sanitize_csv_field( (string) ( $row['origin'] ?? '' ) ),
+						Logger::sanitize_csv_field( self::safe_origin( (string) ( $row['origin'] ?? '' ) ) ),
 						Logger::sanitize_csv_field( (string) ( $row['status'] ?? '' ) ),
 						(int) ( $row['attempts'] ?? 0 ),
 						Logger::sanitize_csv_field( (string) ( $row['created_at'] ?? '' ) ),
 						Logger::sanitize_csv_field( (string) ( $row['updated_at'] ?? '' ) ),
-						Logger::sanitize_csv_field( $sanitized_err ),
+						Logger::sanitize_csv_field( $err_code ),
+						Logger::sanitize_csv_field( self::explain_error( $err_code ) ),
 					)
 				);
 			}
