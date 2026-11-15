@@ -447,14 +447,21 @@ final class Merchant_Profiles {
 	public static function delete_option_if_token( string $key, string $token ): bool {
 		global $wpdb;
 
-		if ( empty( $token ) || ( ! str_starts_with( $key, 'wps_pepita' ) && ! str_starts_with( $key, '_wps' ) ) ) {
+		if ( empty( $token ) || ( ! str_starts_with( $key, 'wps_pepita_' ) && ! str_starts_with( $key, '_wps_' ) ) ) {
 			return false;
 		}
 
 		// Unit test environment with WPS_Test_State stub.
-		if ( class_exists( '\WPS_Test_State' ) && isset( \WPS_Test_State::$options[ $key ] ) ) {
+		if ( class_exists( '\WPS_Test_State' ) && isset( \WPS_Test_State::$options ) ) {
+			if ( ! isset( \WPS_Test_State::$options[ $key ] ) ) {
+				return false;
+			}
 			$val = \WPS_Test_State::$options[ $key ];
 			if ( is_array( $val ) && (string) ( $val['token'] ?? '' ) === $token ) {
+				unset( \WPS_Test_State::$options[ $key ] );
+				return true;
+			}
+			if ( is_string( $val ) && $val === $token ) {
 				unset( \WPS_Test_State::$options[ $key ] );
 				return true;
 			}
@@ -462,24 +469,21 @@ final class Merchant_Profiles {
 		}
 
 		// WordPress database environment.
-		if ( isset( $wpdb->options ) ) {
-			$like    = '%' . $wpdb->esc_like( $token ) . '%';
-			$deleted = $wpdb->query(
+		if ( isset( $wpdb->options ) && is_string( $wpdb->options ) && method_exists( $wpdb, 'query' ) && method_exists( $wpdb, 'prepare' ) ) {
+			// Exact serialized field match for 'token': s:5:"token";s:<len>:"<token>"
+			$token_pattern = '%s:5:"token";s:' . strlen( $token ) . ':"' . $wpdb->esc_like( $token ) . '"%';
+			$deleted       = $wpdb->query(
 				$wpdb->prepare(
-					"DELETE FROM {$wpdb->options} WHERE option_name = %s AND ( option_name LIKE 'wps_pepita_%' OR option_name LIKE '_wps%' ) AND option_value LIKE %s", // Scoped to wps_pepita rows. phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					"DELETE FROM {$wpdb->options} WHERE option_name = %s AND ( LEFT(option_name, 11) = 'wps_pepita_' OR LEFT(option_name, 5) = '_wps_' ) AND ( option_value LIKE %s OR option_value = %s )", // Scoped to wps_pepita_ rows. phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 					$key,
-					$like
+					$token_pattern,
+					$token
 				)
 			);
 			if ( function_exists( 'wp_cache_delete' ) ) {
 				wp_cache_delete( $key, 'options' );
 			}
 			return (int) $deleted > 0;
-		}
-
-		$current = get_option( $key, false );
-		if ( is_array( $current ) && (string) ( $current['token'] ?? '' ) === $token ) {
-			return delete_option( $key );
 		}
 
 		return false;

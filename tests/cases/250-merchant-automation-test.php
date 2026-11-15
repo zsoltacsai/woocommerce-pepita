@@ -917,5 +917,18 @@ $suite->add(
 		WPS_Assert::false( str_contains( $sanitized_embedded, 'alice@personal.test' ), 'Customer email in embedded JSON must be redacted.' );
 		WPS_Assert::false( str_contains( $sanitized_embedded, '"first_name":"Alice"' ), 'Customer name in embedded JSON must be redacted.' );
 		WPS_Assert::true( str_contains( $sanitized_embedded, 'a***@personal.test' ), 'Masked email must be present in embedded JSON.' );
+
+		// 5. Multiple embedded JSON objects in error messages.
+		$multi_json_err = 'Failed: {"first_name":"Jane"} then {"last_name":"Smith"}';
+		$sanitized_multi = Operational_Reports::sanitize_error_message( $multi_json_err );
+		WPS_Assert::false( str_contains( $sanitized_multi, 'Jane' ), 'Jane must be redacted from multi-JSON error' );
+		WPS_Assert::false( str_contains( $sanitized_multi, 'Smith' ), 'Smith must be redacted from multi-JSON error' );
+
+		// 6. delete_option_if_token prefix and exact token validation.
+		update_option( 'wps_pepita_test_token_opt', array( 'token' => 'exact_secret_token_123' ), false );
+		WPS_Assert::false( Merchant_Profiles::delete_option_if_token( 'wps_pepitax_invalid_prefix', 'exact_secret_token_123' ), 'delete_option_if_token must reject unapproved prefix.' );
+		WPS_Assert::false( Merchant_Profiles::delete_option_if_token( 'wps_pepita_test_token_opt', 'secret_token' ), 'delete_option_if_token must reject partial token match.' );
+		WPS_Assert::true( Merchant_Profiles::delete_option_if_token( 'wps_pepita_test_token_opt', 'exact_secret_token_123' ), 'delete_option_if_token must accept exact token and delete option.' );
+		WPS_Assert::false( get_option( 'wps_pepita_test_token_opt', false ), 'Option must be deleted.' );
 	}
 );

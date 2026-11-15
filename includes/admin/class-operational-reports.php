@@ -42,17 +42,45 @@ final class Operational_Reports {
 			return '';
 		}
 
-		// 1. If error message contains embedded or full JSON, find, decode and redact structured fields.
-		if ( preg_match( '/\{.*\}/s', $raw_err, $matches ) ) {
-			$json_candidate = $matches[0];
-			$decoded        = json_decode( $json_candidate, true );
-			if ( is_array( $decoded ) ) {
-				$redacted_json = wp_json_encode( Redactor::redact( $decoded ) );
-				if ( is_string( $redacted_json ) ) {
-					$raw_err = str_replace( $json_candidate, $redacted_json, $raw_err );
+		// 1. If error message contains embedded or full JSON objects/arrays, find, decode and redact structured fields.
+		$raw_err = (string) preg_replace_callback(
+			'/\{(?:[^{}]|(?R))*\}/s',
+			static function ( array $matches ): string {
+				$candidate = $matches[0];
+				$decoded   = json_decode( $candidate, true );
+				if ( is_array( $decoded ) ) {
+					$redacted = function_exists( 'wp_json_encode' )
+						? wp_json_encode( Redactor::redact( $decoded ) )
+						: json_encode( Redactor::redact( $decoded ) );
+					return is_string( $redacted ) ? $redacted : $candidate;
 				}
-			}
-		}
+				return $candidate;
+			},
+			$raw_err
+		);
+
+		$raw_err = (string) preg_replace_callback(
+			'/\[(?:[^\[\]]|(?R))*\]/s',
+			static function ( array $matches ): string {
+				$candidate = $matches[0];
+				$decoded   = json_decode( $candidate, true );
+				if ( is_array( $decoded ) ) {
+					$redacted = function_exists( 'wp_json_encode' )
+						? wp_json_encode( Redactor::redact( $decoded ) )
+						: json_encode( Redactor::redact( $decoded ) );
+					return is_string( $redacted ) ? $redacted : $candidate;
+				}
+				return $candidate;
+			},
+			$raw_err
+		);
+
+		// Mask JSON key-value pairs that might appear outside well-formed root objects.
+		$raw_err = (string) preg_replace(
+			'/"(first_name|last_name|full_name|billing_name|shipping_name|email|phone|street|address)"\s*:\s*"[^"]+"/i',
+			'"$1":"[redacted]"',
+			$raw_err
+		);
 
 		// 2. Mask email addresses.
 		$masked = preg_replace_callback(
@@ -88,7 +116,7 @@ final class Operational_Reports {
 		$result = is_string( $result ) ? $result : $masked;
 
 		// 6. Redact person names following common context markers (e.g., "for Jane Smith", "customer John Doe", "címzett: Kovács János").
-		$name_pattern = '/\b(for|customer|recipient|buyer|user|címzett:?|vásárló:?|ügyfél:?|név:?)\s+([A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+){1,3})\b/u';
+		$name_pattern = '/\b(for|customer|recipient|buyer|user|címzett|vásárló|ügyfél|név|name|first\s+name|last\s+name|full\s+name|contact|client):?\s+([A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+){0,3})\b/ui';
 		$result = preg_replace( $name_pattern, '$1 [REDACTED_NAME]', $result );
 		$result = is_string( $result ) ? $result : $masked;
 
