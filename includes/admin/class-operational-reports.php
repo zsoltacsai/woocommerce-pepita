@@ -117,7 +117,7 @@ final class Operational_Reports {
 		$result = is_string( $result ) ? $result : $masked;
 
 		// 6. Redact person names following common context markers (e.g., "for Jane Smith", "customer John Doe", "címzett: Kovács János", "first_name: Jane").
-		$name_pattern = '/\b(?:for|customer|recipient|buyer|user|címzett|vásárló|ügyfél|név|name|first[_\s]+name|last[_\s]+name|full[_\s]+name|contact|client)[:\s=]+\s*"?([A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+){0,3})"?/ui';
+		$name_pattern = '/\b((?i:for|customer|recipient|buyer|user|címzett|vásárló|ügyfél|név|name|first[_\s]+name|last[_\s]+name|full[_\s]+name|contact|client))[:\s=]+\s*"?[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+){0,3}"?/u';
 		$result = preg_replace( $name_pattern, '$1 [REDACTED_NAME]', $result );
 		$result = is_string( $result ) ? $result : $masked;
 
