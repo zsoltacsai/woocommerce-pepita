@@ -434,6 +434,53 @@ final class Merchant_Profiles {
 	}
 
 	/**
+	 * Acquire a short-lived mutex token for lock reclamation.
+	 *
+	 * Uses atomic add_option() and token-verified reclamation.
+	 */
+	private static function acquire_reclaim_mutex( string $key, int $ttl = 30 ): ?string {
+		$now   = time();
+		$token = wp_generate_password( 32, false, false );
+		$val   = array(
+			'token'   => $token,
+			'expires' => $now + $ttl,
+		);
+
+		if ( add_option( $key, $val, '', false ) ) {
+			return $token;
+		}
+
+		$existing = get_option( $key, false );
+		if ( ! is_array( $existing ) || (int) ( $existing['expires'] ?? 0 ) > $now ) {
+			return null;
+		}
+
+		$stale_token = (string) ( $existing['token'] ?? '' );
+		$check       = get_option( $key, false );
+		if ( is_array( $check ) && (string) ( $check['token'] ?? '' ) === $stale_token ) {
+			delete_option( $key );
+			if ( add_option( $key, $val, '', false ) ) {
+				return $token;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Release a short-lived mutex token if currently held.
+	 */
+	private static function release_reclaim_mutex( string $key, ?string $token ): void {
+		if ( empty( $token ) ) {
+			return;
+		}
+		$current = get_option( $key, false );
+		if ( is_array( $current ) && (string) ( $current['token'] ?? '' ) === $token ) {
+			delete_option( $key );
+		}
+	}
+
+	/**
 	 * Acquire an exclusive import lock to protect against concurrent imports.
 	 *
 	 * Uses atomic add_option() to ensure single-process execution.
@@ -460,16 +507,10 @@ final class Merchant_Profiles {
 
 		// Reclaiming an expired lock uses an atomic mutex to prevent competing
 		// processes from interleaving and deleting each other's fresh locks.
-		$mutex = self::LOCK_OPTION . '_reclaim';
-		if ( ! add_option( $mutex, $now, '', false ) ) {
-			$held = (int) get_option( $mutex, 0 );
-			if ( $held > 0 && ( $now - $held ) < 30 ) {
-				return null;
-			}
-			delete_option( $mutex );
-			if ( ! add_option( $mutex, $now, '', false ) ) {
-				return null;
-			}
+		$mutex_key   = self::LOCK_OPTION . '_reclaim';
+		$mutex_token = self::acquire_reclaim_mutex( $mutex_key, 30 );
+		if ( null === $mutex_token ) {
+			return null;
 		}
 
 		try {
@@ -485,7 +526,7 @@ final class Merchant_Profiles {
 
 			return null;
 		} finally {
-			delete_option( $mutex );
+			self::release_reclaim_mutex( $mutex_key, $mutex_token );
 		}
 	}
 
@@ -533,49 +574,59 @@ final class Merchant_Profiles {
 	 * @return array{recovered: bool, rollback_clean: bool, rollback_errors: string[]}
 	 */
 	public static function recover_interrupted_import( ?string $current_token = null ): array {
-		if ( self::is_import_locked( $current_token ) ) {
-			// An import is actively in progress right now by another process; do not interfere with its active journal.
-			return array(
-				'recovered'       => false,
-				'rollback_clean'  => true,
-				'rollback_errors' => array(),
-			);
+		$own_lock   = false;
+		$lock_token = $current_token;
+
+		if ( null === $lock_token ) {
+			// External recovery call (e.g. from Admin init): must acquire the exclusive import lock first
+			// so that no concurrent import can start or run while recovery is inspecting and restoring state.
+			$lock_token = self::acquire_import_lock();
+			if ( null === $lock_token ) {
+				// Lock is held by an active import; do not interfere with it.
+				return array(
+					'recovered'       => false,
+					'rollback_clean'  => true,
+					'rollback_errors' => array(),
+				);
+			}
+			$own_lock = true;
 		}
 
-		$journal = get_option( self::JOURNAL_OPTION );
-		if ( empty( $journal ) || ! is_array( $journal ) ) {
-			return array(
-				'recovered'       => false,
-				'rollback_clean'  => true,
-				'rollback_errors' => array(),
-			);
-		}
-
-		$rollback_clean  = true;
-		$rollback_errors = array();
-
-		if ( ! empty( $journal['original_settings'] ) && is_array( $journal['original_settings'] ) ) {
-			try {
-				Settings::update( $journal['original_settings'] );
-			} catch ( \Throwable $settings_err ) {
-				$rollback_clean   = false;
-				$rollback_errors[] = 'Settings restore threw exception in recovery: ' . $settings_err->getMessage();
+		try {
+			$journal = get_option( self::JOURNAL_OPTION );
+			if ( empty( $journal ) || ! is_array( $journal ) ) {
+				return array(
+					'recovered'       => false,
+					'rollback_clean'  => true,
+					'rollback_errors' => array(),
+				);
 			}
 
-			Settings::reset_cache();
-			$db_settings = get_option( Settings::OPTION, array() );
-			if ( ! is_array( $db_settings ) ) {
-				$rollback_clean   = false;
-				$rollback_errors[] = 'Settings option read from DB failed during recovery.';
-			} else {
-				foreach ( $journal['original_settings'] as $k => $v ) {
-					if ( ! array_key_exists( $k, $db_settings ) || $db_settings[ $k ] !== $v ) {
-						$rollback_clean   = false;
-						$rollback_errors[] = sprintf( 'Setting %s DB restore mismatch in recovery.', $k );
+			$rollback_clean  = true;
+			$rollback_errors = array();
+
+			if ( ! empty( $journal['original_settings'] ) && is_array( $journal['original_settings'] ) ) {
+				try {
+					Settings::update( $journal['original_settings'] );
+				} catch ( \Throwable $settings_err ) {
+					$rollback_clean   = false;
+					$rollback_errors[] = 'Settings restore threw exception in recovery: ' . $settings_err->getMessage();
+				}
+
+				Settings::reset_cache();
+				$db_settings = get_option( Settings::OPTION, array() );
+				if ( ! is_array( $db_settings ) ) {
+					$rollback_clean   = false;
+					$rollback_errors[] = 'Settings option read from DB failed during recovery.';
+				} else {
+					foreach ( $journal['original_settings'] as $k => $v ) {
+						if ( ! array_key_exists( $k, $db_settings ) || $db_settings[ $k ] !== $v ) {
+							$rollback_clean   = false;
+							$rollback_errors[] = sprintf( 'Setting %s DB restore mismatch in recovery.', $k );
+						}
 					}
 				}
 			}
-		}
 
 		if ( ! empty( $journal['original_term_meta'] ) && is_array( $journal['original_term_meta'] ) ) {
 			foreach ( $journal['original_term_meta'] as $term_id => $metas ) {
@@ -631,6 +682,11 @@ final class Merchant_Profiles {
 			'rollback_clean'  => $rollback_clean,
 			'rollback_errors' => $rollback_errors,
 		);
+		} finally {
+			if ( $own_lock ) {
+				self::release_import_lock( $lock_token );
+			}
+		}
 	}
 
 	/**
@@ -843,29 +899,27 @@ final class Merchant_Profiles {
 				'imported_categories' => $imported_categories,
 			);
 		} catch ( \Throwable $e ) {
-			// COMPENSATING ROLLBACK: Restore settings and term metadata to exact pre-import state.
+			// COMPENSATING ROLLBACK: Unconditionally restore original settings and term metadata to exact pre-import state.
 			$rollback_clean  = true;
 			$rollback_errors = array();
 
-			if ( $settings_applied ) {
-				try {
-					Settings::update( $current_settings );
-				} catch ( \Throwable $settings_err ) {
-					$rollback_clean   = false;
-					$rollback_errors[] = 'Settings rollback restore failed: ' . $settings_err->getMessage();
-				}
+			try {
+				Settings::update( $current_settings );
+			} catch ( \Throwable $settings_err ) {
+				$rollback_clean   = false;
+				$rollback_errors[] = 'Settings rollback restore failed: ' . $settings_err->getMessage();
+			}
 
-				Settings::reset_cache();
-				$db_settings = get_option( Settings::OPTION, array() );
-				if ( ! is_array( $db_settings ) ) {
-					$rollback_clean   = false;
-					$rollback_errors[] = 'Settings option read from DB failed during rollback.';
-				} else {
-					foreach ( $current_settings as $k => $v ) {
-						if ( ! array_key_exists( $k, $db_settings ) || $db_settings[ $k ] !== $v ) {
-							$rollback_clean   = false;
-							$rollback_errors[] = sprintf( 'Setting %s DB restore mismatch during rollback.', $k );
-						}
+			Settings::reset_cache();
+			$db_settings = get_option( Settings::OPTION, array() );
+			if ( ! is_array( $db_settings ) ) {
+				$rollback_clean   = false;
+				$rollback_errors[] = 'Settings option read from DB failed during rollback.';
+			} else {
+				foreach ( $current_settings as $k => $v ) {
+					if ( ! array_key_exists( $k, $db_settings ) || $db_settings[ $k ] !== $v ) {
+						$rollback_clean   = false;
+						$rollback_errors[] = sprintf( 'Setting %s DB restore mismatch during rollback.', $k );
 					}
 				}
 			}
