@@ -1,5 +1,7 @@
 # FN-DECO — RC2 staging preflight (közös MySQL-adatbázis)
 
+> **Hozzáférési szabály (Owner döntés):** az AI-ügynökök semmilyen szerver-, SSH-, FTP-, adatbázis-, Redis- vagy WordPress-admin hozzáférést nem kapnak, és nem is kérnek. A telepítést és az ellenőrzéseket az Owner végzi. **Az Owner számára rövid, admin-felületes ellenőrzőlista: [FN-DECO-STAGING-MANUAL-INSTALL-HU.md](FN-DECO-STAGING-MANUAL-INSTALL-HU.md).** Ez a dokumentum a részletes, parancsos háttér (hosting-technikusnak vagy a tárhelyszolgáltatónak).
+
 **Állapot: HOLD — a read-only bizonyítékok még nincsenek meg.** Ezt a dokumentumot a fejlesztő (Neville) készítette elő. A fejlesztői környezetből **nincs hozzáférés** az FN-DECO szerverhez, az adatbázishoz, a `wp-config.php`-hoz, a Redis-hez vagy a mentéshez, ezért a lenti 1–8. pont egyikét sem tudtam megerősíteni. Hozzáférést nem próbáltam szerezni, és az egyetlen helyben beállított SSH-hosthoz (`caregrid-staging`) nem nyúltam: az a WP CareGrid projekthez tartozik.
 
 Amit a **kódból** bizonyítani tudtam (nem a szerverről):

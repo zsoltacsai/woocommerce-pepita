@@ -44,6 +44,7 @@ def parse(path):
 def products(root):
     items = {}
     duplicates = []
+    nodes = []  # every product node, so a duplicate can never hide the defects of its twin
     for node in root.iter(tag("Product")):
         pid = text(node, tag("Id"))
         if not pid:
@@ -51,7 +52,8 @@ def products(root):
         if pid in items:
             duplicates.append(pid)
         items[pid] = node
-    return items, duplicates
+        nodes.append((pid, node))
+    return items, duplicates, nodes
 
 
 def host_of(url):
@@ -70,8 +72,8 @@ def main():
     args = ap.parse_args()
 
     full_root, stock_root = parse(args.full), parse(args.stock)
-    full, full_dups = products(full_root)
-    stock, stock_dups = products(stock_root)
+    full, full_dups, full_nodes = products(full_root)
+    stock, stock_dups, _stock_nodes = products(stock_root)
 
     blocking, warnings = [], []
     staging_prefix = args.staging_host.lower().rstrip("/")
@@ -110,7 +112,7 @@ def main():
     variable = 0
     variation_total = 0
     photo_hosts = Counter()
-    for pid, node in full.items():
+    for pid, node in full_nodes:
         photos = [p.text.strip() for p in node.iter(tag("Url")) if p.text]
         if not photos:
             no_photo.append(pid)
@@ -167,6 +169,7 @@ def main():
 
     report = {
         "full_products": len(full),
+        "full_product_nodes": len(full_nodes),
         "stock_products": len(stock),
         "variable_products": variable,
         "variations": variation_total,
@@ -184,7 +187,7 @@ def main():
         "full_ids": sorted(full),
     }
 
-    print("Full feed products   : %d (variable: %d, variations: %d)" % (len(full), variable, variation_total))
+    print("Full feed products   : %d distinct ids / %d nodes (variable: %d, variations: %d)" % (len(full), len(full_nodes), variable, variation_total))
     print("Stock feed products  : %d" % len(stock))
     print("Image hosts          : %s" % dict(photo_hosts))
     for line in warnings:

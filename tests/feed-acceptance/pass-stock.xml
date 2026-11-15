@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Catalog xmlns="https://pepita.hu/feed/1.0">
+  <Product><Id>wps-10</Id><Prices><Currency>HUF</Currency><Price>12990.00</Price></Prices><Availability><Available>true</Available><Quantity>5</Quantity></Availability></Product>
+  <Product><Id>wps-11</Id><Prices><Currency>HUF</Currency><Price>990.00</Price></Prices><Availability><Available>false</Available><Quantity>0</Quantity></Availability></Product>
+</Catalog>
