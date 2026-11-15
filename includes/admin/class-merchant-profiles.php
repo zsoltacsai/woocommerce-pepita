@@ -454,14 +454,39 @@ final class Merchant_Profiles {
 		}
 
 		$current = get_option( self::LOCK_OPTION, false );
-		if ( is_array( $current ) && (int) ( $current['expires'] ?? 0 ) < $now ) {
+		if ( ! is_array( $current ) || (int) ( $current['expires'] ?? 0 ) > $now ) {
+			return null;
+		}
+
+		// Reclaiming an expired lock uses an atomic mutex to prevent competing
+		// processes from interleaving and deleting each other's fresh locks.
+		$mutex = self::LOCK_OPTION . '_reclaim';
+		if ( ! add_option( $mutex, $now, '', false ) ) {
+			$held = (int) get_option( $mutex, 0 );
+			if ( $held > 0 && ( $now - $held ) < 30 ) {
+				return null;
+			}
+			delete_option( $mutex );
+			if ( ! add_option( $mutex, $now, '', false ) ) {
+				return null;
+			}
+		}
+
+		try {
+			$current = get_option( self::LOCK_OPTION, false );
+			if ( is_array( $current ) && (int) ( $current['expires'] ?? 0 ) > $now ) {
+				return null;
+			}
+
 			delete_option( self::LOCK_OPTION );
 			if ( add_option( self::LOCK_OPTION, $val, '', false ) ) {
 				return $token;
 			}
-		}
 
-		return null;
+			return null;
+		} finally {
+			delete_option( $mutex );
+		}
 	}
 
 	/**
@@ -483,11 +508,16 @@ final class Merchant_Profiles {
 	/**
 	 * Check whether an import process currently holds an active, unexpired lock.
 	 *
+	 * @param string|null $except_token Token permitted to bypass lock check (e.g. self-held lock).
 	 * @return bool
 	 */
-	public static function is_import_locked(): bool {
+	public static function is_import_locked( ?string $except_token = null ): bool {
 		$current = get_option( self::LOCK_OPTION, false );
 		if ( ! is_array( $current ) ) {
+			return false;
+		}
+
+		if ( null !== $except_token && ( $current['token'] ?? '' ) === $except_token ) {
 			return false;
 		}
 
@@ -499,11 +529,12 @@ final class Merchant_Profiles {
 	 *
 	 * Reads persistent recovery journal from wp_options and restores original store state.
 	 *
+	 * @param string|null $current_token Optional lock token held by caller to permit self-recovery.
 	 * @return array{recovered: bool, rollback_clean: bool, rollback_errors: string[]}
 	 */
-	public static function recover_interrupted_import(): array {
-		if ( self::is_import_locked() ) {
-			// An import is actively in progress right now; do not interfere with its active journal.
+	public static function recover_interrupted_import( ?string $current_token = null ): array {
+		if ( self::is_import_locked( $current_token ) ) {
+			// An import is actively in progress right now by another process; do not interfere with its active journal.
 			return array(
 				'recovered'       => false,
 				'rollback_clean'  => true,
@@ -524,7 +555,13 @@ final class Merchant_Profiles {
 		$rollback_errors = array();
 
 		if ( ! empty( $journal['original_settings'] ) && is_array( $journal['original_settings'] ) ) {
-			Settings::update( $journal['original_settings'] );
+			try {
+				Settings::update( $journal['original_settings'] );
+			} catch ( \Throwable $settings_err ) {
+				$rollback_clean   = false;
+				$rollback_errors[] = 'Settings restore threw exception in recovery: ' . $settings_err->getMessage();
+			}
+
 			Settings::reset_cache();
 			$db_settings = get_option( Settings::OPTION, array() );
 			if ( ! is_array( $db_settings ) ) {
@@ -621,7 +658,7 @@ final class Merchant_Profiles {
 		}
 
 		try {
-			$recovery = self::recover_interrupted_import();
+			$recovery = self::recover_interrupted_import( $lock_token );
 			if ( $recovery['recovered'] && ! $recovery['rollback_clean'] ) {
 				return array(
 					'success'             => false,
@@ -811,7 +848,13 @@ final class Merchant_Profiles {
 			$rollback_errors = array();
 
 			if ( $settings_applied ) {
-				Settings::update( $current_settings );
+				try {
+					Settings::update( $current_settings );
+				} catch ( \Throwable $settings_err ) {
+					$rollback_clean   = false;
+					$rollback_errors[] = 'Settings rollback restore failed: ' . $settings_err->getMessage();
+				}
+
 				Settings::reset_cache();
 				$db_settings = get_option( Settings::OPTION, array() );
 				if ( ! is_array( $db_settings ) ) {

@@ -879,7 +879,24 @@ $suite->add(
 		Merchant_Profiles::release_import_lock( $token );
 		WPS_Assert::false( Merchant_Profiles::is_import_locked(), 'is_import_locked must return false after release.' );
 
-		// 2. Rollback verification detects missing settings in DB.
+		// 2. Interrupted import recovery when called via import_profile().
+		$stale_journal = array(
+			'timestamp'         => time() - 3600,
+			'original_settings' => array( 'shipping_delay' => 1 ),
+		);
+		update_option( Merchant_Profiles::JOURNAL_OPTION, $stale_journal, false );
+
+		$recovered_import = Merchant_Profiles::import_profile(
+			array(
+				'schema_version' => 1,
+				'generator'      => 'wp-pepita-sync',
+				'settings'       => array( 'shipping_delay' => 4 ),
+			)
+		);
+		WPS_Assert::true( $recovered_import['success'], 'import_profile must successfully recover previous stale journal and apply import.' );
+		WPS_Assert::same( 4, Settings::get( 'shipping_delay' ), 'Imported setting must be active.' );
+
+		// 3. Rollback verification detects missing settings in DB.
 		delete_option( Merchant_Profiles::JOURNAL_OPTION );
 		$journal_with_missing_key = array(
 			'timestamp'         => time(),
@@ -893,5 +910,12 @@ $suite->add(
 		WPS_Assert::true( ! empty( $rec_missing['rollback_errors'] ), 'Rollback errors must list missing setting key.' );
 
 		delete_option( Merchant_Profiles::JOURNAL_OPTION );
+
+		// 4. Embedded / Prefixed JSON sanitization in error messages.
+		$embedded_json_err = 'Upstream gateway returned error: {"customer": {"first_name": "Alice", "email": "alice@personal.test"}} (HTTP 502)';
+		$sanitized_embedded = Operational_Reports::sanitize_error_message( $embedded_json_err );
+		WPS_Assert::false( str_contains( $sanitized_embedded, 'alice@personal.test' ), 'Customer email in embedded JSON must be redacted.' );
+		WPS_Assert::false( str_contains( $sanitized_embedded, '"first_name":"Alice"' ), 'Customer name in embedded JSON must be redacted.' );
+		WPS_Assert::true( str_contains( $sanitized_embedded, 'a***@personal.test' ), 'Masked email must be present in embedded JSON.' );
 	}
 );

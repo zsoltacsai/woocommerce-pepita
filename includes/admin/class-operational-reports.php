@@ -42,12 +42,15 @@ final class Operational_Reports {
 			return '';
 		}
 
-		// 1. If error message contains embedded JSON, decode and redact structured fields.
-		if ( str_contains( $raw_err, '{' ) && str_contains( $raw_err, '}' ) ) {
-			$decoded = json_decode( $raw_err, true );
+		// 1. If error message contains embedded or full JSON, find, decode and redact structured fields.
+		if ( preg_match( '/\{.*\}/s', $raw_err, $matches ) ) {
+			$json_candidate = $matches[0];
+			$decoded        = json_decode( $json_candidate, true );
 			if ( is_array( $decoded ) ) {
-				$redacted = Redactor::redact( $decoded );
-				$raw_err  = (string) wp_json_encode( $redacted );
+				$redacted_json = wp_json_encode( Redactor::redact( $decoded ) );
+				if ( is_string( $redacted_json ) ) {
+					$raw_err = str_replace( $json_candidate, $redacted_json, $raw_err );
+				}
 			}
 		}
 
