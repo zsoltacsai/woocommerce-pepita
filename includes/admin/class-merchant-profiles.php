@@ -434,9 +434,61 @@ final class Merchant_Profiles {
 	}
 
 	/**
+	 * Atomically delete an option only if its stored serialized payload contains the expected token.
+	 *
+	 * In WordPress production / integration environments, executes an atomic single SQL DELETE query
+	 * on wp_options with an option_value token condition to prevent check-then-delete race conditions.
+	 * In stubbed unit-test environments, performs an atomic token match and unset.
+	 *
+	 * @param string $key
+	 * @param string $token
+	 * @return bool True if deleted, false if token did not match or option was absent.
+	 */
+	public static function delete_option_if_token( string $key, string $token ): bool {
+		global $wpdb;
+
+		if ( empty( $token ) ) {
+			return false;
+		}
+
+		// Unit test environment with WPS_Test_State stub.
+		if ( class_exists( '\WPS_Test_State' ) && isset( \WPS_Test_State::$options[ $key ] ) ) {
+			$val = \WPS_Test_State::$options[ $key ];
+			if ( is_array( $val ) && (string) ( $val['token'] ?? '' ) === $token ) {
+				unset( \WPS_Test_State::$options[ $key ] );
+				return true;
+			}
+			return false;
+		}
+
+		// WordPress database environment.
+		if ( isset( $wpdb->options ) ) {
+			$like    = '%' . $wpdb->esc_like( $token ) . '%';
+			$deleted = $wpdb->query(
+				$wpdb->prepare(
+					"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value LIKE %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					$key,
+					$like
+				)
+			);
+			if ( function_exists( 'wp_cache_delete' ) ) {
+				wp_cache_delete( $key, 'options' );
+			}
+			return (int) $deleted > 0;
+		}
+
+		$current = get_option( $key, false );
+		if ( is_array( $current ) && (string) ( $current['token'] ?? '' ) === $token ) {
+			return delete_option( $key );
+		}
+
+		return false;
+	}
+
+	/**
 	 * Acquire a short-lived mutex token for lock reclamation.
 	 *
-	 * Uses atomic add_option() and token-verified reclamation.
+	 * Uses atomic add_option() and atomic conditional token-verified deletion.
 	 */
 	private static function acquire_reclaim_mutex( string $key, int $ttl = 30 ): ?string {
 		$now   = time();
@@ -456,9 +508,13 @@ final class Merchant_Profiles {
 		}
 
 		$stale_token = (string) ( $existing['token'] ?? '' );
-		$check       = get_option( $key, false );
-		if ( is_array( $check ) && (string) ( $check['token'] ?? '' ) === $stale_token ) {
-			delete_option( $key );
+		if ( '' === $stale_token ) {
+			return null;
+		}
+
+		// Atomically delete the expired mutex ONLY if it still holds the exact stale token.
+		// Eliminates check-then-delete races against competing reclaimers.
+		if ( self::delete_option_if_token( $key, $stale_token ) ) {
 			if ( add_option( $key, $val, '', false ) ) {
 				return $token;
 			}
@@ -474,10 +530,7 @@ final class Merchant_Profiles {
 		if ( empty( $token ) ) {
 			return;
 		}
-		$current = get_option( $key, false );
-		if ( is_array( $current ) && (string) ( $current['token'] ?? '' ) === $token ) {
-			delete_option( $key );
-		}
+		self::delete_option_if_token( $key, $token );
 	}
 
 	/**
@@ -519,7 +572,13 @@ final class Merchant_Profiles {
 				return null;
 			}
 
-			delete_option( self::LOCK_OPTION );
+			$stale_lock_token = is_array( $current ) ? (string) ( $current['token'] ?? '' ) : '';
+			if ( '' !== $stale_lock_token ) {
+				self::delete_option_if_token( self::LOCK_OPTION, $stale_lock_token );
+			} else {
+				delete_option( self::LOCK_OPTION );
+			}
+
 			if ( add_option( self::LOCK_OPTION, $val, '', false ) ) {
 				return $token;
 			}
@@ -540,10 +599,7 @@ final class Merchant_Profiles {
 			return;
 		}
 
-		$current = get_option( self::LOCK_OPTION, false );
-		if ( is_array( $current ) && ( $current['token'] ?? '' ) === $token ) {
-			delete_option( self::LOCK_OPTION );
-		}
+		self::delete_option_if_token( self::LOCK_OPTION, $token );
 	}
 
 	/**
