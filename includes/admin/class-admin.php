@@ -11,6 +11,7 @@ use WPS\Pepita\Feed\Catalog_Diff;
 use WPS\Pepita\Feed\Generator;
 use WPS\Pepita\Feed\Lock;
 use WPS\Pepita\Feed\Scheduler;
+use WPS\Pepita\Installer;
 use WPS\Pepita\Logger;
 use WPS\Pepita\Orders\Order_Repository;
 use WPS\Pepita\Settings;
@@ -248,7 +249,21 @@ final class Admin {
 
 		$input = $this->settings_input( $raw );
 
+		// Explicit merchant opt-in for order intake: audit it (only a deliberate admin save can enable it).
+		$was_enabled = (bool) ( Settings::all()['order_api_enabled'] ?? false );
 		Settings::update( $input );
+		$now_enabled = (bool) ( Settings::all()['order_api_enabled'] ?? false );
+		if ( $now_enabled && ! $was_enabled ) {
+			update_option(
+				Installer::ORDER_API_OPTIN_OPTION,
+				array(
+					'user' => get_current_user_id(),
+					'time' => time(),
+				),
+				false
+			);
+			Logger::warning( 'settings', 'A Pepita rendelés API kifejezetten bekapcsolva.' );
+		}
 
 		if ( ! (bool) Settings::get( 'order_api_keep_payloads', false ) ) {
 			Order_Repository::purge_payloads( 0, true );

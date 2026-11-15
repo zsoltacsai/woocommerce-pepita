@@ -62,6 +62,10 @@ $seed = static function (): void {
  */
 $call = static function ( array $payload, array $params = array(), array $headers = array(), ?string $body = null ) {
 	WPS_Test_State::$ssl = true;
+	// The API is OFF by default; these tests exercise an explicitly enabled endpoint unless a test opts out.
+	if ( empty( $GLOBALS['wps_api_test_keep_state'] ) ) {
+		Settings::update( array( 'order_api_enabled' => true ) );
+	}
 
 	$request = new WP_REST_Request(
 		$params,
@@ -80,6 +84,9 @@ $call = static function ( array $payload, array $params = array(), array $header
  */
 $call_plain = static function ( array $payload, array $params = array(), array $headers = array() ) {
 	WPS_Test_State::$ssl = false;
+	if ( empty( $GLOBALS['wps_api_test_keep_state'] ) ) {
+		Settings::update( array( 'order_api_enabled' => true ) );
+	}
 
 	$request = new WP_REST_Request( $params, (string) wp_json_encode( $payload ), $headers );
 
@@ -175,7 +182,9 @@ $suite->add(
 			)
 		);
 
-		$response = $call( $payload(), array( 'apikey' => 'secret-key' ) );
+		$GLOBALS['wps_api_test_keep_state'] = true;
+		$response                           = $call( $payload(), array( 'apikey' => 'secret-key' ) );
+		unset( $GLOBALS['wps_api_test_keep_state'] );
 
 		WPS_Assert::same( 503, $response->get_status() );
 		WPS_Assert::same( true, $response->get_data()['isError'] );

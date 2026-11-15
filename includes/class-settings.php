@@ -113,7 +113,7 @@ final class Settings {
 			'marketplace_min_margin_percent' => 0.0,
 
 			// Order API.
-			'order_api_enabled'        => true,
+			'order_api_enabled'        => false, // Order intake is OFF until a merchant explicitly opts in.
 			'order_api_key'            => '',
 			'order_api_allowed_ips'    => '',
 			'order_api_trusted_proxies' => '',

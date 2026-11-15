@@ -8,13 +8,15 @@
 defined( 'ABSPATH' ) || exit;
 
 use WPS\Pepita\Admin\Admin;
+use WPS\Pepita\Installer;
 use WPS\Pepita\Orders\Api_Controller;
 use WPS\Pepita\Settings;
 
 $endpoint  = rest_url( Api_Controller::REST_NAMESPACE . Api_Controller::REST_ROUTE );
 $key       = Settings::secret( 'order_api_key' );
 $from_const = Settings::using_constant( 'order_api_key' );
-$enabled   = (bool) Settings::get( 'order_api_enabled', true );
+$enabled   = (bool) Settings::get( 'order_api_enabled', false );
+$legacy_off  = (int) get_option( Installer::ORDER_API_LEGACY_DISABLED_OPTION, 0 );
 $full_url  = '' !== $key ? $endpoint . '?apikey=' . rawurlencode( $key ) : '';
 ?>
 <div class="wrap wps-wrap">
@@ -23,6 +25,12 @@ $full_url  = '' !== $key ? $endpoint . '?apikey=' . rawurlencode( $key ) : '';
 	<p class="wps-lead">
 		<?php esc_html_e( 'A Pepita a rendelés leadásakor azonnali HTTP POST kérést küld erre a végpontra. A plugin a rendelést WooCommerce rendelésként rögzíti, és az ismételt értesítéseket biztonságosan kiszűri.', 'wp-pepita-sync' ); ?>
 	</p>
+
+	<?php if ( $legacy_off > 0 && ! $enabled ) : ?>
+		<div class="notice notice-warning inline"><p>
+			<?php esc_html_e( 'A rendelésfogadás frissítéskor biztonsági okból ki lett kapcsolva (korábbi, nem igazolt automatikus engedélyezés). A meglévő API kulcs nem változott. Bekapcsolás: Beállítások → Rendelés API → „Rendelésfogadás engedélyezése”, mentés után.', 'wp-pepita-sync' ); ?>
+		</p></div>
+	<?php endif; ?>
 
 	<div class="wps-grid">
 		<div class="wps-card">

@@ -85,7 +85,7 @@ final class Api_Controller {
 			return $this->error( 503, 'A Pepita rendelésfogadás a béta időszakban ki van kapcsolva (feed-only béta).' );
 		}
 
-		if ( ! (bool) Settings::get( 'order_api_enabled', true ) ) {
+		if ( ! (bool) Settings::get( 'order_api_enabled', false ) ) {
 			return $this->error( 503, 'A Pepita rendelésfogadás ki van kapcsolva ebben az áruházban.' );
 		}
 

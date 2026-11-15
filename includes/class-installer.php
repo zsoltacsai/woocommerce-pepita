@@ -15,11 +15,21 @@ defined( 'ABSPATH' ) || exit;
 
 final class Installer {
 
+	/** Marker: the order API default-OFF migration already ran. */
+	public const ORDER_API_MIGRATION_OPTION = 'wps_pepita_order_api_default_off';
+
+	/** Audit record of a verified, explicit merchant opt-in (user id and time). */
+	public const ORDER_API_OPTIN_OPTION = 'wps_pepita_order_api_optin';
+
+	/** Timestamp set when an unverified legacy "enabled" state was switched off by the migration. */
+	public const ORDER_API_LEGACY_DISABLED_OPTION = 'wps_pepita_order_api_legacy_disabled';
+
 	public static function activate(): void {
 		self::create_tables();
 		self::record_collation_migration();
 		Settings::install_defaults();
 		Settings::ensure_tokens();
+		self::migrate_order_api_default_off();
 		Storage::ensure_directory();
 		update_option( 'wps_pepita_db_version', WPS_PEPITA_DB_VERSION, false );
 
@@ -36,7 +46,35 @@ final class Installer {
 		Logger::info( 'plugin', 'A WP Pepita Sync plugin deaktiválva. A feedek és a beállítások megmaradtak.' );
 	}
 
+	/**
+	 * One-time, fail-closed migration to the default-OFF order API.
+	 *
+	 * Earlier builds defaulted `order_api_enabled` to true and generated a key on activation, so a
+	 * persisted `true` cannot be told apart from a deliberate merchant decision unless an explicit
+	 * opt-in audit record exists. Without that record the API is switched off. Credentials are left
+	 * untouched; the merchant re-enables intake explicitly in the admin UI.
+	 */
+	public static function migrate_order_api_default_off(): void {
+		if ( '1' === (string) get_option( self::ORDER_API_MIGRATION_OPTION, '' ) ) {
+			return;
+		}
+
+		$stored = get_option( Settings::OPTION, null );
+		if ( is_array( $stored ) && ! empty( $stored['order_api_enabled'] ) && false === get_option( self::ORDER_API_OPTIN_OPTION, false ) ) {
+			Settings::update( array( 'order_api_enabled' => false ) );
+			update_option( self::ORDER_API_LEGACY_DISABLED_OPTION, time(), false );
+			Logger::warning(
+				'plugin',
+				'A Pepita rendelés API kikapcsolva: korábbi, nem igazolt (automatikusan engedélyezett) állapot. Kapcsolja be kifejezetten a Pepita rendelés API oldalán.'
+			);
+		}
+
+		update_option( self::ORDER_API_MIGRATION_OPTION, '1', false );
+	}
+
 	public static function maybe_upgrade(): void {
+		self::migrate_order_api_default_off();
+
 		$installed    = (string) get_option( 'wps_pepita_db_version', '' );
 		$collation_ok = '1' === (string) get_option( 'wps_pepita_collation_ok', '' );
 
