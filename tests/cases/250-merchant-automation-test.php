@@ -1071,3 +1071,57 @@ $suite->add(
 		WPS_Assert::same( array( 10 ), Settings::gtin_required_categories(), 'Import must not overwrite destination term IDs.' );
 	}
 );
+
+$suite->add(
+	'm11 lock/journal ownership: exact-state reclaim, owner-bound journal and no foreign journal deletion',
+	static function (): void {
+		delete_option( Merchant_Profiles::LOCK_OPTION );
+		delete_option( Merchant_Profiles::JOURNAL_OPTION );
+
+		// A lease renewed after a reclaimer observed it must not be reclaimed (exact token+expiry match).
+		$token = Merchant_Profiles::acquire_import_lock();
+		$seen  = get_option( Merchant_Profiles::LOCK_OPTION );
+		WPS_Assert::true( is_array( $seen ), 'Lock row exists.' );
+		$observed_expiry = (int) $seen['expires'] - 1000; // reclaimer observed an older, expired state.
+		WPS_Assert::false( Merchant_Profiles::delete_lock_if_stale( Merchant_Profiles::LOCK_OPTION, $token, $observed_expiry ), 'A renewed lease must not be deleted by a stale observation.' );
+		WPS_Assert::true( Merchant_Profiles::is_import_locked(), 'Lock must survive the stale reclaim attempt.' );
+		WPS_Assert::true( Merchant_Profiles::delete_lock_if_stale( Merchant_Profiles::LOCK_OPTION, $token, (int) $seen['expires'] ), 'Exact observed state may be reclaimed.' );
+		WPS_Assert::false( Merchant_Profiles::is_import_locked(), 'Lock removed after exact match.' );
+
+		// Journal replaced by another owner before finalization: the stale owner stops and leaves it untouched.
+		Settings::update( array( 'shipping_delay' => 2 ) );
+		$res = Merchant_Profiles::import_profile(
+			array(
+				'schema_version' => 1,
+				'generator'      => 'wp-pepita-sync',
+				'settings'       => array( 'shipping_delay' => 5 ),
+			),
+			array( 'simulate_journal_replaced' => true )
+		);
+		WPS_Assert::false( $res['success'], 'Import must not succeed when its journal was replaced.' );
+		WPS_Assert::false( $res['rolled_back'], 'A non-owner must not roll back.' );
+		$foreign = get_option( Merchant_Profiles::JOURNAL_OPTION, false );
+		WPS_Assert::true( is_array( $foreign ) && 'other-owner' === ( $foreign['token'] ?? '' ), 'Foreign journal must be left untouched.' );
+		delete_option( Merchant_Profiles::JOURNAL_OPTION );
+		delete_option( Merchant_Profiles::LOCK_OPTION );
+
+		// A journal created by an import carries the lock token (owner-bound).
+		$res2 = Merchant_Profiles::import_profile(
+			array(
+				'schema_version' => 1,
+				'generator'      => 'wp-pepita-sync',
+				'settings'       => array( 'shipping_delay' => 6 ),
+			),
+			array( 'simulate_lock_loss' => true )
+		);
+		$j = get_option( Merchant_Profiles::JOURNAL_OPTION, false );
+		WPS_Assert::true( is_array( $j ) && '' !== (string) ( $j['token'] ?? '' ), 'Journal must be bound to the owner token.' );
+		WPS_Assert::false( $res2['success'], 'Lock-lost import fails.' );
+		delete_option( Merchant_Profiles::JOURNAL_OPTION );
+		delete_option( Merchant_Profiles::LOCK_OPTION );
+
+		// Origin/identifier patterns reject trailing newlines.
+		WPS_Assert::same( 'other', Operational_Reports::safe_origin( "hu\n" ), 'Origin with trailing newline must not pass.' );
+		WPS_Assert::true( str_starts_with( Operational_Reports::safe_identifier( "ID1\n" ), 'hash:' ), 'Identifier with trailing newline must be hashed.' );
+	}
+);

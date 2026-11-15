@@ -365,6 +365,10 @@ final class Cli {
 			array( 'Metrika' => 'Összesített GMV', 'Érték' => $summary['total_gmv'] ),
 		);
 
+		if ( ! empty( $summary['is_partial_data'] ) ) {
+			$rows[] = array( 'Metrika' => 'RÉSZLEGES ADAT (legutóbbi ' . $summary['truncated_limit'] . ' rekord)', 'Érték' => 'igen' );
+		}
+
 		\WP_CLI\Utils\format_items( 'table', $rows, array( 'Metrika', 'Érték' ) );
 	}
 }

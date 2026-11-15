@@ -85,7 +85,7 @@ A valid `package_label` (base64 PDF, ≤ 8 MB, starting with `%PDF-`) is saved u
 1. **Upload & staging** — the JSON is validated and staged; no setting or term meta is changed yet.
 2. **Preview** — current vs. proposed values and checksum status are shown.
 3. **Explicit confirmation** — requires nonce and capability.
-4. **Crash safety** — a recovery journal is written before any write; failures roll back; an interrupted import is recovered on the next admin load.
+4. **Crash safety** — a recovery journal is written before any write; failures roll back; the journal is bound to the import lock owner, and an interrupted import is recovered at the start of the next import (WP-CLI or admin confirm), never on ordinary admin page loads.
 
 Importing a profile can **never** switch the Order API on, because `order_api_enabled` is not portable.
 

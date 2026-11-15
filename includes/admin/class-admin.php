@@ -736,6 +736,9 @@ final class Admin {
 		$result      = Merchant_Profiles::import_profile( $staged['data'], array( 'import_category_rules' => $import_cats ) );
 
 		if ( ! $result['success'] ) {
+			if ( isset( $result['rollback_clean'] ) && false === $result['rollback_clean'] ) {
+				$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_rollback_incomplete' ) );
+			}
 			if ( ! empty( $result['rolled_back'] ) ) {
 				$this->redirect( 'wps-pepita-tools', array( 'wps_notice' => 'profile_rollback_executed' ) );
 			}
@@ -845,6 +848,7 @@ final class Admin {
 			'profile_upload_invalid'    => array( 'error', __( 'Érvénytelen vagy illegális fájlfeltöltés.', 'wp-pepita-sync' ) ),
 			'profile_staged_expired'    => array( 'error', __( 'A profil előnézeti munkamenet lejárt (10 perc). Kérjük, töltse fel újra a fájlt.', 'wp-pepita-sync' ) ),
 			'profile_rollback_executed' => array( 'error', __( 'Az importálás hibába ütközött, a kompenzációs visszagörgetés (rollback) visszaállította a korábbi állapotot.', 'wp-pepita-sync' ) ),
+			'profile_rollback_incomplete' => array( 'error', __( 'Az importálás megszakadt, és a korábbi állapot visszaállítása NEM volt teljes. Az új importálás blokkolva lehet; ellenőrizze a beállításokat és a naplót.', 'wp-pepita-sync' ) ),
 			'profile_cancel_success'    => array( 'info', __( 'A profil importálási előnézete törölve lett.', 'wp-pepita-sync' ) ),
 			'profile_import_failed'     => array( 'error', __( 'A konfigurációs profil importálása meghiúsult.', 'wp-pepita-sync' ) ),
 			'profile_import_success'    => array( 'success', __( 'A konfigurációs profil sikeresen importálva.', 'wp-pepita-sync' ) ),

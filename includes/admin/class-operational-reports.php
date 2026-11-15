@@ -90,7 +90,7 @@ final class Operational_Reports {
 	 * @return string
 	 */
 	public static function safe_identifier( string $id ): string {
-		if ( 1 === preg_match( '/^[A-Za-z0-9_-]{1,64}$/', $id ) ) {
+		if ( 1 === preg_match( '/^[A-Za-z0-9_-]{1,64}\z/', $id ) ) {
 			return $id;
 		}
 		$key = function_exists( 'wp_salt' ) ? (string) wp_salt( 'auth' ) : 'wps-pepita';
@@ -104,7 +104,7 @@ final class Operational_Reports {
 	 * @return string
 	 */
 	public static function safe_origin( string $origin ): string {
-		return 1 === preg_match( '/^(?:[a-z]{2,3}|pepita\.[a-z]{2,3})$/', $origin ) ? $origin : 'other';
+		return 1 === preg_match( '/^(?:[a-z]{2,3}|pepita\.[a-z]{2,3})\z/', $origin ) ? $origin : 'other';
 	}
 
 	/**

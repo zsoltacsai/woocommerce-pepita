@@ -538,28 +538,24 @@ final class Merchant_Profiles {
 	}
 
 	/**
-	 * Renew the lease of the import lock, only while this token still owns it (fencing).
+	 * Atomically replace an option value only while the stored row still carries the given token.
 	 *
-	 * @param string|null $token Lock token returned by acquire_import_lock().
-	 * @return bool False when the lock was lost (expired and reclaimed); the caller must stop writing.
+	 * @param string               $key
+	 * @param string               $token
+	 * @param array<string, mixed> $value New value; MUST keep the same 'token'.
+	 * @return bool True while the token still owns the row after the update.
 	 */
-	public static function renew_import_lock( ?string $token ): bool {
+	private static function update_option_if_token( string $key, string $token, array $value ): bool {
 		global $wpdb;
 
-		if ( empty( $token ) ) {
+		if ( '' === $token || ( ! str_starts_with( $key, 'wps_pepita_' ) && ! str_starts_with( $key, '_wps_' ) ) ) {
 			return false;
 		}
 
-		$new = array(
-			'token'   => $token,
-			'expires' => time() + self::LOCK_TTL,
-			'pid'     => function_exists( 'getmypid' ) ? (int) getmypid() : 0,
-		);
-
 		if ( class_exists( '\WPS_Test_State' ) && isset( \WPS_Test_State::$options ) ) {
-			$cur = \WPS_Test_State::$options[ self::LOCK_OPTION ] ?? null;
+			$cur = \WPS_Test_State::$options[ $key ] ?? null;
 			if ( is_array( $cur ) && (string) ( $cur['token'] ?? '' ) === $token ) {
-				\WPS_Test_State::$options[ self::LOCK_OPTION ] = $new;
+				\WPS_Test_State::$options[ $key ] = $value;
 				return true;
 			}
 			return false;
@@ -570,19 +566,19 @@ final class Merchant_Profiles {
 			$wpdb->query(
 				$wpdb->prepare(
 					"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND LEFT(option_name, 11) = 'wps_pepita_' AND option_value LIKE %s", // Scoped to wps_pepita_ rows. phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-					maybe_serialize( $new ),
-					self::LOCK_OPTION,
+					maybe_serialize( $value ),
+					$key,
 					$pattern
 				)
 			);
 			if ( function_exists( 'wp_cache_delete' ) ) {
-				wp_cache_delete( self::LOCK_OPTION, 'options' );
+				wp_cache_delete( $key, 'options' );
 			}
-			// Row count is 0 when the value is unchanged within the same second, so verify ownership explicitly.
+			// Row count is 0 when the value is unchanged, so verify ownership explicitly.
 			$owned = $wpdb->get_var(
 				$wpdb->prepare(
 					"SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name = %s AND option_value LIKE %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-					self::LOCK_OPTION,
+					$key,
 					$pattern
 				)
 			);
@@ -590,6 +586,70 @@ final class Merchant_Profiles {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Delete a lock/mutex row only if it still holds the EXACT observed token AND expiry.
+	 *
+	 * A lease renewed after the reclaimer read it changes the expiry, so the delete no longer
+	 * matches and the live owner keeps its lock.
+	 *
+	 * @return bool True if the exact stale row was deleted.
+	 */
+	public static function delete_lock_if_stale( string $key, string $token, int $expires ): bool {
+		global $wpdb;
+
+		if ( '' === $token || ( ! str_starts_with( $key, 'wps_pepita_' ) && ! str_starts_with( $key, '_wps_' ) ) ) {
+			return false;
+		}
+
+		if ( class_exists( '\WPS_Test_State' ) && isset( \WPS_Test_State::$options ) ) {
+			$cur = \WPS_Test_State::$options[ $key ] ?? null;
+			if ( is_array( $cur ) && (string) ( $cur['token'] ?? '' ) === $token && (int) ( $cur['expires'] ?? 0 ) === $expires ) {
+				unset( \WPS_Test_State::$options[ $key ] );
+				return true;
+			}
+			return false;
+		}
+
+		if ( isset( $wpdb->options ) && is_string( $wpdb->options ) && method_exists( $wpdb, 'query' ) && method_exists( $wpdb, 'prepare' ) ) {
+			$exact   = '%s:5:"token";s:' . strlen( $token ) . ':"' . $wpdb->esc_like( $token ) . '";s:7:"expires";i:' . $expires . ';%';
+			$deleted = $wpdb->query(
+				$wpdb->prepare(
+					"DELETE FROM {$wpdb->options} WHERE option_name = %s AND LEFT(option_name, 11) = 'wps_pepita_' AND option_value LIKE %s", // Scoped to wps_pepita_ rows. phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					$key,
+					$exact
+				)
+			);
+			if ( function_exists( 'wp_cache_delete' ) ) {
+				wp_cache_delete( $key, 'options' );
+			}
+			return (int) $deleted > 0;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Renew the lease of the import lock, only while this token still owns it (fencing).
+	 *
+	 * @param string|null $token Lock token returned by acquire_import_lock().
+	 * @return bool False when the lock was lost (expired and reclaimed); the caller must stop writing.
+	 */
+	public static function renew_import_lock( ?string $token ): bool {
+		if ( empty( $token ) ) {
+			return false;
+		}
+
+		return self::update_option_if_token(
+			self::LOCK_OPTION,
+			$token,
+			array(
+				'token'   => $token,
+				'expires' => time() + self::LOCK_TTL,
+				'pid'     => function_exists( 'getmypid' ) ? (int) getmypid() : 0,
+			)
+		);
 	}
 
 	/**
@@ -619,9 +679,8 @@ final class Merchant_Profiles {
 			return null;
 		}
 
-		// Atomically delete the expired mutex ONLY if it still holds the exact stale token.
-		// Eliminates check-then-delete races against competing reclaimers.
-		if ( self::delete_option_if_token( $key, $stale_token ) ) {
+		// Atomically delete the expired mutex ONLY if it still holds the exact observed token and expiry.
+		if ( self::delete_lock_if_stale( $key, $stale_token, (int) ( $existing['expires'] ?? 0 ) ) ) {
 			if ( self::insert_option_if_absent( $key, $val ) ) {
 				return $token;
 			}
@@ -680,10 +739,14 @@ final class Merchant_Profiles {
 			}
 
 			$stale_lock_token = is_array( $current ) ? (string) ( $current['token'] ?? '' ) : '';
-			if ( '' !== $stale_lock_token ) {
-				self::delete_option_if_token( self::LOCK_OPTION, $stale_lock_token );
-			} else {
-				delete_option( self::LOCK_OPTION );
+			if ( '' === $stale_lock_token ) {
+				// Malformed lock row without an owner token: nothing to compare against, never guess.
+				return null;
+			}
+
+			// Delete only the exact stale lease that was observed; a lease renewed in the meantime stays.
+			if ( ! self::delete_lock_if_stale( self::LOCK_OPTION, $stale_lock_token, (int) ( $current['expires'] ?? 0 ) ) ) {
+				return null;
 			}
 
 			if ( self::insert_option_if_absent( self::LOCK_OPTION, $val ) ) {
@@ -694,6 +757,32 @@ final class Merchant_Profiles {
 		} finally {
 			self::release_reclaim_mutex( $mutex_key, $mutex_token );
 		}
+	}
+
+	/**
+	 * Whether the persisted recovery journal still belongs to the given lock owner.
+	 */
+	private static function journal_is_owned( ?string $token ): bool {
+		$journal = get_option( self::JOURNAL_OPTION, false );
+		return ! empty( $token ) && is_array( $journal ) && (string) ( $journal['token'] ?? '' ) === $token;
+	}
+
+	/**
+	 * Result returned by a former lock owner: it stops, writes nothing and leaves the journal to the current owner.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function lock_lost_result(): array {
+		Logger::error( 'profile_import_lock_lost', 'Az import zárja elveszett; a helyreállítási napló megmarad a következő biztonságos helyreállításhoz.', array() );
+		return array(
+			'success'             => false,
+			'rolled_back'         => false,
+			'rollback_clean'      => false,
+			'rollback_errors'     => array( 'Import lock lost; recovery journal retained.' ),
+			'message'             => 'Az importálás zárja lejárt, ezért az importálás leállt. A következő importálás vagy helyreállítás visszaállítja a korábbi állapotot.',
+			'imported_settings'   => 0,
+			'imported_categories' => 0,
+		);
 	}
 
 	/**
@@ -1001,12 +1090,18 @@ final class Merchant_Profiles {
 
 		// Persist recovery journal to ensure crash-safe atomicity.
 		$journal = array(
+			'token'              => $lock_token,
 			'timestamp'          => time(),
 			'original_settings'  => $restore_settings,
 			'original_term_meta' => $original_term_meta,
 		);
-		$journal_persisted = update_option( self::JOURNAL_OPTION, $journal, false );
-		if ( ! $journal_persisted && get_option( self::JOURNAL_OPTION ) !== $journal ) {
+
+		// Ownership is verified BEFORE the journal is created, and creation is atomic and never overwrites
+		// another owner's journal.
+		if ( ! self::renew_import_lock( $lock_token ) ) {
+			return self::lock_lost_result();
+		}
+		if ( ! self::insert_option_if_absent( self::JOURNAL_OPTION, $journal ) ) {
 			return array(
 				'success'             => false,
 				'rolled_back'         => false,
@@ -1037,6 +1132,9 @@ final class Merchant_Profiles {
 			}
 
 			// Test hook: simulate losing the lock (expiry + reclaim by another process) mid-import.
+			if ( ! empty( $options['simulate_journal_replaced'] ) ) {
+				update_option( self::JOURNAL_OPTION, array( 'token' => 'other-owner', 'timestamp' => time(), 'original_settings' => array() ), false );
+			}
 			if ( ! empty( $options['simulate_lock_loss'] ) ) {
 				delete_option( self::LOCK_OPTION );
 			}
@@ -1082,14 +1180,17 @@ final class Merchant_Profiles {
 			// Durable finalization: the success must not be reported while a retained journal could
 			// make a later recovery undo this import.
 			self::assert_lock_owned( $lock_token );
-			delete_option( self::JOURNAL_OPTION );
+			if ( ! self::journal_is_owned( $lock_token ) ) {
+				throw new \RuntimeException( 'Journal ownership lost.', self::LOCK_LOST_CODE );
+			}
+			self::delete_option_if_token( self::JOURNAL_OPTION, $lock_token );
 			if ( false !== get_option( self::JOURNAL_OPTION, false ) ) {
-				$marked = update_option( self::JOURNAL_OPTION, array_merge( $journal, array( 'completed' => true ) ), false );
-				$check  = get_option( self::JOURNAL_OPTION, false );
+				// Deletion failed: mark OUR journal completed (token-conditional) so a later recovery never undoes it.
+				self::update_option_if_token( self::JOURNAL_OPTION, $lock_token, array_merge( $journal, array( 'completed' => true ) ) );
+				$check = get_option( self::JOURNAL_OPTION, false );
 				if ( ! is_array( $check ) || empty( $check['completed'] ) ) {
 					throw new \RuntimeException( 'A helyreállítási napló véglegesítése sikertelen.' );
 				}
-				unset( $marked );
 			}
 
 			Logger::info(
@@ -1112,22 +1213,26 @@ final class Merchant_Profiles {
 		} catch ( \Throwable $e ) {
 			// Fencing: a former lock owner must not roll back or write anything; the current owner's
 			// recovery restores state from the retained journal.
-			if ( self::LOCK_LOST_CODE === $e->getCode() ) {
-				Logger::error( 'profile_import_lock_lost', 'Az import zárja elveszett; a helyreállítási napló megmarad a következő biztonságos helyreállításhoz.', array() );
-				return array(
-					'success'             => false,
-					'rolled_back'         => false,
-					'rollback_clean'      => false,
-					'rollback_errors'     => array( 'Import lock lost; recovery journal retained.' ),
-					'message'             => 'Az importálás zárja lejárt, ezért az importálás leállt. A következő importálás vagy helyreállítás visszaállítja a korábbi állapotot.',
-					'imported_settings'   => 0,
-					'imported_categories' => 0,
-				);
+			if ( self::LOCK_LOST_CODE === $e->getCode() || ! self::renew_import_lock( $lock_token ) || ! self::journal_is_owned( $lock_token ) ) {
+				return self::lock_lost_result();
 			}
 
 			// COMPENSATING ROLLBACK: restore original settings and term metadata for the keys this import changed.
 			$rollback_clean  = true;
 			$rollback_errors = array();
+
+			// Restore only keys still holding the value THIS import wrote (or untouched ones); a value changed
+			// meanwhile by someone else is never overwritten with a stale snapshot.
+			Settings::reset_cache();
+			$db_now       = get_option( Settings::OPTION, array() );
+			$db_now       = is_array( $db_now ) ? $db_now : array();
+			$to_restore   = array();
+			foreach ( $restore_settings as $k => $v ) {
+				if ( ! array_key_exists( $k, $db_now ) || $db_now[ $k ] === $v || ( isset( $sanitized[ $k ] ) && $db_now[ $k ] === $sanitized[ $k ] ) ) {
+					$to_restore[ $k ] = $v;
+				}
+			}
+			$restore_settings = $to_restore;
 
 			try {
 				Settings::update( $restore_settings );
@@ -1181,7 +1286,7 @@ final class Merchant_Profiles {
 			}
 
 			if ( $rollback_clean ) {
-				delete_option( self::JOURNAL_OPTION );
+				self::delete_option_if_token( self::JOURNAL_OPTION, $lock_token );
 			}
 
 			Logger::error(
