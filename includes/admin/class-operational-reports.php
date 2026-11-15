@@ -75,13 +75,6 @@ final class Operational_Reports {
 			$raw_err
 		);
 
-		// Mask JSON key-value pairs that might appear outside well-formed root objects.
-		$raw_err = (string) preg_replace(
-			'/"(first_name|last_name|full_name|billing_name|shipping_name|email|phone|street|address)"\s*:\s*"[^"]+"/i',
-			'"$1":"[redacted]"',
-			$raw_err
-		);
-
 		// 2. Mask email addresses.
 		$masked = preg_replace_callback(
 			'/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/',
