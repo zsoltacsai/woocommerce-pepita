@@ -730,6 +730,18 @@ $suite->add(
 		// Subsequent call does nothing.
 		$noop = Merchant_Profiles::recover_interrupted_import();
 		WPS_Assert::false( $noop['recovered'], 'Subsequent recovery without journal must report false.' );
+
+		// Active unresolved journal blocks subsequent import from proceeding or overwriting journal.
+		update_option( Merchant_Profiles::JOURNAL_OPTION, $journal, false );
+		$blocked_import = Merchant_Profiles::import_profile(
+			array(
+				'schema_version' => 1,
+				'generator'      => 'wp-pepita-sync',
+				'settings'       => array( 'shipping_delay' => 5 ),
+			)
+		);
+		WPS_Assert::false( $blocked_import['success'], 'Import must be blocked when an unresolved recovery journal exists.' );
+		delete_option( Merchant_Profiles::JOURNAL_OPTION );
 	}
 );
 
@@ -759,6 +771,11 @@ $suite->add(
 		$non_string['checksum'] = 12345;
 		$res_non_string = Merchant_Profiles::validate_profile( $non_string );
 		WPS_Assert::false( $res_non_string['valid'], 'Non-string checksum must fail validation.' );
+
+		$null_checksum = $profile;
+		$null_checksum['checksum'] = null;
+		$res_null = Merchant_Profiles::validate_profile( $null_checksum );
+		WPS_Assert::false( $res_null['valid'], 'Null checksum must fail validation.' );
 
 		// 3. Missing checksum when require_checksum is true.
 		$missing = $profile;

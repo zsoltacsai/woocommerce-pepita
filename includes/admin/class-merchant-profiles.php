@@ -288,7 +288,7 @@ final class Merchant_Profiles {
 		}
 
 		// Integrity check (checksum).
-		if ( isset( $data['checksum'] ) ) {
+		if ( array_key_exists( 'checksum', $data ) ) {
 			if ( ! is_string( $data['checksum'] ) || '' === trim( $data['checksum'] ) ) {
 				$errors[] = 'A profil integritás-ellenőrző összege (checksum) formátuma érvénytelen.';
 			} else {
@@ -449,11 +449,17 @@ final class Merchant_Profiles {
 
 		if ( ! empty( $journal['original_settings'] ) && is_array( $journal['original_settings'] ) ) {
 			Settings::update( $journal['original_settings'] );
-			$restored_settings = Settings::all();
-			foreach ( $journal['original_settings'] as $k => $v ) {
-				if ( array_key_exists( $k, $restored_settings ) && $restored_settings[ $k ] !== $v ) {
-					$rollback_clean   = false;
-					$rollback_errors[] = sprintf( 'Setting %s restore failed in recovery.', $k );
+			Settings::reset_cache();
+			$db_settings = get_option( Settings::OPTION, array() );
+			if ( ! is_array( $db_settings ) ) {
+				$rollback_clean   = false;
+				$rollback_errors[] = 'Settings option read from DB failed during recovery.';
+			} else {
+				foreach ( $journal['original_settings'] as $k => $v ) {
+					if ( array_key_exists( $k, $db_settings ) && $db_settings[ $k ] !== $v ) {
+						$rollback_clean   = false;
+						$rollback_errors[] = sprintf( 'Setting %s DB restore mismatch in recovery.', $k );
+					}
 				}
 			}
 		}
@@ -469,11 +475,11 @@ final class Merchant_Profiles {
 						if ( is_wp_error( $res ) ) {
 							$rollback_clean   = false;
 							$rollback_errors[] = sprintf( 'Term %d meta %s restore failed: %s', (int) $term_id, $meta_key, $res->get_error_message() );
-						} elseif ( false === $res ) {
+						} else {
 							$current_val = get_term_meta( (int) $term_id, $meta_key, true );
 							if ( (string) $current_val !== (string) $state['value'] ) {
 								$rollback_clean   = false;
-								$rollback_errors[] = sprintf( 'Term %d meta %s restore failed: update returned false.', (int) $term_id, $meta_key );
+								$rollback_errors[] = sprintf( 'Term %d meta %s restore verification failed: expected %s, got %s', (int) $term_id, $meta_key, (string) $state['value'], (string) $current_val );
 							}
 						}
 					} else {
@@ -525,7 +531,30 @@ final class Merchant_Profiles {
 	 * @return array{success: bool, rolled_back: bool, rollback_clean?: bool, rollback_errors?: string[], message: string, imported_settings: int, imported_categories: int}
 	 */
 	public static function import_profile( array $data, array $options = array() ): array {
-		self::recover_interrupted_import();
+		$recovery = self::recover_interrupted_import();
+		if ( $recovery['recovered'] && ! $recovery['rollback_clean'] ) {
+			return array(
+				'success'             => false,
+				'rolled_back'         => false,
+				'rollback_clean'      => false,
+				'rollback_errors'     => $recovery['rollback_errors'],
+				'message'             => 'Félbemaradt profilimport helyreállítása meghiúsult. Az új importálás blokkolva van a meglévő állapot védelmében.',
+				'imported_settings'   => 0,
+				'imported_categories' => 0,
+			);
+		}
+
+		if ( false !== get_option( self::JOURNAL_OPTION, false ) ) {
+			return array(
+				'success'             => false,
+				'rolled_back'         => false,
+				'rollback_clean'      => false,
+				'rollback_errors'     => array( 'Félbemaradt import naplója még létezik a rendszerben.' ),
+				'message'             => 'Egy korábbi félbemaradt profilimport naplója még létezik. Az új importálás blokkolva van a meglévő helyreállítási állapot védelmében.',
+				'imported_settings'   => 0,
+				'imported_categories' => 0,
+			);
+		}
 
 		$validation = self::validate_profile( $data, $options );
 		if ( ! $validation['valid'] ) {
@@ -681,11 +710,17 @@ final class Merchant_Profiles {
 
 			if ( $settings_applied ) {
 				Settings::update( $current_settings );
-				$restored_settings = Settings::all();
-				foreach ( $current_settings as $k => $v ) {
-					if ( array_key_exists( $k, $restored_settings ) && $restored_settings[ $k ] !== $v ) {
-						$rollback_clean   = false;
-						$rollback_errors[] = sprintf( 'Setting %s restore failed during rollback.', $k );
+				Settings::reset_cache();
+				$db_settings = get_option( Settings::OPTION, array() );
+				if ( ! is_array( $db_settings ) ) {
+					$rollback_clean   = false;
+					$rollback_errors[] = 'Settings option read from DB failed during rollback.';
+				} else {
+					foreach ( $current_settings as $k => $v ) {
+						if ( array_key_exists( $k, $db_settings ) && $db_settings[ $k ] !== $v ) {
+							$rollback_clean   = false;
+							$rollback_errors[] = sprintf( 'Setting %s DB restore mismatch during rollback.', $k );
+						}
 					}
 				}
 			}
@@ -697,11 +732,11 @@ final class Merchant_Profiles {
 						if ( is_wp_error( $res ) ) {
 							$rollback_clean   = false;
 							$rollback_errors[] = sprintf( 'Term %d meta %s restore failed: %s', $term_id, $meta_key, $res->get_error_message() );
-						} elseif ( false === $res ) {
+						} else {
 							$current_val = get_term_meta( $term_id, $meta_key, true );
 							if ( (string) $current_val !== (string) $state['value'] ) {
 								$rollback_clean   = false;
-								$rollback_errors[] = sprintf( 'Term %d meta %s restore failed: update returned false.', $term_id, $meta_key );
+								$rollback_errors[] = sprintf( 'Term %d meta %s restore verification failed: expected %s, got %s', $term_id, $meta_key, (string) $state['value'], (string) $current_val );
 							}
 						}
 					} else {
