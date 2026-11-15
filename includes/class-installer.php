@@ -96,7 +96,9 @@ final class Installer {
 	 */
 	public static function enforce_order_api_beta_off(): void {
 		try {
-			if ( Settings::is_beta_feed_only() && ! empty( Settings::all()['order_api_enabled'] ) ) {
+			// Read the PERSISTED value: Settings::all() already shows the beta-forced (OFF) view.
+			$stored = get_option( Settings::OPTION, array() );
+			if ( Settings::is_beta_feed_only() && is_array( $stored ) && ! empty( $stored['order_api_enabled'] ) ) {
 				Settings::update( array( 'order_api_enabled' => false ) );
 			}
 		} catch ( \Throwable $e ) {
