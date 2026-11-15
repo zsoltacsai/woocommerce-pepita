@@ -32,7 +32,7 @@ final class Operational_Reports {
 	/**
 	 * Sanitize and mask sensitive information in error messages.
 	 *
-	 * Masks emails, redacts phone numbers, and truncates long strings.
+	 * Masks emails, redacts phone numbers, names, and addresses, and truncates long strings.
 	 *
 	 * @param string $raw_err
 	 * @return string
@@ -42,7 +42,16 @@ final class Operational_Reports {
 			return '';
 		}
 
-		// 1. Mask email addresses.
+		// 1. If error message contains embedded JSON, decode and redact structured fields.
+		if ( str_contains( $raw_err, '{' ) && str_contains( $raw_err, '}' ) ) {
+			$decoded = json_decode( $raw_err, true );
+			if ( is_array( $decoded ) ) {
+				$redacted = Redactor::redact( $decoded );
+				$raw_err  = (string) wp_json_encode( $redacted );
+			}
+		}
+
+		// 2. Mask email addresses.
 		$masked = preg_replace_callback(
 			'/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/',
 			static function ( array $m ): string {
@@ -53,21 +62,43 @@ final class Operational_Reports {
 
 		$masked = is_string( $masked ) ? $masked : $raw_err;
 
-		// 2. Redact phone numbers (Hungarian/international patterns).
+		// 3. Redact phone numbers (Hungarian, international, and compact digit sequences).
 		$redacted = preg_replace(
-			'/(?:\+?[0-9]{1,3}[-.\s]?)?\(?[0-9]{1,4}?\)?[-.\s]?[0-9]{3,4}[-.\s]?[0-9]{3,4}/',
+			'/(?:\+?[0-9]{1,3}[-.\s]?)?\(?[0-9]{1,4}?\)?[-.\s]?[0-9]{2,4}[-.\s]?[0-9]{2,4}[-.\s]?[0-9]{2,4}|\b(?:06|\+36)[0-9]{8,9}\b|\b[0-9]{10,12}\b/',
 			'[REDACTED_PHONE]',
 			$masked
 		);
 
 		$result = is_string( $redacted ) ? $redacted : $masked;
 
-		// 3. Truncate long error details to bound memory and display size.
+		// 4. Redact postal codes and city names (e.g., "1117 Budapest", "H-1052 Budapest").
+		$result = preg_replace(
+			'/\b(?:H-)?\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:,\s*)?/u',
+			'[REDACTED_LOCATION], ',
+			$result
+		);
+		$result = is_string( $result ) ? $result : $masked;
+
+		// 5. Redact street addresses (both Hungarian "Kossuth Lajos utca 12." and English "12 Example Street").
+		$addr_pattern = '/\b(?:\d{1,5}\s+[A-Za-z0-9ÁÉÍÓÖŐÚÜŰáéíóöőúüű\.\-\s]{2,40}?\s*(?:street|st|road|rd|avenue|ave|boulevard|blvd|lane|ln|drive|dr|court|ct|utca|út|u\.|tér|sor|köz|fasor|körút|krt)\.?\b|[A-Za-z0-9ÁÉÍÓÖŐÚÜŰáéíóöőúüű\.\-\s]{2,40}?\s*(?:street|st|road|rd|avenue|ave|boulevard|blvd|lane|ln|drive|dr|court|ct|utca|út|u\.|tér|sor|köz|fasor|körút|krt)\.?\s+\d{1,5}[\/\-a-zA-Z0-9]*)/ui';
+		$result = preg_replace( $addr_pattern, '[REDACTED_ADDRESS]', $result );
+		$result = is_string( $result ) ? $result : $masked;
+
+		// 6. Redact person names following common context markers (e.g., "for Jane Smith", "customer John Doe", "címzett: Kovács János").
+		$name_pattern = '/\b(for|customer|recipient|buyer|user|címzett:?|vásárló:?|ügyfél:?|név:?)\s+([A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+){1,3})\b/u';
+		$result = preg_replace( $name_pattern, '$1 [REDACTED_NAME]', $result );
+		$result = is_string( $result ) ? $result : $masked;
+
+		// 7. Clean up multiple spaces.
+		$result = preg_replace( '/\s{2,}/', ' ', $result );
+		$result = is_string( $result ) ? $result : $masked;
+
+		// 8. Truncate long error details to bound memory and display size.
 		if ( mb_strlen( $result ) > 255 ) {
 			$result = mb_substr( $result, 0, 252 ) . '...';
 		}
 
-		return $result;
+		return trim( $result );
 	}
 
 	/**

@@ -226,13 +226,21 @@ final class Settings {
 	 * @return array<string, mixed>
 	 */
 	public static function update( array $values ): array {
-		$merged      = array_merge( self::all(), $values );
-		$sanitized   = self::sanitize( $merged );
-		self::$cache = $sanitized;
+		$merged    = array_merge( self::all(), $values );
+		$sanitized = self::sanitize( $merged );
 
 		update_option( self::OPTION, $sanitized, false );
+		self::reset_cache();
 
-		return $sanitized;
+		// Verify database persistence directly from DB.
+		$db_persisted = get_option( self::OPTION, false );
+		if ( ! is_array( $db_persisted ) ) {
+			throw new \RuntimeException( 'Failed to persist settings to database.' );
+		}
+
+		self::$cache = $db_persisted;
+
+		return $db_persisted;
 	}
 
 	public static function reset_cache(): void {

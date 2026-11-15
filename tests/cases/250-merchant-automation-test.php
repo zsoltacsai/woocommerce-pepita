@@ -289,6 +289,17 @@ $suite->add(
 		// 4. Formula injection neutralization: cells starting with '=', '+', '-', '@' must be prepended with single quote.
 		WPS_Assert::true( str_contains( $csv, "'=cmd|" ) || str_contains( $csv, "\"'=cmd|" ), 'Formula injection in external_id must be neutralized.' );
 		WPS_Assert::true( str_contains( $csv, "'+SUM" ) || str_contains( $csv, "\"'+SUM" ), 'Formula injection in error message must be neutralized.' );
+
+		// 5. Customer name and street address redaction.
+		$name_addr_error = 'Delivery failed for Jane Smith at 12 Example Street.';
+		Order_Repository::claim( 'PEP-REP-CSV-3', 'pepita.hu', '{}', 'hash_csv3' );
+		Order_Repository::fail( 'PEP-REP-CSV-3', $name_addr_error, 1 );
+
+		$csv_updated = Operational_Reports::export_report_csv( 30 );
+		WPS_Assert::false( str_contains( $csv_updated, 'Jane Smith' ), 'Customer name must be redacted from error details.' );
+		WPS_Assert::false( str_contains( $csv_updated, '12 Example Street' ), 'Customer street address must be redacted from error details.' );
+		WPS_Assert::true( str_contains( $csv_updated, '[REDACTED_NAME]' ), 'Redacted name placeholder must be present.' );
+		WPS_Assert::true( str_contains( $csv_updated, '[REDACTED_ADDRESS]' ), 'Redacted address placeholder must be present.' );
 	}
 );
 
@@ -827,5 +838,60 @@ $suite->add(
 
 		$summary = Operational_Reports::get_summary( 30 );
 		WPS_Assert::true( $summary['is_partial_data'], 'Summary must flag is_partial_data when limit reached.' );
+	}
+);
+
+/* -------------------------------------------------------------------------
+ * 16. Concurrency Locking & Rollback Missing Setting Integrity
+ * ---------------------------------------------------------------------- */
+
+$suite->add(
+	'm11 concurrency and integrity: exclusive import lock and missing setting rollback detection',
+	static function (): void {
+		// 1. Exclusive Import Lock prevents concurrent imports.
+		$token = Merchant_Profiles::acquire_import_lock();
+		WPS_Assert::true( ! empty( $token ), 'Acquiring import lock must return token.' );
+		WPS_Assert::true( Merchant_Profiles::is_import_locked(), 'is_import_locked must return true while locked.' );
+
+		// Concurrent import attempt while lock is active.
+		$concurrent = Merchant_Profiles::import_profile(
+			array(
+				'schema_version' => 1,
+				'generator'      => 'wp-pepita-sync',
+				'settings'       => array( 'shipping_delay' => 3 ),
+			)
+		);
+		WPS_Assert::false( $concurrent['success'], 'Concurrent import must fail while locked.' );
+		WPS_Assert::true( str_contains( $concurrent['message'], 'folyamatban' ), 'Message must indicate import is in progress.' );
+
+		// Active lock prevents recover_interrupted_import from modifying active journal.
+		$active_journal = array(
+			'timestamp'         => time(),
+			'original_settings' => array( 'shipping_delay' => 1 ),
+		);
+		update_option( Merchant_Profiles::JOURNAL_OPTION, $active_journal, false );
+
+		$rec_while_locked = Merchant_Profiles::recover_interrupted_import();
+		WPS_Assert::false( $rec_while_locked['recovered'], 'Recovery must not run while import is actively locked.' );
+		WPS_Assert::true( false !== get_option( Merchant_Profiles::JOURNAL_OPTION, false ), 'Active journal must remain untouched while locked.' );
+
+		// Release lock.
+		Merchant_Profiles::release_import_lock( $token );
+		WPS_Assert::false( Merchant_Profiles::is_import_locked(), 'is_import_locked must return false after release.' );
+
+		// 2. Rollback verification detects missing settings in DB.
+		delete_option( Merchant_Profiles::JOURNAL_OPTION );
+		$journal_with_missing_key = array(
+			'timestamp'         => time(),
+			'original_settings' => array( 'non_existent_key_xyz' => 'some_val' ),
+		);
+		update_option( Merchant_Profiles::JOURNAL_OPTION, $journal_with_missing_key, false );
+
+		$rec_missing = Merchant_Profiles::recover_interrupted_import();
+		WPS_Assert::true( $rec_missing['recovered'], 'Recovery ran.' );
+		WPS_Assert::false( $rec_missing['rollback_clean'], 'Recovery must detect missing setting key as rollback failure.' );
+		WPS_Assert::true( ! empty( $rec_missing['rollback_errors'] ), 'Rollback errors must list missing setting key.' );
+
+		delete_option( Merchant_Profiles::JOURNAL_OPTION );
 	}
 );

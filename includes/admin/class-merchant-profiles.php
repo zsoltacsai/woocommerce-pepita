@@ -35,6 +35,12 @@ final class Merchant_Profiles {
 	public const JOURNAL_OPTION = 'wps_pepita_import_journal';
 
 	/**
+	 * Option key and TTL for exclusive import lock to protect against concurrency.
+	 */
+	public const LOCK_OPTION = 'wps_pepita_import_lock';
+	public const LOCK_TTL    = 120; // 2 minutes
+
+	/**
 	 * Settings that are explicitly permitted in configuration exports and imports.
 	 *
 	 * Strict security invariant:
@@ -428,6 +434,67 @@ final class Merchant_Profiles {
 	}
 
 	/**
+	 * Acquire an exclusive import lock to protect against concurrent imports.
+	 *
+	 * Uses atomic add_option() to ensure single-process execution.
+	 *
+	 * @return string|null Lock token on success, null on contention.
+	 */
+	public static function acquire_import_lock(): ?string {
+		$token = wp_generate_password( 32, false, false );
+		$now   = time();
+		$val   = array(
+			'token'   => $token,
+			'expires' => $now + self::LOCK_TTL,
+			'pid'     => function_exists( 'getmypid' ) ? (int) getmypid() : 0,
+		);
+
+		if ( add_option( self::LOCK_OPTION, $val, '', false ) ) {
+			return $token;
+		}
+
+		$current = get_option( self::LOCK_OPTION, false );
+		if ( is_array( $current ) && (int) ( $current['expires'] ?? 0 ) < $now ) {
+			delete_option( self::LOCK_OPTION );
+			if ( add_option( self::LOCK_OPTION, $val, '', false ) ) {
+				return $token;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Release the exclusive import lock.
+	 *
+	 * @param string|null $token
+	 */
+	public static function release_import_lock( ?string $token ): void {
+		if ( empty( $token ) ) {
+			return;
+		}
+
+		$current = get_option( self::LOCK_OPTION, false );
+		if ( is_array( $current ) && ( $current['token'] ?? '' ) === $token ) {
+			delete_option( self::LOCK_OPTION );
+		}
+	}
+
+	/**
+	 * Check whether an import process currently holds an active, unexpired lock.
+	 *
+	 * @return bool
+	 */
+	public static function is_import_locked(): bool {
+		$current = get_option( self::LOCK_OPTION, false );
+		if ( ! is_array( $current ) ) {
+			return false;
+		}
+
+		return ( (int) ( $current['expires'] ?? 0 ) ) > time();
+	}
+
+	/**
 	 * Recover and rollback any partially applied profile import interrupted by server crash or timeout.
 	 *
 	 * Reads persistent recovery journal from wp_options and restores original store state.
@@ -435,6 +502,15 @@ final class Merchant_Profiles {
 	 * @return array{recovered: bool, rollback_clean: bool, rollback_errors: string[]}
 	 */
 	public static function recover_interrupted_import(): array {
+		if ( self::is_import_locked() ) {
+			// An import is actively in progress right now; do not interfere with its active journal.
+			return array(
+				'recovered'       => false,
+				'rollback_clean'  => true,
+				'rollback_errors' => array(),
+			);
+		}
+
 		$journal = get_option( self::JOURNAL_OPTION );
 		if ( empty( $journal ) || ! is_array( $journal ) ) {
 			return array(
@@ -456,7 +532,7 @@ final class Merchant_Profiles {
 				$rollback_errors[] = 'Settings option read from DB failed during recovery.';
 			} else {
 				foreach ( $journal['original_settings'] as $k => $v ) {
-					if ( array_key_exists( $k, $db_settings ) && $db_settings[ $k ] !== $v ) {
+					if ( ! array_key_exists( $k, $db_settings ) || $db_settings[ $k ] !== $v ) {
 						$rollback_clean   = false;
 						$rollback_errors[] = sprintf( 'Setting %s DB restore mismatch in recovery.', $k );
 					}
@@ -531,30 +607,44 @@ final class Merchant_Profiles {
 	 * @return array{success: bool, rolled_back: bool, rollback_clean?: bool, rollback_errors?: string[], message: string, imported_settings: int, imported_categories: int}
 	 */
 	public static function import_profile( array $data, array $options = array() ): array {
-		$recovery = self::recover_interrupted_import();
-		if ( $recovery['recovered'] && ! $recovery['rollback_clean'] ) {
+		$lock_token = self::acquire_import_lock();
+		if ( null === $lock_token ) {
 			return array(
 				'success'             => false,
 				'rolled_back'         => false,
-				'rollback_clean'      => false,
-				'rollback_errors'     => $recovery['rollback_errors'],
-				'message'             => 'Félbemaradt profilimport helyreállítása meghiúsult. Az új importálás blokkolva van a meglévő állapot védelmében.',
+				'rollback_clean'      => true,
+				'rollback_errors'     => array( 'Konkurrens importálás blokkolva.' ),
+				'message'             => 'Egy másik profilimportálás jelenleg is folyamatban van. Kérjük, várjon a befejezésére.',
 				'imported_settings'   => 0,
 				'imported_categories' => 0,
 			);
 		}
 
-		if ( false !== get_option( self::JOURNAL_OPTION, false ) ) {
-			return array(
-				'success'             => false,
-				'rolled_back'         => false,
-				'rollback_clean'      => false,
-				'rollback_errors'     => array( 'Félbemaradt import naplója még létezik a rendszerben.' ),
-				'message'             => 'Egy korábbi félbemaradt profilimport naplója még létezik. Az új importálás blokkolva van a meglévő helyreállítási állapot védelmében.',
-				'imported_settings'   => 0,
-				'imported_categories' => 0,
-			);
-		}
+		try {
+			$recovery = self::recover_interrupted_import();
+			if ( $recovery['recovered'] && ! $recovery['rollback_clean'] ) {
+				return array(
+					'success'             => false,
+					'rolled_back'         => false,
+					'rollback_clean'      => false,
+					'rollback_errors'     => $recovery['rollback_errors'],
+					'message'             => 'Félbemaradt profilimport helyreállítása meghiúsult. Az új importálás blokkolva van a meglévő állapot védelmében.',
+					'imported_settings'   => 0,
+					'imported_categories' => 0,
+				);
+			}
+
+			if ( false !== get_option( self::JOURNAL_OPTION, false ) ) {
+				return array(
+					'success'             => false,
+					'rolled_back'         => false,
+					'rollback_clean'      => false,
+					'rollback_errors'     => array( 'Félbemaradt import naplója még létezik a rendszerben.' ),
+					'message'             => 'Egy korábbi félbemaradt profilimport naplója még létezik. Az új importálás blokkolva van a meglévő helyreállítási állapot védelmében.',
+					'imported_settings'   => 0,
+					'imported_categories' => 0,
+				);
+			}
 
 		$validation = self::validate_profile( $data, $options );
 		if ( ! $validation['valid'] ) {
@@ -648,6 +738,18 @@ final class Merchant_Profiles {
 			Settings::update( $sanitized );
 			$settings_applied = true;
 
+			// Verify that settings are actually persisted in the DB before proceeding.
+			Settings::reset_cache();
+			$db_persisted = get_option( Settings::OPTION, false );
+			if ( ! is_array( $db_persisted ) ) {
+				throw new \RuntimeException( 'A beállítások perzisztálása az adatbázisban meghiúsult.' );
+			}
+			foreach ( $filtered_import as $k => $v ) {
+				if ( ! array_key_exists( $k, $db_persisted ) || $db_persisted[ $k ] !== $sanitized[ $k ] ) {
+					throw new \RuntimeException( sprintf( 'A(z) %s beállítás nem perzisztálódott megfelelően az adatbázisban.', $k ) );
+				}
+			}
+
 			// Check for simulated failure injection (used in test cases).
 			if ( ! empty( $options['simulate_failure_at_category'] ) ) {
 				throw new \RuntimeException( 'Szimulált hiba a kategóriaszabályok alkalmazása során.' );
@@ -717,7 +819,7 @@ final class Merchant_Profiles {
 					$rollback_errors[] = 'Settings option read from DB failed during rollback.';
 				} else {
 					foreach ( $current_settings as $k => $v ) {
-						if ( array_key_exists( $k, $db_settings ) && $db_settings[ $k ] !== $v ) {
+						if ( ! array_key_exists( $k, $db_settings ) || $db_settings[ $k ] !== $v ) {
 							$rollback_clean   = false;
 							$rollback_errors[] = sprintf( 'Setting %s DB restore mismatch during rollback.', $k );
 						}
@@ -780,6 +882,8 @@ final class Merchant_Profiles {
 				'imported_settings'   => 0,
 				'imported_categories' => 0,
 			);
+		} finally {
+			self::release_import_lock( $lock_token );
 		}
 	}
 }
