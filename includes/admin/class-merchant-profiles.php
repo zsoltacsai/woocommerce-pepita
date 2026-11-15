@@ -882,6 +882,7 @@ final class Merchant_Profiles {
 				'imported_settings'   => 0,
 				'imported_categories' => 0,
 			);
+		}
 		} finally {
 			self::release_import_lock( $lock_token );
 		}
