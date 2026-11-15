@@ -197,6 +197,10 @@ final class Settings {
 
 		$value = array_key_exists( $key, $all ) ? $all[ $key ] : $fallback;
 
+		if ( 'order_api_enabled' === $key && Installer::$order_api_migration_failed ) {
+			return false;
+		}
+
 		if ( 'beta_feed_only' === $key ) {
 			if ( defined( 'WPS_PEPITA_BETA_FEED_ONLY' ) ) {
 				return (bool) constant( 'WPS_PEPITA_BETA_FEED_ONLY' );
@@ -227,7 +231,15 @@ final class Settings {
 	 */
 	public static function update( array $values ): array {
 		self::reset_cache();
-		$merged    = array_merge( self::all(), $values );
+		$current = self::all();
+
+		// Order intake can only be switched OFF -> ON through enable_order_api() (authorized and audited).
+		// A generic update, a settings import or a journal restore can never perform that transition.
+		if ( ! empty( $values['order_api_enabled'] ) && empty( $current['order_api_enabled'] ) && ! self::$order_api_enable_authorized ) {
+			$values['order_api_enabled'] = false;
+		}
+
+		$merged    = array_merge( $current, $values );
 		$sanitized = self::sanitize( $merged );
 
 		update_option( self::OPTION, $sanitized, false );
@@ -248,6 +260,47 @@ final class Settings {
 		self::$cache = $db_persisted;
 
 		return $db_persisted;
+	}
+
+	/**
+	 * Set only while enable_order_api() performs the audited OFF -> ON transition.
+	 */
+	private static bool $order_api_enable_authorized = false;
+
+	/**
+	 * The ONLY way to switch order intake on. Callers must have verified capability and nonce (admin save)
+	 * or be an explicit, audited operator action. Never enabled under feed-only beta.
+	 *
+	 * @param int    $user_id Acting user (0 for CLI/system operators).
+	 * @param string $source  Short audit label.
+	 * @return bool Whether intake is enabled afterwards.
+	 */
+	public static function enable_order_api( int $user_id, string $source ): bool {
+		if ( self::is_beta_feed_only() ) {
+			return false;
+		}
+
+		self::$order_api_enable_authorized = true;
+		try {
+			self::update( array( 'order_api_enabled' => true ) );
+		} finally {
+			self::$order_api_enable_authorized = false;
+		}
+
+		$on = ! empty( self::all()['order_api_enabled'] );
+		if ( $on ) {
+			update_option(
+				Installer::ORDER_API_OPTIN_OPTION,
+				array(
+					'user'   => max( 0, $user_id ),
+					'time'   => time(),
+					'source' => sanitize_key( $source ),
+				),
+				false
+			);
+		}
+
+		return $on;
 	}
 
 	public static function reset_cache(): void {

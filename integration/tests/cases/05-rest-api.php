@@ -139,7 +139,7 @@ WPS_IT::test(
 
 			WPS_IT::same( 503, $response['code'], 'A disabled API must return 503.' );
 		} finally {
-			Settings::update( array( 'order_api_enabled' => true ) );
+			Settings::enable_order_api( 1, 'integration-test' );
 		}
 
 		$enabled = WPS_IT::post_order( WPS_IT::order_payload( 'order-transfer-unpaid.json', 'IT-REST-REENABLED-' . $run ) );

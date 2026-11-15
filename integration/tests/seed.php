@@ -442,6 +442,9 @@ Settings::update(
 	)
 );
 
+// Order intake is OFF by default; the integration stores opt in explicitly (audited).
+\WPS\Pepita\Settings::enable_order_api( 1, 'integration-seed' );
+
 Product_Selection::clear_cache();
 
 // Keep CI diagnostics actionable without printing filesystem paths, URLs, or product data.

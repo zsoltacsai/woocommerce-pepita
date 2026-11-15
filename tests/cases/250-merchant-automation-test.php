@@ -931,7 +931,7 @@ $suite->add(
 		WPS_Assert::true( $recovered_import['success'], 'import_profile must successfully recover previous stale journal and apply import.' );
 		WPS_Assert::same( 4, Settings::get( 'shipping_delay' ), 'Imported setting must be active.' );
 
-		// 3. Rollback verification detects missing settings in DB.
+		// 3. Recovery restores portable settings only: non-portable / unknown keys in a journal are ignored.
 		delete_option( Merchant_Profiles::JOURNAL_OPTION );
 		$journal_with_missing_key = array(
 			'timestamp'         => time(),
@@ -941,8 +941,8 @@ $suite->add(
 
 		$rec_missing = Merchant_Profiles::recover_interrupted_import();
 		WPS_Assert::true( $rec_missing['recovered'], 'Recovery ran.' );
-		WPS_Assert::false( $rec_missing['rollback_clean'], 'Recovery must detect missing setting key as rollback failure.' );
-		WPS_Assert::true( ! empty( $rec_missing['rollback_errors'] ), 'Rollback errors must list missing setting key.' );
+		WPS_Assert::true( $rec_missing['rollback_clean'], 'A non-portable journal key is ignored, not restored.' );
+		WPS_Assert::false( get_option( Merchant_Profiles::JOURNAL_OPTION, false ), 'The processed journal is removed.' );
 
 		delete_option( Merchant_Profiles::JOURNAL_OPTION );
 

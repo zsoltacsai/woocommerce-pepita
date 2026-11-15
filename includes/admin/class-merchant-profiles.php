@@ -895,8 +895,13 @@ final class Merchant_Profiles {
 			$rollback_errors = array();
 
 			// Never restore secrets from a journal (legacy journals stored full snapshots).
+			// Restore ONLY portable settings: legacy journals stored full snapshots, and security posture
+			// (order_api_enabled, feed_public, beta, ...) must never be reverted by a recovery.
 			if ( ! empty( $journal['original_settings'] ) && is_array( $journal['original_settings'] ) ) {
-				$journal['original_settings'] = array_diff_key( $journal['original_settings'], array_flip( self::SECRET_KEYS ) );
+				$journal['original_settings'] = array_intersect_key(
+					array_diff_key( $journal['original_settings'], array_flip( self::SECRET_KEYS ) ),
+					array_flip( self::PORTABLE_SETTINGS_ALLOWLIST )
+				);
 			}
 
 			if ( ! empty( $journal['original_settings'] ) && is_array( $journal['original_settings'] ) ) {

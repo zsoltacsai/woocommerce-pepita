@@ -30,6 +30,7 @@ final class Installer {
 		Settings::install_defaults();
 		Settings::ensure_tokens();
 		self::migrate_order_api_default_off();
+		self::enforce_order_api_beta_off();
 		Storage::ensure_directory();
 		update_option( 'wps_pepita_db_version', WPS_PEPITA_DB_VERSION, false );
 
@@ -54,26 +55,58 @@ final class Installer {
 	 * opt-in audit record exists. Without that record the API is switched off. Credentials are left
 	 * untouched; the merchant re-enables intake explicitly in the admin UI.
 	 */
+	/** Set when the migration could not complete: order intake is then refused for this request (fail closed). */
+	public static bool $order_api_migration_failed = false;
+
+	/**
+	 * A valid opt-in audit record: user id and a positive timestamp written by Settings::enable_order_api().
+	 *
+	 * @param mixed $record
+	 */
+	private static function is_valid_order_api_optin( $record ): bool {
+		return is_array( $record ) && isset( $record['user'], $record['time'] ) && (int) $record['time'] > 0 && (int) $record['user'] >= 0;
+	}
+
 	public static function migrate_order_api_default_off(): void {
 		if ( '1' === (string) get_option( self::ORDER_API_MIGRATION_OPTION, '' ) ) {
 			return;
 		}
 
-		$stored = get_option( Settings::OPTION, null );
-		if ( is_array( $stored ) && ! empty( $stored['order_api_enabled'] ) && false === get_option( self::ORDER_API_OPTIN_OPTION, false ) ) {
-			Settings::update( array( 'order_api_enabled' => false ) );
-			update_option( self::ORDER_API_LEGACY_DISABLED_OPTION, time(), false );
-			Logger::warning(
-				'plugin',
-				'A Pepita rendelés API kikapcsolva: korábbi, nem igazolt (automatikusan engedélyezett) állapot. Kapcsolja be kifejezetten a Pepita rendelés API oldalán.'
-			);
-		}
+		try {
+			$stored = get_option( Settings::OPTION, null );
+			if ( is_array( $stored ) && ! empty( $stored['order_api_enabled'] ) && ! self::is_valid_order_api_optin( get_option( self::ORDER_API_OPTIN_OPTION, false ) ) ) {
+				Settings::update( array( 'order_api_enabled' => false ) );
+				update_option( self::ORDER_API_LEGACY_DISABLED_OPTION, time(), false );
+				Logger::warning(
+					'plugin',
+					'A Pepita rendelés API kikapcsolva: korábbi, nem igazolt (automatikusan engedélyezett) állapot. Kapcsolja be kifejezetten a Pepita rendelés API oldalán.'
+				);
+			}
 
-		update_option( self::ORDER_API_MIGRATION_OPTION, '1', false );
+			update_option( self::ORDER_API_MIGRATION_OPTION, '1', true );
+		} catch ( \Throwable $e ) {
+			// Fail closed without taking the site down: refuse intake for this request and retry on the next boot.
+			self::$order_api_migration_failed = true;
+		}
+	}
+
+	/**
+	 * Feed-only beta (setting or wp-config constant) must leave the PERSISTED flag off too, so removing
+	 * the constant later never resumes intake without a new explicit opt-in.
+	 */
+	public static function enforce_order_api_beta_off(): void {
+		try {
+			if ( Settings::is_beta_feed_only() && ! empty( Settings::all()['order_api_enabled'] ) ) {
+				Settings::update( array( 'order_api_enabled' => false ) );
+			}
+		} catch ( \Throwable $e ) {
+			self::$order_api_migration_failed = true;
+		}
 	}
 
 	public static function maybe_upgrade(): void {
 		self::migrate_order_api_default_off();
+		self::enforce_order_api_beta_off();
 
 		$installed    = (string) get_option( 'wps_pepita_db_version', '' );
 		$collation_ok = '1' === (string) get_option( 'wps_pepita_collation_ok', '' );

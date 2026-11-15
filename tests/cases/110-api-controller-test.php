@@ -64,7 +64,7 @@ $call = static function ( array $payload, array $params = array(), array $header
 	WPS_Test_State::$ssl = true;
 	// The API is OFF by default; these tests exercise an explicitly enabled endpoint unless a test opts out.
 	if ( empty( $GLOBALS['wps_api_test_keep_state'] ) ) {
-		Settings::update( array( 'order_api_enabled' => true ) );
+		Settings::enable_order_api( 1, 'test' );
 	}
 
 	$request = new WP_REST_Request(
@@ -85,7 +85,7 @@ $call = static function ( array $payload, array $params = array(), array $header
 $call_plain = static function ( array $payload, array $params = array(), array $headers = array() ) {
 	WPS_Test_State::$ssl = false;
 	if ( empty( $GLOBALS['wps_api_test_keep_state'] ) ) {
-		Settings::update( array( 'order_api_enabled' => true ) );
+		Settings::enable_order_api( 1, 'test' );
 	}
 
 	$request = new WP_REST_Request( $params, (string) wp_json_encode( $payload ), $headers );

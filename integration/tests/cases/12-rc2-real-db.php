@@ -26,10 +26,13 @@ $endpoint = '/wp-json/wps/v1/pepita/order';
  * Current managed stock of the seeded simple product (null when unmanaged).
  */
 $wps_it_stock = static function (): ?int {
-	$seed    = WPS_IT::seed();
-	$product = wc_get_product( (int) $seed['p1'] );
+	global $wpdb;
 
-	return $product instanceof \WC_Product && $product->managing_stock() ? (int) $product->get_stock_quantity() : null;
+	// Authoritative read straight from the database: HTTP workers change stock in other processes.
+	$seed  = WPS_IT::seed();
+	$value = $wpdb->get_var( $wpdb->prepare( "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_stock'", (int) $seed['p1'] ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+	return null === $value ? null : (int) $value;
 };
 
 WPS_IT::test(
@@ -68,7 +71,7 @@ WPS_IT::test(
 		$key   = Settings::secret( 'order_api_key' );
 
 		try {
-			Settings::update( array( 'order_api_enabled' => true ) );
+			WPS_IT::true( Settings::enable_order_api( 1, 'integration-test' ), 'Explicit enablement must work.' );
 			delete_option( Installer::ORDER_API_MIGRATION_OPTION );
 			delete_option( Installer::ORDER_API_OPTIN_OPTION );
 			delete_option( Installer::ORDER_API_LEGACY_DISABLED_OPTION );
@@ -102,7 +105,9 @@ WPS_IT::test(
 		$single      = WPS_IT::post_order( WPS_IT::order_payload( 'order-transfer-unpaid.json', 'IT-RC2-BASE-' . $run ) );
 		WPS_IT::same( 200, $single['code'], 'The baseline delivery failed: ' . $single['body'] );
 		$stock_after_single = $wps_it_stock();
-		$unit_delta         = null === $stock_start || null === $stock_after_single ? null : $stock_start - $stock_after_single;
+		WPS_IT::true( null !== $stock_start && null !== $stock_after_single, 'Stock must be managed for the seeded product (otherwise this check is NOT VERIFIED).' );
+		$unit_delta = $stock_start - $stock_after_single;
+		WPS_IT::true( $unit_delta > 0, 'A delivered order must reduce stock (baseline delta ' . $unit_delta . ').' );
 
 		$external_id = 'IT-RC2-CONC-' . $run;
 		$payload     = (string) wp_json_encode( WPS_IT::order_payload( 'order-transfer-unpaid.json', $external_id ) );
@@ -153,12 +158,31 @@ WPS_IT::test(
 		$row = Order_Repository::get( $external_id );
 		WPS_IT::same( 'completed', (string) ( $row['status'] ?? '' ), 'The claim must end completed.' );
 
-		if ( null === $unit_delta || null === $stock_before ) {
-			WPS_IT::line( '        NOT VERIFIED: stock is not managed for the seeded product.' );
-			return;
-		}
+		WPS_IT::same( $unit_delta, $stock_before - $wps_it_stock(), 'Stock was reduced more than once (or not at all) for one concurrently delivered order.' );
+	}
+);
 
-		WPS_IT::same( $unit_delta, $stock_before - $wps_it_stock(), 'Stock was reduced more than once for one order.' );
+WPS_IT::test(
+	'A live claim held by another process makes HTTP delivery busy (409, no order); a failed claim is then retried once',
+	static function () use ( $run ): void {
+		$external_id = 'IT-RC2-BUSY-' . $run;
+		$payload     = WPS_IT::order_payload( 'order-transfer-unpaid.json', $external_id );
+		$raw         = (string) wp_json_encode( $payload );
+		$hash        = hash( 'sha256', $raw );
+
+		// This CLI process holds a fresh claim (another worker mid-flight): a real HTTP worker must see it as busy.
+		$claim = Order_Repository::claim( $external_id, 'pepita.hu', $raw, $hash );
+		WPS_IT::same( 'claimed', (string) $claim['state'], 'The CLI process must win the claim.' );
+
+		$busy = WPS_IT::post_order( $payload );
+		WPS_IT::same( 409, $busy['code'], 'A delivery against a live claim must be busy (409): ' . $busy['body'] );
+		WPS_IT::same( 0, count( WPS_IT::orders_by_external_id( $external_id ) ), 'A busy delivery must not create an order.' );
+
+		// The first worker fails; the retry from the dispatcher then succeeds exactly once.
+		WPS_IT::true( Order_Repository::fail( $external_id, 'simulated worker failure', (int) $claim['row']['attempts'] ), 'The owner must be able to fail its claim.' );
+		$retry = WPS_IT::post_order( $payload );
+		WPS_IT::same( 200, $retry['code'], 'The retry after a failed claim must succeed: ' . $retry['body'] );
+		WPS_IT::same( 1, count( WPS_IT::orders_by_external_id( $external_id ) ), 'Exactly one order after the retry.' );
 	}
 );
 
@@ -220,7 +244,7 @@ WPS_IT::test(
 		$order_id = (int) $first['json']['orderId'];
 
 		// Simulate a crash after the WooCommerce order exists but before the claim was completed.
-		$wpdb->update(
+		$simulated = $wpdb->update(
 			Order_Repository::table(),
 			array(
 				'status'      => 'processing',
@@ -231,6 +255,11 @@ WPS_IT::test(
 			array( '%s', '%d', '%s' ),
 			array( '%s' )
 		);
+		WPS_IT::same( 1, (int) $simulated, 'The crash simulation must change exactly one claim row.' );
+		$precondition = Order_Repository::get( $external_id );
+		WPS_IT::same( 'processing', (string) $precondition['status'], 'Precondition: the claim is an abandoned processing claim.' );
+		WPS_IT::same( 0, (int) $precondition['wc_order_id'], 'Precondition: the claim has no order id.' );
+		WPS_IT::same( 1, count( WPS_IT::orders_by_external_id( $external_id ) ), 'Precondition: the WooCommerce order exists.' );
 
 		$retry = WPS_IT::post_order( $payload );
 		WPS_IT::same( 200, $retry['code'], 'Recovery of an interrupted finalization must return 200: ' . $retry['body'] );
@@ -250,7 +279,7 @@ WPS_IT::test(
 		$table       = Order_Repository::table();
 		$hidden      = $table . '_off';
 
-		$wpdb->query( "RENAME TABLE `{$table}` TO `{$hidden}`" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		WPS_IT::true( false !== $wpdb->query( "RENAME TABLE `{$table}` TO `{$hidden}`" ), 'Could not hide the claims table.' ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 		try {
 			$failed = WPS_IT::post_order( $payload );
@@ -258,9 +287,11 @@ WPS_IT::test(
 			WPS_IT::same( true, (bool) ( $failed['json']['isError'] ?? false ), 'The failure must be a JSON error envelope.' );
 			WPS_IT::same( 0, count( WPS_IT::orders_by_external_id( $external_id ) ), 'No order may be created without a durable claim.' );
 		} finally {
-			$wpdb->query( "RENAME TABLE `{$hidden}` TO `{$table}`" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$restored = $wpdb->query( "RENAME TABLE `{$hidden}` TO `{$table}`" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			Order_Repository::reset_table_cache();
 		}
+		WPS_IT::true( false !== $restored, 'The claims table must be restored.' );
+		WPS_IT::same( $table, (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ), 'The claims table must exist again.' );
 
 		$retry = WPS_IT::post_order( $payload );
 		WPS_IT::same( 200, $retry['code'], 'Redelivery after the database recovered must succeed: ' . $retry['body'] );

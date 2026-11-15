@@ -132,12 +132,12 @@ WPS_IT::test(
 
 		WPS_IT::true( $wps_it_table_exists( Order_Repository::table() ), 'Reactivation did not recreate the claims table.' );
 		Settings::update( array(
-			'order_api_enabled' => true,
 			'order_api_key'     => (string) getenv( 'WPS_ORDER_API_KEY' ),
 			'order_api_keep_payloads' => true,
 			'order_api_require_https' => false,
 			'delete_data_on_uninstall' => false,
 		) );
+		Settings::enable_order_api( 1, 'integration-lifecycle' );
 
 		$again = WPS_IT::post_order( WPS_IT::order_payload( 'order-transfer-unpaid.json', $external_id . '-AFTER' ) );
 

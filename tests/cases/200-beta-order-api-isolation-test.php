@@ -51,10 +51,10 @@ $suite->add(
 	static function (): void {
 		WPS_Test_State::reset();
 
-		// Set order_api_enabled to true explicitly, but enable beta_feed_only
+		// Enable order intake explicitly (the only OFF -> ON path), then enable beta_feed_only.
+		Settings::enable_order_api( 1, 'test' );
 		Settings::update(
 			array(
-				'order_api_enabled' => true,
 				'beta_feed_only'    => true,
 				'feed_public'       => true,
 			)
