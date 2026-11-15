@@ -449,6 +449,13 @@ final class Merchant_Profiles {
 
 		if ( ! empty( $journal['original_settings'] ) && is_array( $journal['original_settings'] ) ) {
 			Settings::update( $journal['original_settings'] );
+			$restored_settings = Settings::all();
+			foreach ( $journal['original_settings'] as $k => $v ) {
+				if ( array_key_exists( $k, $restored_settings ) && $restored_settings[ $k ] !== $v ) {
+					$rollback_clean   = false;
+					$rollback_errors[] = sprintf( 'Setting %s restore failed in recovery.', $k );
+				}
+			}
 		}
 
 		if ( ! empty( $journal['original_term_meta'] ) && is_array( $journal['original_term_meta'] ) ) {
@@ -462,19 +469,33 @@ final class Merchant_Profiles {
 						if ( is_wp_error( $res ) ) {
 							$rollback_clean   = false;
 							$rollback_errors[] = sprintf( 'Term %d meta %s restore failed: %s', (int) $term_id, $meta_key, $res->get_error_message() );
+						} elseif ( false === $res ) {
+							$current_val = get_term_meta( (int) $term_id, $meta_key, true );
+							if ( (string) $current_val !== (string) $state['value'] ) {
+								$rollback_clean   = false;
+								$rollback_errors[] = sprintf( 'Term %d meta %s restore failed: update returned false.', (int) $term_id, $meta_key );
+							}
 						}
 					} else {
 						$res = delete_term_meta( (int) $term_id, $meta_key );
 						if ( is_wp_error( $res ) ) {
 							$rollback_clean   = false;
 							$rollback_errors[] = sprintf( 'Term %d meta %s delete failed: %s', (int) $term_id, $meta_key, $res->get_error_message() );
+						} else {
+							$check_all = get_term_meta( (int) $term_id );
+							if ( is_array( $check_all ) && array_key_exists( $meta_key, $check_all ) ) {
+								$rollback_clean   = false;
+								$rollback_errors[] = sprintf( 'Term %d meta %s delete failed: meta still exists.', (int) $term_id, $meta_key );
+							}
 						}
 					}
 				}
 			}
 		}
 
-		delete_option( self::JOURNAL_OPTION );
+		if ( $rollback_clean ) {
+			delete_option( self::JOURNAL_OPTION );
+		}
 
 		Logger::warning(
 			'profile_import_recovered',
@@ -580,7 +601,18 @@ final class Merchant_Profiles {
 			'original_settings'  => $current_settings,
 			'original_term_meta' => $original_term_meta,
 		);
-		update_option( self::JOURNAL_OPTION, $journal, false );
+		$journal_persisted = update_option( self::JOURNAL_OPTION, $journal, false );
+		if ( ! $journal_persisted && get_option( self::JOURNAL_OPTION ) !== $journal ) {
+			return array(
+				'success'             => false,
+				'rolled_back'         => false,
+				'rollback_clean'      => true,
+				'rollback_errors'     => array( 'Nem sikerült elmenteni a helyreállítási naplót (recovery journal).' ),
+				'message'             => 'Nem sikerült létrehozni a perzisztens helyreállítási naplót (recovery journal). Az importálás megszakítva a biztonság érdekében.',
+				'imported_settings'   => 0,
+				'imported_categories' => 0,
+			);
+		}
 
 		try {
 			// Step 1: Apply sanitized settings.
@@ -649,6 +681,13 @@ final class Merchant_Profiles {
 
 			if ( $settings_applied ) {
 				Settings::update( $current_settings );
+				$restored_settings = Settings::all();
+				foreach ( $current_settings as $k => $v ) {
+					if ( array_key_exists( $k, $restored_settings ) && $restored_settings[ $k ] !== $v ) {
+						$rollback_clean   = false;
+						$rollback_errors[] = sprintf( 'Setting %s restore failed during rollback.', $k );
+					}
+				}
 			}
 
 			foreach ( $original_term_meta as $term_id => $metas ) {
@@ -658,18 +697,32 @@ final class Merchant_Profiles {
 						if ( is_wp_error( $res ) ) {
 							$rollback_clean   = false;
 							$rollback_errors[] = sprintf( 'Term %d meta %s restore failed: %s', $term_id, $meta_key, $res->get_error_message() );
+						} elseif ( false === $res ) {
+							$current_val = get_term_meta( $term_id, $meta_key, true );
+							if ( (string) $current_val !== (string) $state['value'] ) {
+								$rollback_clean   = false;
+								$rollback_errors[] = sprintf( 'Term %d meta %s restore failed: update returned false.', $term_id, $meta_key );
+							}
 						}
 					} else {
 						$res = delete_term_meta( $term_id, $meta_key );
 						if ( is_wp_error( $res ) ) {
 							$rollback_clean   = false;
 							$rollback_errors[] = sprintf( 'Term %d meta %s delete failed: %s', $term_id, $meta_key, $res->get_error_message() );
+						} else {
+							$check_all = get_term_meta( $term_id );
+							if ( is_array( $check_all ) && array_key_exists( $meta_key, $check_all ) ) {
+								$rollback_clean   = false;
+								$rollback_errors[] = sprintf( 'Term %d meta %s delete failed: meta still exists.', $term_id, $meta_key );
+							}
 						}
 					}
 				}
 			}
 
-			delete_option( self::JOURNAL_OPTION );
+			if ( $rollback_clean ) {
+				delete_option( self::JOURNAL_OPTION );
+			}
 
 			Logger::error(
 				'profile_import_rollback',
