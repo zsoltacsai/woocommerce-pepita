@@ -1,7 +1,7 @@
 # Autonóm fejlesztési napló — WP Pepita Sync
 
 **Állapot:** folyamatban
-**Utolsó frissítés:** 2026-11-14
+**Utolsó frissítés:** 2026-11-15
 **Biztonsági határ:** kizárólag repository-fejlesztés és izolált CI; staging/production telepítés, éles rendelés/API és merge nincs engedélyezve.
 
 ## Összesített mérföldkő-státusz
@@ -12,8 +12,8 @@
 | M9-F | PASS (repo-kód, keresés, attribútum-mapping, CI és független QA/AppSec lezárva) | Base `feature/m9f-intelligent-catalog-quality`; stacked Draft PR #12 `neville/pepita-m9f-handoff` / `f80241820ad868340430e2c81c3b28fbbc6e6daa` | Exact CI `43588942291`: **SUCCESS**; PHP 8.1–8.5 unit (284/job), lint/reproducible package, HPOS és legacy integráció PASS; RR20 SKIPPED. | Független AppSec PASS (Claude Sonnet 5.5); Integration QA PASS (Claude Opus 5.5). B1/F1 és A2 javítva és igazolva. | Kód kész: keresés (név/SKU/ID/variáció), lapozási limit (1000 oldal, max 50 termék/kérés), attribútumnév-mapping szabályok perzisztálással és statikus gyorsítótárral. ZIP SHA-256 `3423bc2486cedee0804b96d20431db76f5ed704856788b726c222d666fbe9d78`. |
 | M9-G | PASS (feedvezérlés, streaming diff, biztonsági kapu, monitoring, off-peak ütemezés, CI és független QA/AppSec lezárva) | `feature/m9g-feed-control-preview-monitoring` / `02514029a628c97179c839bcd87879ff92cc7fec` | [#13](https://github.com/zsoltacsai/woocommerce-pepita/pull/13), OPEN/Draft | Exact CI `43595180025`: **SUCCESS** (mind a 8 kötelező job PASS; unit PHP 8.1–8.5, lint/reproducible package, HPOS és legacy integráció). | Független AppSec PASS (Claude Sonnet 5.5); Integration QA (OpenAI gpt-6.1-sol) igazolva. | Kód és CI kapu zárva. ZIP SHA-256 `701c0dfad8a1fa33aa1d6505ed40b95e2ceca32d7c5f54823e51aa19e7a08a05`, 5 időzónás clean build egyezett. Merge és telepítés nem történt. |
 | M9-H | PASS (készlet- és árazási stratégia, árréskapu, előnézet, CI és független QA/AppSec lezárva) | `feature/m9h-marketplace-inventory-pricing` / `01996fa15d0124ad306161947b19ce41b633d45e` | [#14](https://github.com/zsoltacsai/woocommerce-pepita/pull/14), OPEN/Draft | Exact CI `43641052135`: **SUCCESS** (mind a 8 kötelező job PASS: unit PHP 8.1–8.5 312 teszt/job, lint/reproducible package, HPOS és legacy integráció). | Független Integration QA PASS (`gpt-6.1-sol`, high effort); független AppSec PASS (`claude-sonnet-5-5`, high effort). B1 és N1 javítások igazolva. | Kód és CI kapu zárva. ZIP SHA-256 `09cab7877556110a00167ac111e3198aeb2edf27cb40da8cd3e543ae25f70f82`, 5 időzónás clean build egyezett. Merge és telepítés nem történt. |
-| M10 | HOLD | — | — | — | — | Katalógus/feed-mérföldkövek után, csak szintetikus tesztekkel |
-| M11 | HOLD | — | — | — | — | Korábbi minőségkapuk után |
+| M10 | PASS (repo-kód és szintetikus elfogadás; CI és független QA/AppSec lezárva) | `feature/m10-order-operations` / `954521bbb919d208aa97f5c5da8a83b137de9805` (PR #15 jelenlegi head: `c3ed…`, lásd a napló) | [#15](https://github.com/zsoltacsai/woocommerce-pepita/pull/15), OPEN/Draft | Exact CI `43648818700` a `954521b` HEAD-en: **SUCCESS** (8/8 job). | Integration QA PASS (`gpt-6.1-sol`); AppSec PASS (`claude-sonnet-5-5`). | Merge és telepítés nem történt. A PR #15 head későbbi, mint a CI-vel igazolt `954521b`; a nyitott PR head exact CI-je külön ellenőrizendő. |
+| M11 | REPO-KÓD ÉS CI PASS; független QA/AppSec még nincs rögzítve | `feature/m11-merchant-automation` / `3e152b789fd68429a3d78fa3eae491aa50a71b20` | [#16](https://github.com/zsoltacsai/woocommerce-pepita/pull/16), OPEN/Draft (base `feature/m10-order-operations`) | Exact CI `43700556425` a `3e152b7` HEAD-en: **SUCCESS** (lint PHP 8.5, unit PHP 8.1–8.5, integration-hpos, integration-legacy; RR20 experimental SKIPPED). | Független QA/AppSec ezen a HEAD-en még nem futott. | ZIP SHA-256 `a0e35a367ee177a42c441e977d8addb7e42afcce6c02efe0a1248a8ede4b4788`, 5 időzónás clean build egyezett. Következő: független QA/AppSec az exact HEAD-en. |
 
 ## M9-E végrehajtási napló
 
@@ -197,4 +197,9 @@ Az M9-E ág legfrissebb HEAD-jére teljes CI, majd külön Integration QA és Ap
   - Workflow run `43648818700` a `954521b` HEAD-en: **SUCCESS** (8/8 job PASS: lint, unit PHP 8.1–8.5 327 teszt/job, integration-hpos, integration-legacy; RR20 experimental skipped).
 - **Státusz**: M10 mérföldkő repository- és CI-kapui lezárva (**PASS**). Stacked Draft PR #15 linkelve; nincs merge vagy éles telepítés.
 
+### M11 Merchant profilok, operációs riportok és multi-store eszközök — 2026-11-15
 
+- **Implementáció**: merchant konfigurációs profilok (`includes/admin/class-merchant-profiles.php`: séma-validáció, allowlist beállítások, import előnézet, kompenzáló rollback, perzisztens helyreállítási napló, checksum, import-zár), operációs riportok (`includes/admin/class-operational-reports.php`: CSV export személyes adatok nélkül, e-mail maszkolás, telefon/cím/név redakció, CSV-formula semlegesítés), WP-CLI parancsok, `tools.php` nézet és partner handoff dokumentáció (`docs/partner-handoff/`).
+- **CI-javítások ebben a körben**: a `b2a334d` utáni futás (`43700370918`) mind PHP-verzión bukott az `m11 operational reports: CSV export has zero customer PII` teszten: a névredakció cseréje (`$1`) visszaírta a nevet. A `3e152b7` a kulcsszót megtartja, a nevet `[REDACTED_NAME]`-re cseréli, és a kis/nagybetű-érzéketlenséget csak a kulcsszóra korlátozza. A javított HEAD CI-je (`43700556425`) 8/8 kötelező job PASS.
+- **Build**: `verify-reproducible.sh` PASS; SHA-256 `a0e35a367ee177a42c441e977d8addb7e42afcce6c02efe0a1248a8ede4b4788`.
+- **Korlát**: helyi PHP nincs, a tesztek kizárólag CI-ben futottak. A névredakció heurisztikus (kontextus-kulcsszavas), nem garantál teljes személynév-lefedettséget; a független AppSec felülvizsgálat ezt külön értékelje. Staging/éles telepítés, merge, élő Pepita API nem történt.
