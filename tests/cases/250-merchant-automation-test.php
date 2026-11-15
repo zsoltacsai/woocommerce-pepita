@@ -733,6 +733,8 @@ $suite->add(
 
 		// Active unresolved journal blocks subsequent import from proceeding or overwriting journal.
 		update_option( Merchant_Profiles::JOURNAL_OPTION, $journal, false );
+		WPS_Test_State::$fail_term_meta = true;
+
 		$blocked_import = Merchant_Profiles::import_profile(
 			array(
 				'schema_version' => 1,
@@ -741,6 +743,10 @@ $suite->add(
 			)
 		);
 		WPS_Assert::false( $blocked_import['success'], 'Import must be blocked when an unresolved recovery journal exists.' );
+		WPS_Assert::false( $blocked_import['rollback_clean'] ?? true, 'Rollback clean must be false on recovery failure.' );
+		WPS_Assert::true( false !== get_option( Merchant_Profiles::JOURNAL_OPTION, false ), 'Recovery journal must NOT be deleted or overwritten when recovery fails.' );
+
+		WPS_Test_State::$fail_term_meta = false;
 		delete_option( Merchant_Profiles::JOURNAL_OPTION );
 	}
 );

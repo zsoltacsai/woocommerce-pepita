@@ -118,6 +118,9 @@ final class WPS_Test_State {
 	/** @var bool force WC_Order::save() to fail, for orphan-cleanup tests */
 	public static bool $fail_order_save = false;
 
+	/** @var bool force update_term_meta() to fail, for recovery & rollback tests */
+	public static bool $fail_term_meta = false;
+
 	public static function reset(): void {
 		self::$options           = array();
 		self::$post_meta         = array();
@@ -161,6 +164,7 @@ final class WPS_Test_State {
 		self::$rest_routes    = array();
 		self::$last_save_email_enabled = null;
 		self::$fail_order_save = false;
+		self::$fail_term_meta  = false;
 	}
 
 	public static function add_term( int $id, string $name, int $parent = 0, string $taxonomy = 'product_cat', string $slug = '' ): WP_Term {

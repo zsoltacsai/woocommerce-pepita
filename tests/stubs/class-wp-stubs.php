@@ -738,6 +738,10 @@ function get_term_meta( int $term_id, string $key = '', bool $single = false, $d
  * @return int|bool
  */
 function update_term_meta( int $term_id, string $key, $value, $prev_value = '' ) {
+	if ( ! empty( WPS_Test_State::$fail_term_meta ) ) {
+		return new WP_Error( 'term_meta_failure', 'Term meta update failure' );
+	}
+
 	WPS_Test_State::$term_meta[ $term_id ][ $key ] = $value;
 
 	return true;
