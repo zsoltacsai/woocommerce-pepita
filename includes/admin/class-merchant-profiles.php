@@ -569,7 +569,7 @@ final class Merchant_Profiles {
 			$pattern = self::token_like_pattern( $token );
 			$wpdb->query(
 				$wpdb->prepare(
-					"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value LIKE %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND LEFT(option_name, 11) = 'wps_pepita_' AND option_value LIKE %s", // Scoped to wps_pepita_ rows. phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 					maybe_serialize( $new ),
 					self::LOCK_OPTION,
 					$pattern
