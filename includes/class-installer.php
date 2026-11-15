@@ -73,14 +73,21 @@ final class Installer {
 		}
 
 		try {
+			// Earlier builds kept the switch inside the settings blob (default true). The switch now lives in its
+			// own option row that is absent (= OFF) on every pre-RC2 install, so intake is closed by construction.
+			// Only a verified explicit opt-in record keeps a legacy "true" alive.
 			$stored = get_option( Settings::OPTION, null );
-			if ( is_array( $stored ) && ! empty( $stored['order_api_enabled'] ) && ! self::is_valid_order_api_optin( get_option( self::ORDER_API_OPTIN_OPTION, false ) ) ) {
-				Settings::update( array( 'order_api_enabled' => false ) );
-				update_option( self::ORDER_API_LEGACY_DISABLED_OPTION, time(), false );
-				Logger::warning(
-					'plugin',
-					'A Pepita rendelés API kikapcsolva: korábbi, nem igazolt (automatikusan engedélyezett) állapot. Kapcsolja be kifejezetten a Pepita rendelés API oldalán.'
-				);
+			if ( is_array( $stored ) && ! empty( $stored['order_api_enabled'] ) && false === get_option( Settings::ORDER_API_FLAG_OPTION, false ) ) {
+				if ( self::is_valid_order_api_optin( get_option( self::ORDER_API_OPTIN_OPTION, false ) ) ) {
+					update_option( Settings::ORDER_API_FLAG_OPTION, '1', true );
+				} else {
+					update_option( Settings::ORDER_API_FLAG_OPTION, '0', true );
+					update_option( self::ORDER_API_LEGACY_DISABLED_OPTION, time(), false );
+					Logger::warning(
+						'plugin',
+						'A Pepita rendelés API kikapcsolva: korábbi, nem igazolt (automatikusan engedélyezett) állapot. Kapcsolja be kifejezetten a Pepita rendelés API oldalán.'
+					);
+				}
 			}
 
 			update_option( self::ORDER_API_MIGRATION_OPTION, '1', true );
@@ -96,10 +103,9 @@ final class Installer {
 	 */
 	public static function enforce_order_api_beta_off(): void {
 		try {
-			// Read the PERSISTED value: Settings::all() already shows the beta-forced (OFF) view.
-			$stored = get_option( Settings::OPTION, array() );
-			if ( Settings::is_beta_feed_only() && is_array( $stored ) && ! empty( $stored['order_api_enabled'] ) ) {
-				Settings::update( array( 'order_api_enabled' => false ) );
+			// Read the PERSISTED switch: Settings::all() already shows the beta-forced (OFF) view.
+			if ( Settings::is_beta_feed_only() && Settings::order_api_flag() ) {
+				Settings::disable_order_api();
 			}
 		} catch ( \Throwable $e ) {
 			self::$order_api_migration_failed = true;

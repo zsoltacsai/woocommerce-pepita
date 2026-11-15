@@ -38,10 +38,12 @@ $wps_it_stock = static function (): ?int {
 WPS_IT::test(
 	'Order API: a fresh install is OFF and answers 503 over real HTTP, authenticated or not',
 	static function () use ( $endpoint, $run ): void {
-		$saved = get_option( Settings::OPTION );
+		$saved      = get_option( Settings::OPTION );
+		$saved_flag = get_option( Settings::ORDER_API_FLAG_OPTION, null );
 
 		try {
 			delete_option( Settings::OPTION );
+			delete_option( Settings::ORDER_API_FLAG_OPTION );
 			delete_option( Installer::ORDER_API_MIGRATION_OPTION );
 			Settings::reset_cache();
 			Installer::activate();
@@ -59,6 +61,7 @@ WPS_IT::test(
 			WPS_IT::same( 0, count( WPS_IT::orders_by_external_id( 'IT-RC2-OFF-' . $run ) ), 'No order may exist while OFF.' );
 		} finally {
 			update_option( Settings::OPTION, $saved, false );
+			null === $saved_flag ? delete_option( Settings::ORDER_API_FLAG_OPTION ) : update_option( Settings::ORDER_API_FLAG_OPTION, $saved_flag, true );
 			Settings::reset_cache();
 		}
 	}
@@ -67,11 +70,17 @@ WPS_IT::test(
 WPS_IT::test(
 	'Order API: a legacy auto-enabled install is switched off by the migration and keeps its credentials',
 	static function () use ( $endpoint, $run ): void {
-		$saved = get_option( Settings::OPTION );
-		$key   = Settings::secret( 'order_api_key' );
+		$saved      = get_option( Settings::OPTION );
+		$saved_flag = get_option( Settings::ORDER_API_FLAG_OPTION, null );
+		$key        = Settings::secret( 'order_api_key' );
 
 		try {
-			WPS_IT::true( Settings::enable_order_api( 1, 'integration-test' ), 'Explicit enablement must work.' );
+			// Legacy state: the old blob said enabled, there is no separate switch row and no opt-in record.
+			$legacy                      = get_option( Settings::OPTION );
+			$legacy['order_api_enabled'] = true;
+			update_option( Settings::OPTION, $legacy, false );
+			delete_option( Settings::ORDER_API_FLAG_OPTION );
+			Settings::reset_cache();
 			delete_option( Installer::ORDER_API_MIGRATION_OPTION );
 			delete_option( Installer::ORDER_API_OPTIN_OPTION );
 			delete_option( Installer::ORDER_API_LEGACY_DISABLED_OPTION );
@@ -79,6 +88,7 @@ WPS_IT::test(
 			Installer::maybe_upgrade();
 
 			WPS_IT::same( false, (bool) Settings::get( 'order_api_enabled' ), 'Unverified legacy enablement must be switched off.' );
+			WPS_IT::same( '0', (string) get_option( Settings::ORDER_API_FLAG_OPTION, 'missing' ), 'The migration must write the explicit OFF switch.' );
 			WPS_IT::same( $key, Settings::secret( 'order_api_key' ), 'The existing key must be kept.' );
 
 			$response = WPS_IT::post_json(
@@ -88,7 +98,8 @@ WPS_IT::test(
 			WPS_IT::same( 503, $response['code'], 'The migrated store must refuse orders over HTTP.' );
 		} finally {
 			update_option( Settings::OPTION, $saved, false );
-			update_option( Installer::ORDER_API_MIGRATION_OPTION, '1', false );
+			null === $saved_flag ? delete_option( Settings::ORDER_API_FLAG_OPTION ) : update_option( Settings::ORDER_API_FLAG_OPTION, $saved_flag, true );
+			update_option( Installer::ORDER_API_MIGRATION_OPTION, '1', true );
 			delete_option( Installer::ORDER_API_LEGACY_DISABLED_OPTION );
 			Settings::reset_cache();
 		}

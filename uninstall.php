@@ -40,6 +40,7 @@ $option_names = array(
 	'wps_pepita_db_version',
 	'wps_pepita_collation_ok',
 	'wps_pepita_order_api_default_off',
+	'wps_pepita_order_api_enabled',
 	'wps_pepita_order_api_optin',
 	'wps_pepita_order_api_legacy_disabled',
 	'wps_pepita_feed_state_full',

@@ -60,6 +60,7 @@ $wps_rc2_force_on = static function (): void {
 	$stored                      = get_option( Settings::OPTION, array() );
 	$stored['order_api_enabled'] = true;
 	update_option( Settings::OPTION, $stored, false );
+	delete_option( Settings::ORDER_API_FLAG_OPTION ); // pre-RC2 installs never had the separate switch row.
 	Settings::reset_cache();
 };
 
@@ -72,7 +73,7 @@ $suite->add(
 		Installer::activate();
 
 		WPS_Assert::false( (bool) Settings::get( 'order_api_enabled' ), 'Fresh activation must leave the API OFF.' );
-		WPS_Assert::false( (bool) ( get_option( Settings::OPTION )['order_api_enabled'] ?? true ), 'Persisted flag must be false after activation.' );
+		WPS_Assert::false( Settings::order_api_flag(), 'The persisted switch must be OFF after activation.' );
 		WPS_Assert::true( strlen( (string) Settings::secret( 'order_api_key' ) ) >= 32, 'A key is still generated for later opt-in.' );
 		WPS_Assert::same( '1', (string) get_option( Installer::ORDER_API_MIGRATION_OPTION, '' ), 'Migration marker is set on a fresh install.' );
 		WPS_Assert::false( get_option( Installer::ORDER_API_LEGACY_DISABLED_OPTION, false ), 'A fresh install is not a legacy downgrade.' );
@@ -100,11 +101,14 @@ $suite->add(
 		delete_option( Installer::ORDER_API_MIGRATION_OPTION );
 		delete_option( Installer::ORDER_API_OPTIN_OPTION );
 		delete_option( Installer::ORDER_API_LEGACY_DISABLED_OPTION );
-		WPS_Assert::true( (bool) Settings::get( 'order_api_enabled' ), 'Precondition: legacy state is enabled.' );
+		$legacy_blob = get_option( Settings::OPTION );
+		WPS_Assert::true( ! empty( $legacy_blob['order_api_enabled'] ), 'Precondition: the legacy blob says enabled.' );
+		WPS_Assert::false( (bool) Settings::get( 'order_api_enabled' ), 'A legacy blob value alone never enables intake (closed by construction, even before the migration runs).' );
 
 		Installer::maybe_upgrade();
 
 		WPS_Assert::false( (bool) Settings::get( 'order_api_enabled' ), 'Unverified legacy enablement must be switched off.' );
+		WPS_Assert::same( '0', (string) get_option( Settings::ORDER_API_FLAG_OPTION, 'missing' ), 'The migration writes the explicit OFF switch.' );
 		WPS_Assert::same( $key, (string) Settings::secret( 'order_api_key' ), 'Existing credentials must not be regenerated.' );
 		WPS_Assert::true( (int) get_option( Installer::ORDER_API_LEGACY_DISABLED_OPTION, 0 ) > 0, 'The downgrade must be recorded for the admin notice.' );
 		WPS_Assert::same( '1', (string) get_option( Installer::ORDER_API_MIGRATION_OPTION, '' ) );
@@ -180,7 +184,7 @@ $suite->add(
 		WPS_Assert::false( Settings::enable_order_api( 1, 'test' ), 'enable_order_api must refuse under beta.' );
 		Settings::update( array( 'order_api_enabled' => true ) );
 		WPS_Assert::false( (bool) Settings::get( 'order_api_enabled' ) );
-		WPS_Assert::false( (bool) ( get_option( Settings::OPTION )['order_api_enabled'] ?? true ), 'Beta must not persist an enabled flag.' );
+		WPS_Assert::false( Settings::order_api_flag(), 'Beta must not persist an enabled switch.' );
 
 		// Leaving beta: intake stays OFF (no implicit activation).
 		Settings::update( array( 'beta_feed_only' => false ) );
@@ -287,10 +291,10 @@ $suite->add(
 		update_option( Settings::OPTION, $stored, false );
 		Settings::reset_cache();
 		WPS_Assert::false( (bool) Settings::get( 'order_api_enabled' ), 'Beta view is OFF.' );
-		WPS_Assert::true( ! empty( get_option( Settings::OPTION )['order_api_enabled'] ), 'Precondition: the persisted flag is still true.' );
+		WPS_Assert::true( Settings::order_api_flag(), 'Precondition: the persisted switch is still ON.' );
 
 		Installer::maybe_upgrade();
-		WPS_Assert::false( ! empty( get_option( Settings::OPTION )['order_api_enabled'] ), 'Entering beta must persist the flag as OFF.' );
+		WPS_Assert::false( Settings::order_api_flag(), 'Entering beta must persist the switch as OFF.' );
 
 		// Leaving beta (constant removed): intake stays OFF until a new explicit opt-in.
 		$stored                   = get_option( Settings::OPTION, array() );
@@ -306,6 +310,8 @@ $suite->add(
 		delete_option( Installer::ORDER_API_MIGRATION_OPTION );
 		Installer::maybe_upgrade();
 		WPS_Assert::false( (bool) Settings::get( 'order_api_enabled' ), 'A malformed opt-in record must not preserve a legacy enabled state.' );
+		WPS_Assert::true( (int) get_option( Installer::ORDER_API_LEGACY_DISABLED_OPTION, 0 ) > 0, 'The downgrade is recorded for the admin notice.' );
+		WPS_Assert::same( '0', (string) get_option( Settings::ORDER_API_FLAG_OPTION, 'missing' ), 'Malformed opt-in leaves the switch OFF.' );
 	}
 );
 
@@ -329,5 +335,30 @@ $suite->add(
 
 		WPS_Assert::true( $rejected, 'A user without manage_woocommerce must be rejected.' );
 		WPS_Assert::false( (bool) Settings::get( 'order_api_enabled' ), 'A rejected save must not enable intake.' );
+	}
+);
+
+$suite->add(
+	'order api default off: a stale whole-blob settings write cannot undo a switch-off or switch intake on',
+	static function (): void {
+		Installer::activate();
+
+		WPS_Assert::true( Settings::enable_order_api( 1, 'test' ) );
+		$stale = get_option( Settings::OPTION ); // snapshot taken by a concurrent writer (profile import / other save).
+		$stale['order_api_enabled'] = true;
+
+		// An admin unticks intake and completes first.
+		Settings::disable_order_api();
+		WPS_Assert::false( (bool) Settings::get( 'order_api_enabled' ) );
+
+		// The concurrent writer now persists its stale snapshot, including the old enabled value.
+		update_option( Settings::OPTION, $stale, false );
+		Settings::reset_cache();
+		WPS_Assert::false( (bool) Settings::get( 'order_api_enabled' ), 'A stale whole-blob write must not resume intake.' );
+
+		// And through the official writer.
+		Settings::update( array( 'shipping_delay' => 6, 'order_api_enabled' => true ) );
+		WPS_Assert::false( (bool) Settings::get( 'order_api_enabled' ), 'Settings::update must not resume intake either.' );
+		WPS_Assert::same( 6, (int) Settings::get( 'shipping_delay' ), 'Ordinary values are still written.' );
 	}
 );

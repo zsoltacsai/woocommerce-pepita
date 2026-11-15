@@ -154,7 +154,13 @@ final class Settings {
 			$stored = get_option( self::OPTION, array() );
 			$stored = is_array( $stored ) ? $stored : array();
 
-			self::$cache = self::sanitize( array_merge( self::defaults(), $stored ) );
+			// The order API switch lives in its own option row (never in this blob), so a concurrent or stale
+			// whole-blob write can neither switch intake on nor undo an admin's switch-off.
+			unset( $stored['order_api_enabled'] );
+			$all = self::sanitize( array_merge( self::defaults(), $stored ) );
+
+			$all['order_api_enabled'] = empty( $all['beta_feed_only'] ) && self::order_api_flag();
+			self::$cache              = $all;
 		}
 
 		return self::$cache;
@@ -233,14 +239,15 @@ final class Settings {
 		self::reset_cache();
 		$current = self::all();
 
-		// Order intake can only be switched OFF -> ON through enable_order_api() (authorized and audited).
-		// A generic update, a settings import or a journal restore can never perform that transition.
-		if ( ! empty( $values['order_api_enabled'] ) && empty( $current['order_api_enabled'] ) && ! self::$order_api_enable_authorized ) {
-			$values['order_api_enabled'] = false;
-		}
+		// The order API switch is NOT part of the settings blob. It can only be switched off here;
+		// OFF -> ON is possible solely inside enable_order_api() (authorized and audited). A generic update,
+		// a settings import or a journal restore can never perform that transition.
+		$requested = array_key_exists( 'order_api_enabled', $values ) ? $values['order_api_enabled'] : null;
+		unset( $values['order_api_enabled'] );
 
 		$merged    = array_merge( $current, $values );
 		$sanitized = self::sanitize( $merged );
+		unset( $sanitized['order_api_enabled'] );
 
 		update_option( self::OPTION, $sanitized, false );
 		self::reset_cache();
@@ -257,9 +264,17 @@ final class Settings {
 			}
 		}
 
-		self::$cache = $db_persisted;
+		if ( null !== $requested ) {
+			if ( empty( $requested ) ) {
+				self::write_order_api_flag( false );
+			} elseif ( self::$order_api_enable_authorized ) {
+				self::write_order_api_flag( true );
+			}
+		}
 
-		return $db_persisted;
+		self::reset_cache();
+
+		return self::all();
 	}
 
 	/**
@@ -280,6 +295,17 @@ final class Settings {
 			return false;
 		}
 
+		// Audit record first: intake is never ON without its record, even if the process dies in between.
+		$record = array(
+			'user'   => max( 0, $user_id ),
+			'time'   => time(),
+			'source' => sanitize_key( $source ),
+		);
+		update_option( Installer::ORDER_API_OPTIN_OPTION, $record, false );
+		if ( get_option( Installer::ORDER_API_OPTIN_OPTION, false ) !== $record ) {
+			return false;
+		}
+
 		self::$order_api_enable_authorized = true;
 		try {
 			self::update( array( 'order_api_enabled' => true ) );
@@ -287,20 +313,32 @@ final class Settings {
 			self::$order_api_enable_authorized = false;
 		}
 
-		$on = ! empty( self::all()['order_api_enabled'] );
-		if ( $on ) {
-			update_option(
-				Installer::ORDER_API_OPTIN_OPTION,
-				array(
-					'user'   => max( 0, $user_id ),
-					'time'   => time(),
-					'source' => sanitize_key( $source ),
-				),
-				false
-			);
-		}
+		return ! empty( self::all()['order_api_enabled'] );
+	}
 
-		return $on;
+	/** Option row holding the order API switch ('1' / '0'); absent means OFF. */
+	public const ORDER_API_FLAG_OPTION = 'wps_pepita_order_api_enabled';
+
+	/**
+	 * The persisted order API switch (single option row, independent of the settings blob).
+	 */
+	public static function order_api_flag(): bool {
+		return '1' === (string) get_option( self::ORDER_API_FLAG_OPTION, '0' );
+	}
+
+	/**
+	 * Switch intake off explicitly (always allowed; never requires authorisation).
+	 */
+	public static function disable_order_api(): void {
+		self::write_order_api_flag( false );
+		self::reset_cache();
+	}
+
+	private static function write_order_api_flag( bool $on ): void {
+		update_option( self::ORDER_API_FLAG_OPTION, $on ? '1' : '0', true );
+		if ( self::order_api_flag() !== $on ) {
+			throw new \RuntimeException( 'Failed to persist the order API switch.' );
+		}
 	}
 
 	public static function reset_cache(): void {
@@ -664,13 +702,6 @@ final class Settings {
 			$output['order_api_enabled'] = false;
 			$output['feed_public']       = false;
 			$output['default_included']  = false;
-		} else {
-			// Disabling beta mode must never act as an accidental order-intake re-enabler.
-			// If order_api_enabled was not explicitly posted as true, keep it disabled.
-			if ( ! isset( $input['order_api_enabled'] ) ) {
-				$stored                      = get_option( self::OPTION, array() );
-				$output['order_api_enabled'] = ! empty( $stored['order_api_enabled'] );
-			}
 		}
 
 		return $output;
